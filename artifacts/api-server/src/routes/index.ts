@@ -1,6 +1,7 @@
 import { Router } from "express";
 import healthRouter from "./health.js";
 import authRouter from "./auth.js";
+import storageRouter from "./storage.js";
 import dashboardRouter from "./dashboard.js";
 import conversationsRouter from "./conversations.js";
 import ordersRouter from "./orders.js";
@@ -30,5 +31,6 @@ router.use("/team", teamRouter);
 router.use("/billing", billingRouter);
 router.use("/settings", settingsRouter);
 router.use("/admin", adminRouter);
+router.use("/", storageRouter);
 
 export default router;

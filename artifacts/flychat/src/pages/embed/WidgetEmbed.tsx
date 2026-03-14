@@ -252,9 +252,10 @@ export default function WidgetEmbed() {
         {messages.map((msg) => {
           const isCustomer = msg.sender === "customer";
           const metadata = (msg as any).metadata;
-          const fileUrl = metadata?.fileUrl;
-          const fileMetadata = metadata?.fileMetadata;
-          
+          const attachment = metadata?.attachment as { objectPath: string; name: string; contentType: string } | null;
+          const isImage = attachment?.contentType?.startsWith("image/");
+          const fileSrc = attachment ? `/api/storage${attachment.objectPath}` : null;
+
           return (
             <div key={msg.id} style={{ display: "flex", justifyContent: isCustomer ? "flex-end" : "flex-start" }}>
               <div style={{
@@ -269,29 +270,39 @@ export default function WidgetEmbed() {
                 border: isCustomer ? "none" : "1px solid #e2e8f0",
                 wordBreak: "break-word",
               }}>
-                {fileUrl && fileUrl.startsWith("data:image") && (
-                  <img src={fileUrl} alt="attachment" style={{ maxWidth: "100%", borderRadius: 8, marginBottom: 8, maxHeight: 200, objectFit: "cover" }} />
-                )}
-                {fileUrl && !fileUrl.startsWith("data:image") && (
-                  <div style={{ marginBottom: 8, fontSize: 12 }}>
-                    <button
-                      onClick={() => {
-                        const link = document.createElement("a");
-                        link.href = fileUrl;
-                        link.download = fileMetadata?.name || "file";
-                        link.click();
-                      }}
-                      style={{
-                        cursor: "pointer",
-                        color: isCustomer ? "#fff" : "#3b82f6",
-                        textDecoration: "underline",
-                      }}
-                    >
-                      📎 {fileMetadata?.name || "Download File"}
-                    </button>
+                {attachment && fileSrc && isImage && (
+                  <div style={{ marginBottom: 8 }}>
+                    <a href={fileSrc} target="_blank" rel="noopener noreferrer">
+                      <img src={fileSrc} alt={attachment.name} style={{ maxWidth: "100%", borderRadius: 8, maxHeight: 200, objectFit: "cover", display: "block", cursor: "pointer" }} />
+                    </a>
                   </div>
                 )}
-                {msg.content}
+                {attachment && fileSrc && !isImage && (
+                  <div style={{ marginBottom: 8 }}>
+                    <a
+                      href={fileSrc}
+                      download={attachment.name}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 12,
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${isCustomer ? "rgba(255,255,255,0.3)" : "#e2e8f0"}`,
+                        color: isCustomer ? "#fff" : "#3b82f6",
+                        textDecoration: "none",
+                        background: isCustomer ? "rgba(255,255,255,0.1)" : "#f8fafc",
+                      }}
+                    >
+                      📎 {attachment.name} ↓
+                    </a>
+                  </div>
+                )}
+                {msg.content && !msg.content.startsWith("📎 ") && msg.content}
+                {msg.content && msg.content.startsWith("📎 ") && !attachment && msg.content}
                 <div style={{
                   fontSize: 10,
                   marginTop: 4,

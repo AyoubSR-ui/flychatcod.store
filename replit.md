@@ -149,3 +149,17 @@ All core real-time items implemented:
 **Remaining optional work:**
 - Typing indicators (`typing_start` / `typing_stop`)
 - Online presence (visitor count per store)
+
+## File Attachments — COMPLETED
+
+Agents can send photos and files to clients in the Inbox. Implemented via:
+- **Object storage**: Google Cloud Storage (GCS) via Replit App Storage bucket
+- **Upload flow**: Presigned URL (2-step: request URL → PUT directly to GCS)
+  - `POST /api/storage/uploads/request-url` — returns `{ uploadURL, objectPath }`
+  - Client PUTs file bytes directly to GCS via `uploadURL`
+  - Only `objectPath` stored in message `metadata.attachment`
+- **Serve files**: `GET /api/storage/objects/<path>` — streams file from GCS
+- **Inbox UI**: Paperclip icon opens file picker; shows upload progress; images display inline; documents show as styled download link
+- **Widget display**: Agent-sent images shown inline; documents shown as download link
+- **Max file size**: 10MB per attachment
+- **Accepted types**: Images, PDF, Word, Excel, CSV, TXT, ZIP

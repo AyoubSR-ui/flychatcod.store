@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe } from "lucide-react";
+import { Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe, Paperclip, Loader2, X } from "lucide-react";
 import { useGetConversations, useGetMessages, useSendMessage, Conversation, getGetMessagesQueryKey, getGetConversationsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -11,17 +11,75 @@ interface ConversationWithWidget extends Conversation {
   sourcePageUrl?: string | null;
 }
 
+interface FileAttachment {
+  objectPath: string;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+async function uploadFileToStorage(file: File): Promise<FileAttachment> {
+  const urlRes = await fetch("/api/storage/uploads/request-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+  });
+  if (!urlRes.ok) throw new Error("Failed to get upload URL");
+  const { uploadURL, objectPath } = await urlRes.json();
+
+  const uploadRes = await fetch(uploadURL, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!uploadRes.ok) throw new Error("Failed to upload file");
+
+  return { objectPath, name: file.name, size: file.size, contentType: file.type };
+}
+
+function FilePreview({ attachment, isAgent }: { attachment: FileAttachment; isAgent: boolean }) {
+  const src = `/api/storage${attachment.objectPath}`;
+  const isImage = attachment.contentType.startsWith("image/");
+
+  if (isImage) {
+    return (
+      <div className="mb-2">
+        <a href={src} target="_blank" rel="noopener noreferrer">
+          <img src={src} alt={attachment.name} className="max-w-xs max-h-64 rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity" />
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-2">
+      <a
+        href={src}
+        download={attachment.name}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 border ${isAgent ? "border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/10" : "border-border text-blue-600 hover:bg-blue-50"} transition-colors`}
+      >
+        <Paperclip className="w-3 h-3 shrink-0" />
+        <span className="truncate max-w-[180px]">{attachment.name}</span>
+        <span className="opacity-60 shrink-0">↓</span>
+      </a>
+    </div>
+  );
+}
+
 export default function Inbox() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [msgInput, setMsgInput] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
 
   const { data: convsData, isLoading: isLoadingConvs } = useGetConversations({ status: "open" });
-  
+
   const { data: msgsData } = useGetMessages(activeConvId || "", {
     query: { enabled: !!activeConvId }
   });
@@ -64,29 +122,29 @@ export default function Inbox() {
 
   const handleSend = async () => {
     if ((!msgInput.trim() && !selectedFile) || !activeConvId) return;
-    
-    let fileUrl = null;
-    let fileMetadata = null;
+
+    let attachment: FileAttachment | null = null;
+
     if (selectedFile) {
-      // Validate file size (max 5MB)
-      if (selectedFile.size > 5 * 1024 * 1024) {
-        alert("File too large. Maximum size is 5MB.");
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        alert("File too large. Maximum size is 10MB.");
         return;
       }
-      const reader = new FileReader();
-      fileUrl = await new Promise<string>((resolve) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(selectedFile);
-      });
-      fileMetadata = {
-        name: selectedFile.name,
-        size: selectedFile.size,
-        type: selectedFile.type,
-      };
+      try {
+        setIsUploading(true);
+        attachment = await uploadFileToStorage(selectedFile);
+      } catch (err) {
+        alert("Failed to upload file. Please try again.");
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
     }
-    
+
+    const content = msgInput.trim() || (attachment ? `📎 ${attachment.name}` : "");
+
     sendMutation.mutate(
-      { id: activeConvId, data: { content: msgInput || "📎 File attachment", fileUrl, fileMetadata } },
+      { id: activeConvId, data: { content, attachment } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(activeConvId) });
@@ -107,8 +165,8 @@ export default function Inbox() {
             <h2 className="text-lg font-bold mb-4">{t("nav.inbox")}</h2>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder={t("common.search")}
                 className="w-full pl-9 pr-4 py-2 bg-secondary border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/30 outline-none"
               />
@@ -182,51 +240,22 @@ export default function Inbox() {
               {msgsData?.messages.map((msg) => {
                 const isCustomer = msg.sender === 'customer';
                 const metadata = msg.metadata as any;
-                const fileUrl = metadata?.fileUrl;
-                const fileMetadata = metadata?.fileMetadata;
-                
-                const renderFile = () => {
-                  if (!fileUrl) return null;
-                  try {
-                    if (fileUrl.startsWith('data:image')) {
-                      return (
-                        <div className="mb-2">
-                          <img src={fileUrl} alt="Attachment" className="max-w-xs rounded-lg max-h-64 object-cover" />
-                        </div>
-                      );
-                    } else if (fileUrl.startsWith('data:')) {
-                      const fileName = fileMetadata?.name || 'Document';
-                      return (
-                        <div className="mb-2">
-                          <button
-                            onClick={() => {
-                              const link = document.createElement('a');
-                              link.href = fileUrl;
-                              link.download = fileName;
-                              link.click();
-                            }}
-                            className="text-blue-500 hover:text-blue-700 underline text-xs flex items-center gap-1"
-                          >
-                            📎 {fileName}
-                          </button>
-                        </div>
-                      );
-                    }
-                  } catch (e) {
-                    return <div className="text-xs text-red-500 mb-2">Failed to load file</div>;
-                  }
-                  return null;
-                };
-                
+                const attachment: FileAttachment | null = metadata?.attachment ?? null;
+
                 return (
                   <div key={msg.id} className={`flex ${isCustomer ? "justify-start" : "justify-end"}`}>
                     <div className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm ${
-                      isCustomer 
-                        ? "bg-white border border-border/50 text-foreground rounded-tl-sm" 
+                      isCustomer
+                        ? "bg-white border border-border/50 text-foreground rounded-tl-sm"
                         : "bg-primary text-primary-foreground rounded-tr-sm"
                     }`}>
-                      {renderFile()}
-                      <p className="text-sm">{msg.content}</p>
+                      {attachment && <FilePreview attachment={attachment} isAgent={!isCustomer} />}
+                      {msg.content && msg.content !== `📎 ${attachment?.name}` && (
+                        <p className="text-sm">{msg.content}</p>
+                      )}
+                      {msg.content && msg.content === `📎 ${attachment?.name}` && !attachment && (
+                        <p className="text-sm">{msg.content}</p>
+                      )}
                       <span className={`text-[10px] mt-2 block ${isCustomer ? "text-muted-foreground" : "text-primary-foreground/70"}`}>
                         {format(new Date(msg.createdAt), 'HH:mm')}
                       </span>
@@ -240,8 +269,14 @@ export default function Inbox() {
             <div className="p-4 bg-white border-t border-border shrink-0">
               {selectedFile && (
                 <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs flex justify-between items-center">
-                  <span className="text-blue-700">📎 {selectedFile.name}</span>
-                  <button onClick={() => setSelectedFile(null)} className="text-blue-500 hover:text-blue-700">✕</button>
+                  <div className="flex items-center gap-2 text-blue-700">
+                    <Paperclip className="w-3 h-3" />
+                    <span className="truncate max-w-[300px]">{selectedFile.name}</span>
+                    <span className="text-blue-500">({(selectedFile.size / 1024).toFixed(0)} KB)</span>
+                  </div>
+                  <button onClick={() => setSelectedFile(null)} className="text-blue-400 hover:text-blue-600 ml-2 shrink-0">
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
               )}
               <div className="flex items-end gap-3 bg-secondary/30 border border-border rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
@@ -250,29 +285,32 @@ export default function Inbox() {
                   type="file"
                   onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
                   className="hidden"
-                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-10 h-10 rounded-xl text-primary hover:bg-primary/10 flex items-center justify-center transition-colors shrink-0"
-                  title="Attach file"
+                  disabled={isUploading}
+                  className="w-10 h-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 flex items-center justify-center transition-colors shrink-0"
+                  title="Attach file or photo"
                 >
-                  📎
+                  <Paperclip className="w-4 h-4" />
                 </button>
-                <textarea 
+                <textarea
                   value={msgInput}
                   onChange={e => setMsgInput(e.target.value)}
-                  onKeyDown={e => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                   className="flex-1 bg-transparent border-none outline-none resize-none p-2 text-sm max-h-32 min-h-10"
                   placeholder="Type a message or / for quick replies..."
                   rows={1}
                 />
-                <button 
+                <button
                   onClick={handleSend}
-                  disabled={(!msgInput.trim() && !selectedFile) || sendMutation.isPending}
+                  disabled={(!msgInput.trim() && !selectedFile) || sendMutation.isPending || isUploading}
                   className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 transition-colors shrink-0 mb-0.5 mr-0.5"
                 >
-                  <Send className="w-4 h-4 ml-0.5" />
+                  {isUploading || sendMutation.isPending
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Send className="w-4 h-4 ml-0.5" />}
                 </button>
               </div>
             </div>
@@ -287,33 +325,33 @@ export default function Inbox() {
           </div>
         )}
 
-        {/* Far Right Panel: Customer Context (only if active conv) */}
+        {/* Far Right Panel: Customer Context */}
         {activeConv && (
           <div className="w-72 border-l border-border bg-card hidden xl:flex flex-col shrink-0">
-             <div className="p-5 border-b border-border/50 text-center">
-                <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 mx-auto rounded-full flex items-center justify-center mb-4">
-                  <User className="w-8 h-8 text-gray-400" />
+            <div className="p-5 border-b border-border/50 text-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 mx-auto rounded-full flex items-center justify-center mb-4">
+                <User className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="font-bold text-lg">{activeConv.customerName}</h3>
+              <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
+                <Phone className="w-3 h-3" /> {activeConv.customerPhone || "No phone"}
+              </p>
+            </div>
+            <div className="p-5 space-y-6 flex-1 overflow-y-auto">
+              <div>
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">CRM Context</h4>
+                <div className="bg-secondary/50 rounded-xl p-4 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Total Orders</span>
+                    <span className="font-bold text-foreground">0</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded">New Lead</span>
+                  </div>
                 </div>
-                <h3 className="font-bold text-lg">{activeConv.customerName}</h3>
-                <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
-                  <Phone className="w-3 h-3" /> {activeConv.customerPhone || "No phone"}
-                </p>
-             </div>
-             <div className="p-5 space-y-6 flex-1 overflow-y-auto">
-               <div>
-                 <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">CRM Context</h4>
-                 <div className="bg-secondary/50 rounded-xl p-4 space-y-3">
-                   <div className="flex justify-between text-sm">
-                     <span className="text-muted-foreground">Total Orders</span>
-                     <span className="font-bold text-foreground">0</span>
-                   </div>
-                   <div className="flex justify-between text-sm">
-                     <span className="text-muted-foreground">Status</span>
-                     <span className="text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded">New Lead</span>
-                   </div>
-                 </div>
-               </div>
-             </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
