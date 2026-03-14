@@ -41,6 +41,15 @@ function getSearchParam(key: string): string {
   return params.get(key) || "";
 }
 
+function getParentPageUrl(): string {
+  try {
+    if (window.parent !== window && document.referrer) {
+      return document.referrer;
+    }
+  } catch {}
+  return "";
+}
+
 export default function WidgetEmbed() {
   const storeId = getSearchParam("storeId");
   const langParam = getSearchParam("lang") || "fr";
@@ -56,7 +65,6 @@ export default function WidgetEmbed() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,45 +77,44 @@ export default function WidgetEmbed() {
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
-
   async function init() {
     try {
       const cfgRes = await fetch(`${API_BASE}/config/${storeId}`);
       if (!cfgRes.ok) { setError(t.error); setLoading(false); return; }
-      const cfgData = await cfgRes.json();
+      const cfgData: WidgetConfig = await cfgRes.json();
       setConfig(cfgData);
 
-      let vid = localStorage.getItem("flychat_visitor_id");
-      if (!vid) {
-        const sessRes = await fetch(`${API_BASE}/session`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            storeId,
-            language: lang,
-            currentPageUrl: document.referrer || undefined,
-          }),
-        });
-        if (!sessRes.ok) { setError(t.error); setLoading(false); return; }
-        const sessData = await sessRes.json();
-        vid = sessData.visitorId;
-        localStorage.setItem("flychat_visitor_id", vid!);
-      }
+      const existingVisitorId = localStorage.getItem("flychat_visitor_id") || undefined;
+      const parentPageUrl = getParentPageUrl();
+
+      const sessRes = await fetch(`${API_BASE}/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId,
+          visitorId: existingVisitorId,
+          language: lang,
+          currentPageUrl: parentPageUrl || undefined,
+          referrer: document.referrer || undefined,
+        }),
+      });
+      if (!sessRes.ok) { setError(t.error); setLoading(false); return; }
+      const sessData = await sessRes.json();
+      const vid = sessData.visitorId as string;
+      const sessionId = sessData.sessionId as string;
+      localStorage.setItem("flychat_visitor_id", vid);
+      localStorage.setItem(`flychat_session_${storeId}`, sessionId);
       setVisitorId(vid);
 
       let cid = localStorage.getItem(`flychat_conversation_${storeId}`);
 
       if (cid) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid!)}`);
+        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}`);
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           setMessages(msgData.messages || []);
           setConversationId(cid);
           setLoading(false);
-          startPolling(cid, vid!);
           return;
         }
         localStorage.removeItem(`flychat_conversation_${storeId}`);
@@ -120,7 +127,8 @@ export default function WidgetEmbed() {
           storeId,
           visitorId: vid,
           language: lang,
-          currentPageUrl: document.referrer || undefined,
+          currentPageUrl: parentPageUrl || undefined,
+          referrer: document.referrer || undefined,
         }),
       });
       if (!convRes.ok) { setError(t.error); setLoading(false); return; }
@@ -130,7 +138,7 @@ export default function WidgetEmbed() {
       setConversationId(cid);
 
       if (convData.resumed) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid!)}`);
+        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}`);
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           setMessages(msgData.messages || []);
@@ -138,24 +146,21 @@ export default function WidgetEmbed() {
       }
 
       setLoading(false);
-      startPolling(cid!, vid!);
     } catch {
       setError(t.error);
       setLoading(false);
     }
   }
 
-  function startPolling(cid: string, vid: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setMessages(data.messages || []);
-        }
-      } catch {}
-    }, 4000);
+  async function fetchMessages() {
+    if (!conversationId || !visitorId) return;
+    try {
+      const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages?visitorId=${encodeURIComponent(visitorId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.messages || []);
+      }
+    } catch {}
   }
 
   async function handleSend() {
@@ -181,6 +186,7 @@ export default function WidgetEmbed() {
       if (res.ok) {
         const msg = await res.json();
         setMessages(prev => prev.map(m => m.id === optimistic.id ? msg : m));
+        await fetchMessages();
       }
     } catch {}
     setSending(false);
