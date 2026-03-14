@@ -4,6 +4,14 @@ import { getUserFromToken } from "./lib/auth.js";
 import { db, conversationsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
+interface SocketData {
+  role: "agent" | "visitor";
+  userId?: string;
+  storeId: string;
+  visitorId?: string;
+  conversationId?: string;
+}
+
 let io: Server | null = null;
 
 export function getIO(): Server {
@@ -12,7 +20,7 @@ export function getIO(): Server {
 }
 
 export function setupSocketIO(httpServer: HttpServer): Server {
-  io = new Server(httpServer, {
+  io = new Server<Record<string, never>, Record<string, never>, Record<string, never>, SocketData>(httpServer, {
     cors: {
       origin: true,
       credentials: true,
@@ -20,38 +28,50 @@ export function setupSocketIO(httpServer: HttpServer): Server {
     path: "/api/socket.io",
   });
 
-  io.use(async (socket: Socket, next) => {
-    const { token, visitorId, storeId, conversationId } = socket.handshake.auth;
+  io.use(async (socket, next) => {
+    const { token, visitorId, storeId, conversationId } = socket.handshake.auth as Record<string, string | undefined>;
 
     if (token) {
       const user = await getUserFromToken(token);
       if (!user) return next(new Error("auth_failed"));
-      (socket as any).userId = user.id;
-      (socket as any).storeId = user.storeId;
-      (socket as any).role = "agent";
+      socket.data.role = "agent";
+      socket.data.userId = user.id;
+      socket.data.storeId = user.storeId || "";
       return next();
     }
 
     if (visitorId && storeId) {
-      (socket as any).visitorId = visitorId;
-      (socket as any).storeId = storeId;
-      (socket as any).conversationId = conversationId;
-      (socket as any).role = "visitor";
+      socket.data.role = "visitor";
+      socket.data.visitorId = visitorId;
+      socket.data.storeId = storeId;
+      socket.data.conversationId = conversationId;
       return next();
     }
 
     return next(new Error("auth_failed"));
   });
 
-  io.on("connection", async (socket: Socket) => {
-    const role = (socket as any).role as string;
-    const storeId = (socket as any).storeId as string;
+  io.on("connection", async (socket) => {
+    const { role, storeId } = socket.data;
 
     if (role === "agent" && storeId) {
       socket.join(`store:${storeId}`);
 
-      socket.on("join_conversation", (convId: string) => {
-        socket.join(`conv:${convId}`);
+      socket.on("join_conversation", async (convId: string) => {
+        const [conv] = await db
+          .select({ id: conversationsTable.id, storeId: conversationsTable.storeId })
+          .from(conversationsTable)
+          .where(
+            and(
+              eq(conversationsTable.id, convId),
+              eq(conversationsTable.storeId, storeId),
+            ),
+          )
+          .limit(1);
+
+        if (conv) {
+          socket.join(`conv:${convId}`);
+        }
       });
 
       socket.on("leave_conversation", (convId: string) => {
@@ -60,10 +80,10 @@ export function setupSocketIO(httpServer: HttpServer): Server {
     }
 
     if (role === "visitor") {
-      const convId = (socket as any).conversationId as string | undefined;
-      const visitorId = (socket as any).visitorId as string;
+      const convId = socket.data.conversationId;
+      const visitorId = socket.data.visitorId;
 
-      if (convId) {
+      if (convId && visitorId) {
         const [conv] = await db
           .select({ id: conversationsTable.id, visitorId: conversationsTable.visitorId, storeId: conversationsTable.storeId })
           .from(conversationsTable)
@@ -81,6 +101,7 @@ export function setupSocketIO(httpServer: HttpServer): Server {
       }
 
       socket.on("join_conversation", async (newConvId: string) => {
+        if (!visitorId) return;
         const [conv] = await db
           .select({ id: conversationsTable.id, visitorId: conversationsTable.visitorId, storeId: conversationsTable.storeId })
           .from(conversationsTable)

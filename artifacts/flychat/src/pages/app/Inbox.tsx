@@ -36,7 +36,7 @@ export default function Inbox() {
       transports: ["websocket", "polling"],
     });
 
-    socket.on("new_message", (data: { conversationId: string; message: any }) => {
+    socket.on("new_message", (data: { conversationId: string; message: { id: string; content: string; sender: string; createdAt: string } }) => {
       queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
       queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(data.conversationId) });
     });
