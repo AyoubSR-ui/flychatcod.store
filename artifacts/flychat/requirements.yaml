@@ -1,0 +1,24 @@
+packages:
+  "framer-motion": "For page transitions, smooth entries, and scroll-triggered animations"
+  "recharts": "For rendering beautiful dashboard analytics and conversion charts"
+  "socket.io-client": "For real-time inbox messaging architecture"
+  "date-fns": "For formatting message timestamps and order dates nicely"
+  "clsx": "For conditional tailwind class merging"
+  "tailwind-merge": "For merging tailwind classes safely"
+
+images:
+  - path: "artifacts/flychat/public/images/hero-bg.png"
+    description: "A beautiful, premium abstract mesh gradient background in deep blues and vibrant teals, suitable for a modern SaaS platform hero section. Soft light leaks, high-end, clean."
+    aspect_ratio: "16:9"
+  - path: "artifacts/flychat/public/images/dashboard-mockup.png"
+    description: "A highly polished, 3D floating isometric mockup of a SaaS dashboard UI showing a chat interface and analytics. Clean white cards, blue accents, modern glassmorphism."
+    aspect_ratio: "16:9"
+  - path: "artifacts/flychat/public/images/logo.png"
+    description: "A minimal, modern geometric logo mark combining a chat bubble and a lightning bolt or fast delivery icon. Deep blue and teal colors on a transparent background."
+    aspect_ratio: "1:1"
+
+notes:
+  - using generated hooks from @workspace/api-client-react
+  - socket.io uses standard websocket connection to /api/socket (mocked in UI for now until backend is ready)
+  - using Wouter for routing
+  - full bilingual support via custom i18n context

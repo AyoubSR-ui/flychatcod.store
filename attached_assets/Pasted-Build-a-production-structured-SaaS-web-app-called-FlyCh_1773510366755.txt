@@ -1,0 +1,448 @@
+Build a production-structured SaaS web app called “FlyChat COD” for ecommerce sellers in COD-heavy markets like Algeria.
+
+PRODUCT VISION
+FlyChat COD is not just a support chat tool. It is a chat-to-order SaaS platform that helps merchants turn website chats into structured cash-on-delivery orders. It includes a seller dashboard, realtime inbox, order capture workflow, customer CRM, team-ready architecture, future omnichannel channel integrations, and optional AI automation later.
+
+TARGET MARKET
+- Primary launch market: Algeria
+- Expansion-ready for Morocco, Tunisia, and other French-speaking / COD-heavy markets
+- Main users: ecommerce sellers, COD stores, small businesses, support/sales teams
+
+CORE VALUE PROPOSITION
+- Turn chats into confirmed COD orders
+- Reduce manual order handling
+- Organize customer conversations and orders in one place
+- Prepare the business for future WhatsApp, Instagram, and Messenger integration
+- Support bilingual operation in English and French from day one
+
+TECH STACK REQUIREMENTS
+- Use Next.js with App Router
+- Use TypeScript
+- Use Tailwind CSS
+- Use PostgreSQL
+- Use Prisma ORM
+- Use Socket.IO or equivalent realtime architecture for live chat updates
+- Build reusable components and modular code structure
+- Use environment variables for secrets
+- Include seed/demo data for testing
+- Include a clean README with setup instructions
+- Generate a codebase that is realistic, scalable, and honestly scaffolded where external integrations are not yet live
+
+INTERNATIONALIZATION REQUIREMENTS
+This SaaS must support 2 full interface languages from day one:
+- English
+- French
+
+Implement proper i18n architecture across the entire app:
+- no hardcoded user-facing text
+- use translation files/dictionaries for all UI labels, buttons, headings, forms, statuses, and helper text
+- use English as fallback locale
+- add a language switcher on the public website and inside the authenticated dashboard
+- store the user preferred language in the database
+- store the store-level default widget language in the database
+- the embeddable widget must support English and French UI labels and greetings
+- architecture must be ready for future Arabic/Darija support without major refactor
+
+This bilingual requirement applies to:
+- Home page
+- Features page
+- Pricing page
+- Contact page
+- Login
+- Signup
+- Password reset
+- Onboarding wizard
+- Dashboard
+- Inbox
+- Orders
+- Customers
+- Products
+- Widget settings
+- Automation
+- Channels
+- Team
+- Billing
+- Settings
+- Admin panel
+
+BRANDING AND DESIGN
+- Product name: FlyChat COD
+- Style: modern SaaS, premium, clean, trustworthy, scalable
+- Mobile responsive across all pages
+- Build a polished app with professional cards, tables, forms, settings panels, and sidebar navigation
+- Support dark/light-ready design structure if possible, but prioritize consistency and usability first
+- Avoid flashy animation; prioritize clear UX and real product feeling
+
+PUBLIC WEBSITE REQUIREMENTS
+Create a public marketing website with these pages:
+- Home
+- Features
+- Pricing
+- Contact
+- Login
+- Signup
+
+HOME PAGE
+Build a polished landing page focused on conversion.
+
+Messaging direction:
+- Headline around turning chats into confirmed COD orders
+- Explain the product as a chat-to-order platform, not generic support chat
+- Highlight benefits for COD sellers
+- Include feature sections
+- Include “How it works” section
+- Include pricing teaser
+- Include CTA buttons for free trial / get started / demo
+- Include bilingual-ready copy structure
+- Include realistic mock dashboard/inbox/order preview cards or sections
+
+FEATURES PAGE
+Explain major features:
+- website chat widget
+- realtime inbox
+- order capture workflow
+- order management
+- customer CRM
+- team support
+- future omnichannel channel integration
+- optional AI automation later
+
+PRICING PAGE
+Show SaaS pricing structure with 3 plan cards:
+- Basic
+- Pro
+- AI Confirmation Add-on
+
+Do not implement full payment integration yet, but build a realistic pricing page and billing-ready architecture.
+
+CONTACT PAGE
+Create a clean contact page with form, sales/support contact structure, and product CTA.
+
+AUTHENTICATION REQUIREMENTS
+Implement:
+- email/password signup
+- email/password login
+- password reset flow
+- protected dashboard routes
+- user sessions
+- organization/store ownership model
+- proper validation and error states
+- onboarding redirect after first signup
+
+DATABASE MODELS
+Design Prisma schema for at least the following:
+- User
+- Organization
+- Store
+- TeamMember
+- Product
+- Customer
+- Conversation
+- Message
+- Order
+- OrderItem
+- WidgetConfig
+- AutomationRule
+- ChannelConnection
+- Subscription
+- AuditLog
+
+Add supporting fields needed for:
+- bilingual user preference
+- bilingual store widget preference
+- role-based team access
+- conversation statuses
+- order statuses
+- channel statuses
+- timestamps and auditability
+
+SEED DATA
+Create realistic demo data including:
+- sample organization
+- sample seller/store
+- sample products
+- sample customers
+- sample conversations
+- sample orders
+- sample widget config
+- sample subscriptions
+
+AUTHENTICATED APP STRUCTURE
+Create a seller dashboard app with a left sidebar and top header.
+
+SIDEBAR NAVIGATION
+- Dashboard
+- Inbox
+- Orders
+- Customers
+- Products
+- Widget
+- Automation
+- Channels
+- Team
+- Billing
+- Settings
+
+Create a separate protected super-admin section for platform administrators.
+
+SELLER ONBOARDING WIZARD
+After signup, guide the seller through a multi-step onboarding process collecting:
+- business name
+- store name
+- business phone
+- preferred interface language
+- default widget language
+- logo
+- store description
+- shipping wilayas/zones
+- whether they already have a website
+- whether they need a hosted page
+- optional product/category setup
+
+DASHBOARD PAGE
+Create a polished dashboard with summary cards such as:
+- chats today
+- new orders
+- confirmed orders
+- pending confirmations
+- conversion rate
+
+Also include:
+- recent conversations
+- recent orders
+- basic performance overview
+- clear empty states if no data
+
+INBOX PAGE
+Build a modern realtime inbox layout:
+- conversation list on the left
+- active conversation panel on the right
+- message composer
+- conversation status badges
+- assign conversation placeholder
+- conversation tags
+- internal notes placeholder
+- mobile responsive layout
+- demo realtime architecture using Socket.IO or equivalent
+- strong empty/loading/error states
+
+WIDGET SYSTEM
+Build an embeddable chat widget system.
+
+Seller should receive a snippet like:
+<script>window.FLYCHAT_CONFIG={storeId:"STORE_ID"};</script>
+<script src="https://your-domain.com/widget.js"></script>
+
+Requirements for widget:
+- floating chat bubble
+- opens chat panel
+- branded by seller/store
+- welcome message
+- quick reply buttons
+- responsive design
+- isolated enough for third-party site embedding
+- support English and French UI labels
+- support store-level default language
+- support custom greeting per language if possible
+- preview mode inside dashboard
+
+ORDER CAPTURE WORKFLOW
+The widget should support a guided chat-to-order flow that can collect:
+- product
+- variant / color / size
+- quantity
+- customer name
+- phone number
+- wilaya / delivery zone
+- delivery address
+- optional note
+- final confirmation before order creation
+
+Do not fake advanced AI. Build the workflow in a realistic structured way so it can later connect to rule-based or AI extraction logic.
+
+ORDERS PAGE
+Build a production-style order management section including:
+- order list table
+- filters
+- search
+- order detail page
+- seller notes
+- linked customer
+- linked conversation
+- COD flag
+- manual confirmation action
+
+Use these order statuses:
+- new
+- awaiting_confirmation
+- confirmed
+- shipped
+- delivered
+- cancelled
+- suspicious
+
+CUSTOMERS PAGE
+Build a simple CRM-style customer section:
+- customer list
+- customer detail page
+- linked conversations
+- linked orders
+- notes
+- repeat customer marker placeholder
+- search/filter support
+
+PRODUCTS PAGE
+Build a seller product manager:
+- product name
+- description
+- price
+- variants
+- stock / availability
+- active/inactive
+- create/edit/delete UI
+- clean forms and list/table view
+
+WIDGET SETTINGS PAGE
+Build a widget settings page where seller can:
+- copy embed code
+- preview widget
+- customize welcome message
+- choose default widget language
+- adjust basic style options such as color/theme if possible
+- see installation instructions
+
+AUTOMATION PAGE
+Create an Automation page with honest MVP scaffolding for:
+- welcome automation
+- order capture trigger
+- fallback to human
+- canned replies
+- simple rule placeholders
+
+Do not pretend there is a real AI engine yet.
+Structure the database and UI so future AI features can be added later cleanly.
+
+CHANNELS PAGE
+Create a visually strong “Channels” page with connection cards for:
+- Website Widget (active)
+- WhatsApp (integration-ready / coming soon)
+- Instagram (integration-ready / coming soon)
+- Messenger (integration-ready / coming soon)
+
+For each channel card:
+- show status states: disconnected, pending, connected, error
+- include a connection status component
+- include settings/help placeholder
+- include a “Watch setup guide” placeholder button
+- include helpful description text
+
+WhatsApp-specific requirement:
+Prepare architecture for future Meta Embedded Signup integration:
+- redirect/callback-ready data model
+- connection metadata placeholders
+- token storage placeholders
+- webhook subscription placeholders
+- honest scaffold only, do not fake working tokens or live Meta connection
+
+Instagram and Messenger requirement:
+Also prepare honest backend/frontend architecture for future account connection and webhook integration.
+Do not fake successful live connection.
+
+TEAM PAGE
+Build team member scaffolding:
+- invite team member UI
+- role types: owner, admin, agent
+- permissions scaffolding
+- member list and status
+
+BILLING PAGE
+Build billing-ready UI:
+- current plan
+- plan cards for Basic / Pro / AI Confirmation Add-on
+- upgrade button placeholders
+- usage summary placeholders
+- invoice/history placeholder section
+
+SETTINGS PAGE
+Create store/account settings areas for:
+- store profile
+- branding/logo
+- language preferences
+- support contact
+- business information
+- widget defaults
+
+SUPER ADMIN PANEL
+Create a separately protected admin area for platform owner/admin.
+
+Admin should see:
+- total stores
+- total users
+- total chats
+- total orders
+- plan distribution
+- recent signups
+- recent activity
+- error/log placeholders
+
+UX AND PRODUCT QUALITY REQUIREMENTS
+- Every page must feel connected and realistic
+- No broken or dead-looking placeholders
+- Strong loading states, empty states, and validation
+- Clean tables, forms, and settings panels
+- Reusable components
+- Consistent spacing, typography, and navigation
+- Prioritize usability and production realism
+
+PRODUCT LOGIC REQUIREMENTS
+- This app is specifically for COD ecommerce
+- Chat should naturally lead toward order creation
+- Seller should always be able to manage conversations and orders manually
+- Architecture must be ready for future AI features such as:
+  - intent detection
+  - order entity extraction
+  - confidence scoring
+  - human handoff
+  - AI confirmation calls
+- Architecture must also be ready for future Meta integrations:
+  - WhatsApp Embedded Signup
+  - Instagram business connection
+  - Messenger connection
+
+HONEST IMPLEMENTATION RULE
+If a complex external integration is not yet implemented:
+- scaffold it honestly
+- label it clearly as integration-ready / coming soon
+- do not fake live functionality
+
+README REQUIREMENTS
+Include a README that explains:
+- project overview
+- setup instructions
+- environment variables needed
+- database setup
+- seed instructions
+- run instructions
+- key architecture notes
+- next recommended build steps
+
+DEVELOPER OUTPUT REQUIREMENTS
+Generate:
+- app routes
+- layouts
+- pages
+- reusable UI components
+- Prisma schema
+- seed script
+- sample API routes
+- widget architecture
+- realtime inbox foundation
+- bilingual i18n structure
+- clean folder structure
+- realistic demo data
+
+AFTER GENERATING THE INITIAL APP
+Pause and clearly summarize:
+1. what is fully completed
+2. what is scaffolded only
+3. what should be built next in priority order

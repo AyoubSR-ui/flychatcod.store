@@ -1,8 +1,34 @@
-import { Router, type IRouter } from "express";
-import healthRouter from "./health";
+import { Router } from "express";
+import healthRouter from "./health.js";
+import authRouter from "./auth.js";
+import dashboardRouter from "./dashboard.js";
+import conversationsRouter from "./conversations.js";
+import ordersRouter from "./orders.js";
+import customersRouter from "./customers.js";
+import productsRouter from "./products.js";
+import widgetRouter from "./widget.js";
+import automationRouter from "./automation.js";
+import channelsRouter from "./channels.js";
+import teamRouter from "./team.js";
+import billingRouter from "./billing.js";
+import settingsRouter from "./settings.js";
+import adminRouter from "./admin.js";
 
-const router: IRouter = Router();
+const router = Router();
 
-router.use(healthRouter);
+router.use("/", healthRouter);
+router.use("/auth", authRouter);
+router.use("/dashboard", dashboardRouter);
+router.use("/conversations", conversationsRouter);
+router.use("/orders", ordersRouter);
+router.use("/customers", customersRouter);
+router.use("/products", productsRouter);
+router.use("/widget", widgetRouter);
+router.use("/automation", automationRouter);
+router.use("/channels", channelsRouter);
+router.use("/team", teamRouter);
+router.use("/billing", billingRouter);
+router.use("/settings", settingsRouter);
+router.use("/admin", adminRouter);
 
 export default router;

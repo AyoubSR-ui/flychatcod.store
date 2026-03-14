@@ -1,22 +1,50 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FlyChat COD API - Chat-to-Order SaaS for COD ecommerce sellers
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: users
+    description: User management
+  - name: organizations
+    description: Organization management
+  - name: stores
+    description: Store management
+  - name: conversations
+    description: Conversation/Inbox management
+  - name: messages
+    description: Message management
+  - name: orders
+    description: Order management
+  - name: customers
+    description: Customer CRM
+  - name: products
+    description: Product management
+  - name: widget
+    description: Widget configuration
+  - name: automation
+    description: Automation rules
+  - name: channels
+    description: Channel connections
+  - name: team
+    description: Team member management
+  - name: billing
+    description: Billing and subscriptions
+  - name: admin
+    description: Super admin operations
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +52,916 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/signup:
+    post:
+      operationId: authSignup
+      tags: [auth]
+      summary: Sign up a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: authLogin
+      tags: [auth]
+      summary: Login with email/password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      tags: [auth]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: authMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: authResetPassword
+      tags: [auth]
+      summary: Request a password reset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Reset email sent (or noop if no account found)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/onboarding:
+    post:
+      operationId: completeOnboarding
+      tags: [auth]
+      summary: Complete seller onboarding wizard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingRequest"
+      responses:
+        "200":
+          description: Onboarding complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingResponse"
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [users]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /conversations:
+    get:
+      operationId: getConversations
+      tags: [conversations]
+      summary: List conversations
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, closed, pending, archived]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationListResponse"
+    post:
+      operationId: createConversation
+      tags: [conversations]
+      summary: Create a new conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /conversations/{id}:
+    get:
+      operationId: getConversation
+      tags: [conversations]
+      summary: Get conversation by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationDetail"
+    patch:
+      operationId: updateConversation
+      tags: [conversations]
+      summary: Update conversation status/assignment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationRequest"
+      responses:
+        "200":
+          description: Updated conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
+  /conversations/{id}/messages:
+    get:
+      operationId: getMessages
+      tags: [messages]
+      summary: Get messages for a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageListResponse"
+    post:
+      operationId: sendMessage
+      tags: [messages]
+      summary: Send a message in a conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  /orders:
+    get:
+      operationId: getOrders
+      tags: [orders]
+      summary: List orders
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [new, awaiting_confirmation, confirmed, shipped, delivered, cancelled, suspicious]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListResponse"
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Create a new order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      tags: [orders]
+      summary: Get order by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+    patch:
+      operationId: updateOrder
+      tags: [orders]
+      summary: Update order status/details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrderRequest"
+      responses:
+        "200":
+          description: Updated order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+  /customers:
+    get:
+      operationId: getCustomers
+      tags: [customers]
+      summary: List customers
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerListResponse"
+    post:
+      operationId: createCustomer
+      tags: [customers]
+      summary: Create a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerRequest"
+      responses:
+        "201":
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+
+  /customers/{id}:
+    get:
+      operationId: getCustomer
+      tags: [customers]
+      summary: Get customer by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Customer detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerDetail"
+    patch:
+      operationId: updateCustomer
+      tags: [customers]
+      summary: Update customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomerRequest"
+      responses:
+        "200":
+          description: Updated customer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+
+  /products:
+    get:
+      operationId: getProducts
+      tags: [products]
+      summary: List products
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: active
+          in: query
+          schema:
+            type: boolean
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: List of products
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductListResponse"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: Product created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get product by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProductRequest"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete product
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /widget/config:
+    get:
+      operationId: getWidgetConfig
+      tags: [widget]
+      summary: Get widget configuration for the current store
+      responses:
+        "200":
+          description: Widget config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WidgetConfig"
+    patch:
+      operationId: updateWidgetConfig
+      tags: [widget]
+      summary: Update widget configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWidgetConfigRequest"
+      responses:
+        "200":
+          description: Updated widget config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WidgetConfig"
+
+  /automation/rules:
+    get:
+      operationId: getAutomationRules
+      tags: [automation]
+      summary: List automation rules
+      responses:
+        "200":
+          description: List of automation rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRuleListResponse"
+    post:
+      operationId: createAutomationRule
+      tags: [automation]
+      summary: Create automation rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAutomationRuleRequest"
+      responses:
+        "201":
+          description: Rule created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+
+  /automation/rules/{id}:
+    patch:
+      operationId: updateAutomationRule
+      tags: [automation]
+      summary: Update automation rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAutomationRuleRequest"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomationRule"
+    delete:
+      operationId: deleteAutomationRule
+      tags: [automation]
+      summary: Delete automation rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rule deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /channels:
+    get:
+      operationId: getChannels
+      tags: [channels]
+      summary: List channel connections
+      responses:
+        "200":
+          description: List of channel connections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelListResponse"
+
+  /channels/{id}/connect:
+    post:
+      operationId: connectChannel
+      tags: [channels]
+      summary: Initiate channel connection
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connection initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelConnection"
+
+  /team/members:
+    get:
+      operationId: getTeamMembers
+      tags: [team]
+      summary: List team members
+      responses:
+        "200":
+          description: List of team members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMemberListResponse"
+    post:
+      operationId: inviteTeamMember
+      tags: [team]
+      summary: Invite a team member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteTeamMemberRequest"
+      responses:
+        "201":
+          description: Invitation sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+
+  /team/members/{id}:
+    patch:
+      operationId: updateTeamMember
+      tags: [team]
+      summary: Update team member role
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTeamMemberRequest"
+      responses:
+        "200":
+          description: Updated team member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+    delete:
+      operationId: removeTeamMember
+      tags: [team]
+      summary: Remove a team member
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Member removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /billing/subscription:
+    get:
+      operationId: getSubscription
+      tags: [billing]
+      summary: Get current subscription
+      responses:
+        "200":
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+
+  /billing/plans:
+    get:
+      operationId: getPlans
+      tags: [billing]
+      summary: Get available plans
+      responses:
+        "200":
+          description: Available plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanListResponse"
+
+  /settings/store:
+    get:
+      operationId: getStoreSettings
+      tags: [users]
+      summary: Get store settings
+      responses:
+        "200":
+          description: Store settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreSettings"
+    patch:
+      operationId: updateStoreSettings
+      tags: [users]
+      summary: Update store settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStoreSettingsRequest"
+      responses:
+        "200":
+          description: Updated store settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreSettings"
+
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Get platform-wide admin stats
+      responses:
+        "200":
+          description: Admin stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/stores:
+    get:
+      operationId: getAdminStores
+      tags: [admin]
+      summary: List all stores (admin)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: All stores
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStoreListResponse"
+
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      tags: [admin]
+      summary: List all users (admin)
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: number
+        - name: limit
+          in: query
+          schema:
+            type: number
+      responses:
+        "200":
+          description: All users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserListResponse"
+
+  /widget/public/{storeId}:
+    get:
+      operationId: getPublicWidgetConfig
+      tags: [widget]
+      summary: Get public widget config for embedding
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public widget config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicWidgetConfig"
+
+  /widget/conversation:
+    post:
+      operationId: startWidgetConversation
+      tags: [widget]
+      summary: Start a new conversation from widget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartWidgetConversationRequest"
+      responses:
+        "201":
+          description: Conversation started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WidgetConversationResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +969,1100 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required: [error, message]
+
+    SignupRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+        language:
+          type: string
+          enum: [en, fr]
+          default: en
+      required: [email, password, name]
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+        needsOnboarding:
+          type: boolean
+      required: [user, token, needsOnboarding]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, agent, superadmin]
+        language:
+          type: string
+          enum: [en, fr]
+        organizationId:
+          type: string
+          nullable: true
+        storeId:
+          type: string
+          nullable: true
+        onboardingCompleted:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, name, role, language, onboardingCompleted, createdAt]
+
+    OnboardingRequest:
+      type: object
+      properties:
+        businessName:
+          type: string
+        storeName:
+          type: string
+        businessPhone:
+          type: string
+        language:
+          type: string
+          enum: [en, fr]
+        widgetLanguage:
+          type: string
+          enum: [en, fr]
+        storeDescription:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        shippingWilayas:
+          type: array
+          items:
+            type: string
+        hasWebsite:
+          type: boolean
+        websiteUrl:
+          type: string
+          nullable: true
+        needsHostedPage:
+          type: boolean
+      required: [businessName, storeName, businessPhone, language, widgetLanguage]
+
+    OnboardingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        storeId:
+          type: string
+        organizationId:
+          type: string
+      required: [success, storeId, organizationId]
+
+    DashboardStats:
+      type: object
+      properties:
+        chatsToday:
+          type: number
+        newOrders:
+          type: number
+        confirmedOrders:
+          type: number
+        pendingConfirmations:
+          type: number
+        conversionRate:
+          type: number
+        recentConversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationSummary"
+        recentOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderSummary"
+      required: [chatsToday, newOrders, confirmedOrders, pendingConfirmations, conversionRate, recentConversations, recentOrders]
+
+    ConversationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        customerName:
+          type: string
+        lastMessage:
+          type: string
+        status:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, customerName, lastMessage, status, updatedAt]
+
+    OrderSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        orderNumber:
+          type: string
+        customerName:
+          type: string
+        total:
+          type: number
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, orderNumber, customerName, total, status, createdAt]
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        storeId:
+          type: string
+        customerId:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [open, closed, pending, archived]
+        channel:
+          type: string
+          enum: [widget, whatsapp, instagram, messenger]
+        assignedToId:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        lastMessage:
+          type: string
+          nullable: true
+        unreadCount:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, storeId, customerName, status, channel, tags, unreadCount, createdAt, updatedAt]
+
+    ConversationDetail:
+      allOf:
+        - $ref: "#/components/schemas/Conversation"
+        - type: object
+          properties:
+            messages:
+              type: array
+              items:
+                $ref: "#/components/schemas/Message"
+            customer:
+              $ref: "#/components/schemas/Customer"
+              nullable: true
+            relatedOrders:
+              type: array
+              items:
+                $ref: "#/components/schemas/OrderSummary"
+          required: [messages, relatedOrders]
+
+    ConversationListResponse:
+      type: object
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [conversations, total, page, limit]
+
+    CreateConversationRequest:
+      type: object
+      properties:
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+          nullable: true
+        channel:
+          type: string
+          enum: [widget, whatsapp, instagram, messenger]
+        initialMessage:
+          type: string
+          nullable: true
+      required: [customerName, channel]
+
+    UpdateConversationRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [open, closed, pending, archived]
+        assignedToId:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        content:
+          type: string
+        sender:
+          type: string
+          enum: [customer, agent, bot, system]
+        senderId:
+          type: string
+          nullable: true
+        senderName:
+          type: string
+          nullable: true
+        isInternal:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, conversationId, content, sender, isInternal, createdAt]
+
+    MessageListResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+      required: [messages]
+
+    SendMessageRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        isInternal:
+          type: boolean
+          default: false
+      required: [content]
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        orderNumber:
+          type: string
+        storeId:
+          type: string
+        customerId:
+          type: string
+          nullable: true
+        conversationId:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        wilaya:
+          type: string
+        address:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [new, awaiting_confirmation, confirmed, shipped, delivered, cancelled, suspicious]
+        isCod:
+          type: boolean
+        total:
+          type: number
+        sellerNote:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, orderNumber, storeId, customerName, customerPhone, wilaya, status, isCod, total, items, createdAt, updatedAt]
+
+    OrderDetail:
+      allOf:
+        - $ref: "#/components/schemas/Order"
+        - type: object
+          properties:
+            customer:
+              $ref: "#/components/schemas/Customer"
+              nullable: true
+            conversation:
+              $ref: "#/components/schemas/ConversationSummary"
+              nullable: true
+
+    OrderItem:
+      type: object
+      properties:
+        id:
+          type: string
+        productId:
+          type: string
+          nullable: true
+        productName:
+          type: string
+        variant:
+          type: string
+          nullable: true
+        quantity:
+          type: number
+        price:
+          type: number
+      required: [id, productName, quantity, price]
+
+    OrderListResponse:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: "#/components/schemas/Order"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [orders, total, page, limit]
+
+    CreateOrderRequest:
+      type: object
+      properties:
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        wilaya:
+          type: string
+        address:
+          type: string
+          nullable: true
+        customerId:
+          type: string
+          nullable: true
+        conversationId:
+          type: string
+          nullable: true
+        sellerNote:
+          type: string
+          nullable: true
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              productId:
+                type: string
+                nullable: true
+              productName:
+                type: string
+              variant:
+                type: string
+                nullable: true
+              quantity:
+                type: number
+              price:
+                type: number
+            required: [productName, quantity, price]
+      required: [customerName, customerPhone, wilaya, items]
+
+    UpdateOrderRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [new, awaiting_confirmation, confirmed, shipped, delivered, cancelled, suspicious]
+        sellerNote:
+          type: string
+          nullable: true
+        wilaya:
+          type: string
+        address:
+          type: string
+          nullable: true
+
+    Customer:
+      type: object
+      properties:
+        id:
+          type: string
+        storeId:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        wilaya:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        isRepeat:
+          type: boolean
+        totalOrders:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, storeId, name, isRepeat, totalOrders, createdAt]
+
+    CustomerDetail:
+      allOf:
+        - $ref: "#/components/schemas/Customer"
+        - type: object
+          properties:
+            conversations:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConversationSummary"
+            orders:
+              type: array
+              items:
+                $ref: "#/components/schemas/OrderSummary"
+          required: [conversations, orders]
+
+    CustomerListResponse:
+      type: object
+      properties:
+        customers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Customer"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [customers, total, page, limit]
+
+    CreateCustomerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        wilaya:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required: [name]
+
+    UpdateCustomerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        wilaya:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+        storeId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+        stock:
+          type: number
+          nullable: true
+        isActive:
+          type: boolean
+        variants:
+          type: array
+          items:
+            type: string
+        imageUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, storeId, name, price, isActive, variants, createdAt]
+
+    ProductListResponse:
+      type: object
+      properties:
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [products, total, page, limit]
+
+    CreateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+        stock:
+          type: number
+          nullable: true
+        isActive:
+          type: boolean
+          default: true
+        variants:
+          type: array
+          items:
+            type: string
+        imageUrl:
+          type: string
+          nullable: true
+      required: [name, price]
+
+    UpdateProductRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: number
+        stock:
+          type: number
+          nullable: true
+        isActive:
+          type: boolean
+        variants:
+          type: array
+          items:
+            type: string
+        imageUrl:
+          type: string
+          nullable: true
+
+    WidgetConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        storeId:
+          type: string
+        welcomeMessageEn:
+          type: string
+        welcomeMessageFr:
+          type: string
+        defaultLanguage:
+          type: string
+          enum: [en, fr]
+        primaryColor:
+          type: string
+        position:
+          type: string
+          enum: [bottom-right, bottom-left]
+        isActive:
+          type: boolean
+        embedCode:
+          type: string
+      required: [id, storeId, welcomeMessageEn, welcomeMessageFr, defaultLanguage, primaryColor, position, isActive, embedCode]
+
+    UpdateWidgetConfigRequest:
+      type: object
+      properties:
+        welcomeMessageEn:
+          type: string
+        welcomeMessageFr:
+          type: string
+        defaultLanguage:
+          type: string
+          enum: [en, fr]
+        primaryColor:
+          type: string
+        position:
+          type: string
+          enum: [bottom-right, bottom-left]
+        isActive:
+          type: boolean
+
+    PublicWidgetConfig:
+      type: object
+      properties:
+        storeId:
+          type: string
+        storeName:
+          type: string
+        welcomeMessageEn:
+          type: string
+        welcomeMessageFr:
+          type: string
+        defaultLanguage:
+          type: string
+        primaryColor:
+          type: string
+        position:
+          type: string
+        isActive:
+          type: boolean
+      required: [storeId, storeName, welcomeMessageEn, welcomeMessageFr, defaultLanguage, primaryColor, position, isActive]
+
+    StartWidgetConversationRequest:
+      type: object
+      properties:
+        storeId:
+          type: string
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+          nullable: true
+        initialMessage:
+          type: string
+        language:
+          type: string
+          enum: [en, fr]
+      required: [storeId, customerName, initialMessage]
+
+    WidgetConversationResponse:
+      type: object
+      properties:
+        conversationId:
+          type: string
+        token:
+          type: string
+      required: [conversationId, token]
+
+    AutomationRule:
+      type: object
+      properties:
+        id:
+          type: string
+        storeId:
+          type: string
+        name:
+          type: string
+        trigger:
+          type: string
+          enum: [new_conversation, keyword, order_created, inactivity]
+        action:
+          type: string
+          enum: [send_message, assign_agent, create_order_flow, escalate]
+        isActive:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, storeId, name, trigger, action, isActive, createdAt]
+
+    AutomationRuleListResponse:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutomationRule"
+      required: [rules]
+
+    CreateAutomationRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        trigger:
+          type: string
+          enum: [new_conversation, keyword, order_created, inactivity]
+        action:
+          type: string
+          enum: [send_message, assign_agent, create_order_flow, escalate]
+        isActive:
+          type: boolean
+          default: true
+        config:
+          type: object
+          additionalProperties: true
+      required: [name, trigger, action]
+
+    UpdateAutomationRuleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        isActive:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+
+    ChannelConnection:
+      type: object
+      properties:
+        id:
+          type: string
+        storeId:
+          type: string
+        channel:
+          type: string
+          enum: [widget, whatsapp, instagram, messenger]
+        status:
+          type: string
+          enum: [disconnected, pending, connected, error]
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, storeId, channel, status, createdAt]
+
+    ChannelListResponse:
+      type: object
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChannelConnection"
+      required: [channels]
+
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+          nullable: true
+        storeId:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [owner, admin, agent]
+        status:
+          type: string
+          enum: [active, invited, inactive]
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, storeId, email, role, status, createdAt]
+
+    TeamMemberListResponse:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TeamMember"
+      required: [members]
+
+    InviteTeamMemberRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, agent]
+      required: [email, role]
+
+    UpdateTeamMemberRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [admin, agent]
+        status:
+          type: string
+          enum: [active, inactive]
+
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        plan:
+          type: string
+          enum: [free, basic, pro, ai_addon]
+        status:
+          type: string
+          enum: [active, cancelled, past_due, trialing]
+        currentPeriodStart:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        cancelAtPeriodEnd:
+          type: boolean
+      required: [id, organizationId, plan, status, cancelAtPeriodEnd]
+
+    PlanListResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              price:
+                type: number
+              currency:
+                type: string
+              interval:
+                type: string
+              features:
+                type: array
+                items:
+                  type: string
+            required: [id, name, price, currency, interval, features]
+      required: [plans]
+
+    StoreSettings:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        logoUrl:
+          type: string
+          nullable: true
+        websiteUrl:
+          type: string
+          nullable: true
+        defaultLanguage:
+          type: string
+          enum: [en, fr]
+        widgetLanguage:
+          type: string
+          enum: [en, fr]
+        shippingWilayas:
+          type: array
+          items:
+            type: string
+      required: [id, name, defaultLanguage, widgetLanguage, shippingWilayas]
+
+    UpdateStoreSettingsRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        logoUrl:
+          type: string
+          nullable: true
+        websiteUrl:
+          type: string
+          nullable: true
+        defaultLanguage:
+          type: string
+          enum: [en, fr]
+        widgetLanguage:
+          type: string
+          enum: [en, fr]
+        shippingWilayas:
+          type: array
+          items:
+            type: string
+
+    AdminStats:
+      type: object
+      properties:
+        totalStores:
+          type: number
+        totalUsers:
+          type: number
+        totalConversations:
+          type: number
+        totalOrders:
+          type: number
+        planDistribution:
+          type: object
+          additionalProperties:
+            type: number
+        recentSignups:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        recentActivity:
+          type: array
+          items:
+            type: object
+            properties:
+              event:
+                type: string
+              description:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+            required: [event, description, timestamp]
+      required: [totalStores, totalUsers, totalConversations, totalOrders, planDistribution, recentSignups, recentActivity]
+
+    AdminStoreListResponse:
+      type: object
+      properties:
+        stores:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoreSettings"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [stores, total, page, limit]
+
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+      required: [users, total, page, limit]
