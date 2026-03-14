@@ -14,6 +14,8 @@ interface ConversationWithWidget extends Conversation {
 export default function Inbox() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [msgInput, setMsgInput] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
@@ -60,10 +62,20 @@ export default function Inbox() {
 
   const activeConv = convsData?.conversations?.find(c => c.id === activeConvId) as ConversationWithWidget | undefined;
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!msgInput.trim() || !activeConvId) return;
+    
+    let fileUrl = null;
+    if (selectedFile) {
+      const reader = new FileReader();
+      fileUrl = await new Promise<string>((resolve) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(selectedFile);
+      });
+    }
+    
     sendMutation.mutate(
-      { id: activeConvId, data: { content: msgInput } },
+      { id: activeConvId, data: { content: msgInput, fileUrl } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(activeConvId) });
@@ -72,6 +84,7 @@ export default function Inbox() {
       }
     );
     setMsgInput("");
+    setSelectedFile(null);
   };
 
   return (
@@ -157,6 +170,7 @@ export default function Inbox() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#f8fafc]">
               {msgsData?.messages.map((msg) => {
                 const isCustomer = msg.sender === 'customer';
+                const fileUrl = (msg.metadata as any)?.fileUrl;
                 return (
                   <div key={msg.id} className={`flex ${isCustomer ? "justify-start" : "justify-end"}`}>
                     <div className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm ${
@@ -164,6 +178,17 @@ export default function Inbox() {
                         ? "bg-white border border-border/50 text-foreground rounded-tl-sm" 
                         : "bg-primary text-primary-foreground rounded-tr-sm"
                     }`}>
+                      {fileUrl && (
+                        <div className="mb-2">
+                          {fileUrl.startsWith('data:image') ? (
+                            <img src={fileUrl} alt="Attachment" className="max-w-xs rounded-lg" />
+                          ) : (
+                            <a href={fileUrl} download className="text-blue-500 underline text-xs">
+                              📎 Download File
+                            </a>
+                          )}
+                        </div>
+                      )}
                       <p className="text-sm">{msg.content}</p>
                       <span className={`text-[10px] mt-2 block ${isCustomer ? "text-muted-foreground" : "text-primary-foreground/70"}`}>
                         {format(new Date(msg.createdAt), 'HH:mm')}
@@ -176,7 +201,27 @@ export default function Inbox() {
 
             {/* Chat Input */}
             <div className="p-4 bg-white border-t border-border shrink-0">
+              {selectedFile && (
+                <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs flex justify-between items-center">
+                  <span className="text-blue-700">📎 {selectedFile.name}</span>
+                  <button onClick={() => setSelectedFile(null)} className="text-blue-500 hover:text-blue-700">✕</button>
+                </div>
+              )}
               <div className="flex items-end gap-3 bg-secondary/30 border border-border rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-10 h-10 rounded-xl text-primary hover:bg-primary/10 flex items-center justify-center transition-colors shrink-0"
+                  title="Attach file"
+                >
+                  📎
+                </button>
                 <textarea 
                   value={msgInput}
                   onChange={e => setMsgInput(e.target.value)}

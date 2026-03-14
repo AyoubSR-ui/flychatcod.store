@@ -132,13 +132,14 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
 router.post("/:id/messages", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
-    const { content, isInternal = false } = req.body;
+    const { content, isInternal = false, fileUrl } = req.body;
     if (!content) {
       res.status(400).json({ error: "validation_error", message: "content is required" });
       return;
     }
 
     const msgId = generateId("msg");
+    const metadata = fileUrl ? { fileUrl } : undefined;
     const [msg] = await db.insert(messagesTable).values({
       id: msgId,
       conversationId: req.params.id,
@@ -147,6 +148,7 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
       senderId: user.id,
       senderName: user.name,
       isInternal: isInternal ? 1 : 0,
+      metadata,
     }).returning();
 
     await db.update(conversationsTable).set({ lastMessage: content, updatedAt: new Date() })
