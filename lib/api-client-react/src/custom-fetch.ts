@@ -283,7 +283,9 @@ export async function customFetch<T = unknown>(
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);
   }
 
-  const headers = mergeHeaders(isRequest(input) ? input.headers : undefined, headersInit);
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("flychat_token") : null;
+  const authHeader: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+  const headers = mergeHeaders(isRequest(input) ? input.headers : undefined, authHeader, headersInit);
 
   if (
     typeof init.body === "string" &&

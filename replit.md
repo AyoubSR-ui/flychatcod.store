@@ -16,12 +16,35 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
+## Project: FlyChat COD
+
+SaaS web app for COD ecommerce sellers in Algeria / North Africa.
+
+**Demo Accounts**
+- Seller: `demo@flychat.dz` / `demo123456` (role: owner)
+- Agent: `agent@flychat.dz` / `agent123456` (role: agent)
+- Super Admin: `admin@flychat.dz` / `admin123456` (role: superadmin)
+
+**Features Built**
+- Bilingual (EN/FR) marketing website (Home, Features, Pricing, Contact)
+- Auth flow: signup, login, onboarding wizard, reset password
+- Full seller dashboard: Dashboard, Inbox, Orders (+ detail), Customers (+ detail), Products, Widget, Automation, Channels, Team, Billing, Settings
+- Super Admin panel (`/admin`) — visible only to superadmin role
+- JWT auth with Bearer token stored in localStorage; injected automatically on all API calls
+- Realistic Algerian demo data seeded (5 customers, 5 orders, 5 conversations, 4 products)
+
+**Architecture**
+- Global proxy routes `/api` → API Server (port 8080); `/` → Frontend (port 21894)
+- Frontend uses relative `/api/...` URLs — no proxy config needed in Vite
+- Auth token auto-injected via `lib/api-client-react/src/custom-fetch.ts`
+
 ## Structure
 
 ```text
 artifacts-monorepo/
 ├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
+│   ├── api-server/         # Express API server (port 8080)
+│   └── flychat/            # React + Vite frontend (port 21894)
 ├── lib/                    # Shared libraries
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks

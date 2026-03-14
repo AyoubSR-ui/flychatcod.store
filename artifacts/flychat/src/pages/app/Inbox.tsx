@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Search, Filter, Phone, Check, Copy, ShoppingBag, Send, User } from "lucide-react";
+import { Search, Phone, ShoppingBag, Send, User, MessageSquare } from "lucide-react";
 import { useGetConversations, useGetMessages, useSendMessage, Conversation } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
