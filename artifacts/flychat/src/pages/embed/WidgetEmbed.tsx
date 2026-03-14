@@ -254,7 +254,9 @@ export default function WidgetEmbed() {
           const metadata = (msg as any).metadata;
           const attachment = metadata?.attachment as { objectPath: string; name: string; contentType: string } | null;
           const isImage = attachment?.contentType?.startsWith("image/");
-          const fileSrc = attachment ? `/api/storage${attachment.objectPath}` : null;
+          // Must use absolute URL — widget iframe is embedded on external sites,
+          // so relative paths would resolve to the visitor's website, not our server.
+          const fileSrc = attachment ? `${window.location.origin}/api/storage${attachment.objectPath}` : null;
 
           return (
             <div key={msg.id} style={{ display: "flex", justifyContent: isCustomer ? "flex-end" : "flex-start" }}>
