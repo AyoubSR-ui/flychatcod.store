@@ -174,6 +174,11 @@ router.post("/public/conversations", async (req, res) => {
     if (!parsed.success) { res.status(400).json({ error: "validation_error", message: parsed.error.issues }); return; }
     const { storeId, visitorId, language, currentPageUrl, referrer } = parsed.data;
 
+    const [store] = await db.select({ id: storesTable.id }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+    if (!store) { res.status(404).json({ error: "not_found", message: "Store not found" }); return; }
+    const [wConfig] = await db.select({ isActive: widgetConfigsTable.isActive }).from(widgetConfigsTable).where(eq(widgetConfigsTable.storeId, storeId)).limit(1);
+    if (!wConfig || !wConfig.isActive) { res.status(403).json({ error: "widget_disabled", message: "Widget is not active for this store" }); return; }
+
     const existing = await db.select()
       .from(conversationsTable)
       .where(and(
@@ -311,32 +316,6 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to send message" });
-  }
-});
-
-router.get("/public/:storeId", async (req, res) => {
-  try {
-    const { storeId } = req.params;
-
-    const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
-    if (!store) { res.status(404).json({ error: "not_found", message: "Store not found" }); return; }
-
-    const [config] = await db.select().from(widgetConfigsTable).where(eq(widgetConfigsTable.storeId, storeId)).limit(1);
-    if (!config) { res.status(404).json({ error: "not_found", message: "Widget config not found" }); return; }
-
-    res.json({
-      storeId: config.storeId,
-      storeName: store.name,
-      welcomeMessageEn: config.welcomeMessageEn,
-      welcomeMessageFr: config.welcomeMessageFr,
-      defaultLanguage: config.defaultLanguage,
-      primaryColor: config.primaryColor,
-      position: config.position,
-      isActive: config.isActive,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to fetch public widget config" });
   }
 });
 
