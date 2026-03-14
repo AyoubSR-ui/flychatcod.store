@@ -280,7 +280,10 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 
 export default function Orders() {
   const [showCreate, setShowCreate] = useState(false);
-  const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });
+  const { data: ordersData, isLoading } = useGetOrders(
+    { limit: 50 },
+    { query: { staleTime: 0, refetchOnMount: 'always' } }
+  );
   const { t } = useI18n();
 
   const getStatusColor = (status: string) => {

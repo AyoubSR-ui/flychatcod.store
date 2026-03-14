@@ -381,13 +381,18 @@ export default function Inbox() {
       },
     }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+        queryClient.refetchQueries({ queryKey: ['/api/orders'] });
         setOrderSuccess(true);
         setTimeout(() => {
           setRightPanel("customer");
           setOrderDraft(null);
           setOrderSuccess(false);
         }, 2500);
+      },
+      onError: (err: unknown) => {
+        const msg = (err as { message?: string })?.message ?? t("order.error_creating");
+        alert(msg);
       },
     });
   }, [orderDraft, activeConvId, createOrderMutation, queryClient, t]);
