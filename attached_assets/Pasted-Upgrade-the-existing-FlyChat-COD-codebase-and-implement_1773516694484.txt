@@ -1,0 +1,308 @@
+Upgrade the existing FlyChat COD codebase and implement Layer 1: the embeddable website chat widget foundation.
+
+IMPORTANT CONTEXT
+This project already exists and is not a greenfield build.
+Do not rebuild the app from scratch.
+Work inside the existing monorepo and preserve the current architecture.
+
+Current stack:
+- Backend: Node.js 24, Express 5, PostgreSQL, Drizzle ORM, Zod validation, JWT auth
+- Frontend: React 19, Vite 7, TailwindCSS v4, shadcn/ui, React Query, Wouter, Recharts
+- Monorepo: pnpm workspaces
+- Existing apps:
+  - artifacts/api-server
+  - artifacts/flychat
+- Existing schema and routes already exist for auth, dashboard, conversations, messages, orders, customers, products, widget config, automation, channels, team, billing, settings, admin
+
+GOAL OF THIS LAYER
+Implement the first usable embeddable widget system for FlyChat COD.
+
+This layer must deliver:
+1. Public widget backend endpoints
+2. An embeddable widget UI route inside the existing frontend app
+3. A real widget.js loader script
+4. End-to-end message flow from external website → widget → backend → seller inbox data
+5. Honest MVP implementation only, no fake realtime, no fake AI
+
+ARCHITECTURE REQUIREMENT
+Use the recommended architecture:
+- lightweight loader script
+- iframe-based widget UI
+
+The host website should only load a small script.
+The full chat UI must render inside an iframe to avoid CSS/JS conflicts with host websites.
+
+Expected embed snippet:
+<script>
+  window.FLYCHAT_CONFIG = { storeId: "STORE_ID" };
+</script>
+<script src="http://localhost/widget.js"></script>
+
+For now, use localhost/dev-safe URLs and existing local reverse proxy assumptions.
+Do not hardcode production domains.
+Structure it so production domains can be swapped in later with config/env variables.
+
+LAYER 1 SCOPE
+Implement only the widget foundation.
+Do NOT implement:
+- Socket.IO realtime
+- WhatsApp / Instagram / Messenger integration
+- AI features
+- billing integration
+- file uploads
+- advanced automation engine
+
+PART A — PUBLIC WIDGET BACKEND
+Add public-safe backend routes under /api/widget/public or another clean public namespace.
+
+Required endpoints:
+
+1. GET public widget config by store
+Purpose:
+- fetch public widget settings for a store
+- only return safe public fields
+
+Example:
+GET /api/widget/public/config/:storeId
+
+Response should include only safe fields like:
+- storeId
+- storeName
+- widget enabled/disabled
+- primary color
+- position
+- welcome message
+- default language
+- supported languages if available
+
+Do NOT expose private store settings.
+
+2. POST create or resume widget session
+Purpose:
+- accept visitor identity from browser localStorage if available
+- create a session or return existing info
+- support anonymous visitors
+
+Example:
+POST /api/widget/public/session
+
+Request body example:
+{
+  "storeId": "xxx",
+  "visitorId": "optional-existing-visitor-id",
+  "language": "fr",
+  "currentPageUrl": "https://example.com/product/123",
+  "referrer": "https://google.com"
+}
+
+Response example:
+{
+  "visitorId": "...",
+  "sessionId": "...",
+  "storeId": "...",
+  "language": "fr"
+}
+
+3. POST create conversation for widget visitor
+Purpose:
+- create a new conversation if none exists
+- associate it with store and visitor
+- mark channel as widget
+
+Example:
+POST /api/widget/public/conversations
+
+Request body example:
+{
+  "storeId": "xxx",
+  "visitorId": "...",
+  "language": "fr",
+  "currentPageUrl": "https://example.com/product/123",
+  "referrer": "https://google.com"
+}
+
+Response:
+{
+  "conversationId": "...",
+  "status": "open"
+}
+
+4. GET widget conversation messages
+Purpose:
+- fetch message thread for widget conversation
+
+Example:
+GET /api/widget/public/conversations/:conversationId/messages
+
+This endpoint must only expose messages safe for widget users.
+
+5. POST send widget message
+Purpose:
+- allow visitor to send a message into the conversation
+
+Example:
+POST /api/widget/public/conversations/:conversationId/messages
+
+Request body example:
+{
+  "visitorId": "...",
+  "content": "Bonjour, je veux commander",
+  "language": "fr"
+}
+
+Behavior:
+- validate message length and fields with Zod
+- create message in DB
+- update conversation last activity if schema supports it
+- tag sender as customer
+- ensure conversation belongs to same store context
+
+DATA MODEL CHANGES
+Make only minimal schema changes needed.
+If necessary, extend schema carefully.
+
+Suggested additions if not already present:
+- conversations.visitorId nullable
+- conversations.sourcePageUrl nullable
+- conversations.referrer nullable
+- conversations.widgetLanguage nullable
+- conversations.lastMessageAt nullable
+- messages.channel nullable if useful
+- optional widget_sessions table if needed
+
+If you add schema changes:
+- update Drizzle schema cleanly
+- provide migration
+- do not break existing seed data
+- update seed only if needed
+
+VALIDATION + SECURITY
+For all public widget endpoints:
+- use Zod validation
+- add conservative rate limiting hooks/placeholders if easy, but do not over-engineer
+- do not trust client input blindly
+- do not expose private seller data
+- ensure widget config only works for existing enabled stores
+- structure code so domain allowlists can be added later
+- sanitize/trim message content
+- reject empty messages
+
+PART B — EMBED WIDGET UI INSIDE EXISTING FRONTEND
+Do NOT create a separate frontend app yet.
+For MVP, build the widget UI inside the existing React frontend under a dedicated embed route.
+
+Required route:
+- /embed/widget
+
+Behavior:
+- read query params like storeId and language
+- fetch public widget config
+- create/resume session
+- create/resume conversation
+- render isolated chat UI intended for iframe use
+- support English and French UI text using existing i18n approach if possible, or a minimal widget-local dictionary if cleaner
+- look polished and mobile-friendly
+- do not rely on seller authentication
+
+Widget UI requirements:
+- compact modern chat layout
+- header with store name
+- welcome message
+- scrollable message thread
+- text input composer
+- send button
+- empty/loading/error states
+- customer-side only, no seller controls
+- responsive for narrow iframe width
+
+Keep UI realistic but minimal.
+Do not add fake AI buttons or fake advanced automation.
+
+Suggested widget flow:
+1. iframe loads
+2. fetch config
+3. create/resume visitor session
+4. create/resume conversation
+5. show welcome message
+6. allow sending/reading messages
+
+SESSION PERSISTENCE
+Use browser localStorage inside iframe/or parent-safe logic for:
+- flychat_visitor_id
+- flychat_conversation_id_{storeId}
+
+If conversation exists, try to reuse it.
+If reuse logic becomes messy, implement a clean MVP with reuse where reasonable, but keep it stable.
+
+PART C — WIDGET LOADER SCRIPT
+Implement a real embeddable loader script served by the backend or another practical path in the existing system.
+
+Required public URL for local dev:
+- /widget.js
+
+This script must:
+- read window.FLYCHAT_CONFIG
+- validate that storeId exists
+- create a floating launcher button on the host page
+- create a hidden iframe container
+- point iframe to /embed/widget?storeId=...&lang=...
+- toggle iframe open/close
+- isolate styles enough to avoid breaking host page
+- avoid polluting host page globals except for one minimal namespace if needed
+
+Loader requirements:
+- pure vanilla JS
+- lightweight
+- no framework dependency
+- do not inject the full chat UI directly into host DOM
+- inject only launcher + iframe shell
+- support open/close state
+- support default position from fetched config if practical
+- if config fetch before iframe creation is too heavy, keep the loader simple and let iframe handle config; but still produce a polished launcher behavior
+
+If needed, serve widget.js from the API server.
+Choose the cleanest practical implementation for this monorepo.
+
+PART D — INBOX COMPATIBILITY
+Ensure that widget-originated conversations appear correctly in the existing seller inbox.
+
+Required:
+- channel should clearly be widget
+- customer messages created through widget should be readable in current inbox UI
+- existing inbox should not break
+- if necessary, add small frontend tweaks so widget conversations display meaningful context
+- if possible, include source page URL in conversation detail or metadata placeholder
+
+Do NOT rebuild the whole inbox.
+Only make the minimum adjustments needed for Layer 1 compatibility.
+
+PART E — TESTING / DEMO SUPPORT
+Add a simple local test page or documented method to test embedding.
+
+Options:
+- either create a very small plain HTML test page in the repo
+- or document exactly how to paste the embed snippet into a local HTML file
+
+Need a reliable way to verify:
+- widget loader appears
+- iframe opens
+- message can be sent
+- message is stored in DB
+- seller can see conversation in inbox
+
+OUTPUT QUALITY REQUIREMENTS
+- preserve current project structure
+- keep code modular and readable
+- do not remove existing features
+- do not fake unimplemented functionality
+- if something must be scaffolded, label it honestly
+- avoid introducing dead code
+- prioritize working end-to-end flow over over-engineering
+
+AFTER IMPLEMENTATION, PROVIDE A CLEAR HANDOFF SUMMARY
+At the end, summarize:
+1. exactly what Layer 1 now supports
+2. which files were added or changed
+3. any schema changes made
+4. how to run/test the widget locally
+5. what remains for the next layer (Socket.IO realtime)
