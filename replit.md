@@ -24,6 +24,7 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - Seller: `demo@flychat.dz` / `demo123456` (role: owner)
 - Agent: `agent@flychat.dz` / `agent123456` (role: agent)
 - Super Admin: `admin@flychat.dz` / `admin123456` (role: superadmin)
+- Demo store ID: `str_demo_000000000000000000000001` (deterministic, stable across reseeds)
 
 **Features Built**
 - Bilingual (EN/FR) marketing website (Home, Features, Pricing, Contact)

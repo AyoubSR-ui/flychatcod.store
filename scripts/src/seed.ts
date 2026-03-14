@@ -85,7 +85,7 @@ async function seed() {
   }).onConflictDoNothing();
 
   // ─── Store ────────────────────────────────────────────────────────────────
-  const storeId = generateId("str");
+  const storeId = "str_demo_000000000000000000000001";
   await db.insert(storesTable).values({
     id: storeId,
     organizationId: orgId,
