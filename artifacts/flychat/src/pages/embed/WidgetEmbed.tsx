@@ -109,7 +109,7 @@ export default function WidgetEmbed() {
       let cid = localStorage.getItem(`flychat_conversation_${storeId}`);
 
       if (cid) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}`);
+        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}&storeId=${encodeURIComponent(storeId)}`);
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           setMessages(msgData.messages || []);
@@ -138,7 +138,7 @@ export default function WidgetEmbed() {
       setConversationId(cid);
 
       if (convData.resumed) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}`);
+        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}&storeId=${encodeURIComponent(storeId)}`);
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           setMessages(msgData.messages || []);
@@ -155,7 +155,7 @@ export default function WidgetEmbed() {
   async function fetchMessages() {
     if (!conversationId || !visitorId) return;
     try {
-      const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages?visitorId=${encodeURIComponent(visitorId)}`);
+      const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages?visitorId=${encodeURIComponent(visitorId)}&storeId=${encodeURIComponent(storeId)}`);
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages || []);
@@ -181,7 +181,7 @@ export default function WidgetEmbed() {
       const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visitorId, content, language: lang }),
+        body: JSON.stringify({ storeId, visitorId, content, language: lang }),
       });
       if (res.ok) {
         const msg = await res.json();

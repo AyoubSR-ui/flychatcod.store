@@ -213,18 +213,26 @@ router.get("/public/conversations/:conversationId/messages", async (req, res) =>
   try {
     const { conversationId } = req.params;
     const visitorId = req.query.visitorId;
+    const storeId = req.query.storeId;
     if (!visitorId || typeof visitorId !== "string") {
       res.status(400).json({ error: "validation_error", message: "visitorId query parameter is required" }); return;
+    }
+    if (!storeId || typeof storeId !== "string") {
+      res.status(400).json({ error: "validation_error", message: "storeId query parameter is required" }); return;
     }
 
     const [conv] = await db.select({
       id: conversationsTable.id,
       visitorId: conversationsTable.visitorId,
       channel: conversationsTable.channel,
+      storeId: conversationsTable.storeId,
     }).from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
     if (!conv) { res.status(404).json({ error: "not_found", message: "Conversation not found" }); return; }
     if (conv.channel !== "widget") {
       res.status(403).json({ error: "forbidden", message: "Not a widget conversation" }); return;
+    }
+    if (conv.storeId !== storeId) {
+      res.status(403).json({ error: "forbidden", message: "Store mismatch" }); return;
     }
     if (!conv.visitorId || conv.visitorId !== visitorId) {
       res.status(403).json({ error: "forbidden", message: "Visitor mismatch" }); return;
@@ -248,6 +256,7 @@ router.get("/public/conversations/:conversationId/messages", async (req, res) =>
 });
 
 const sendMessageSchema = z.object({
+  storeId: z.string().min(1),
   visitorId: z.string().min(1),
   content: z.string().transform(v => v.trim()).refine(v => v.length >= 1 && v.length <= 2000, {
     message: "Content must be between 1 and 2000 characters after trimming",
@@ -260,12 +269,15 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
     const { conversationId } = req.params;
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: "validation_error", message: parsed.error.issues }); return; }
-    const { visitorId, content } = parsed.data;
+    const { storeId, visitorId, content } = parsed.data;
 
     const [conv] = await db.select().from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
     if (!conv) { res.status(404).json({ error: "not_found", message: "Conversation not found" }); return; }
     if (conv.channel !== "widget") {
       res.status(403).json({ error: "forbidden", message: "Not a widget conversation" }); return;
+    }
+    if (conv.storeId !== storeId) {
+      res.status(403).json({ error: "forbidden", message: "Store mismatch" }); return;
     }
     if (!conv.visitorId || conv.visitorId !== visitorId) {
       res.status(403).json({ error: "forbidden", message: "Visitor mismatch" }); return;
