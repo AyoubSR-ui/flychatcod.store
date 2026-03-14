@@ -220,9 +220,13 @@ router.get("/public/conversations/:conversationId/messages", async (req, res) =>
     const [conv] = await db.select({
       id: conversationsTable.id,
       visitorId: conversationsTable.visitorId,
+      channel: conversationsTable.channel,
     }).from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
     if (!conv) { res.status(404).json({ error: "not_found", message: "Conversation not found" }); return; }
-    if (conv.visitorId && conv.visitorId !== visitorId) {
+    if (conv.channel !== "widget") {
+      res.status(403).json({ error: "forbidden", message: "Not a widget conversation" }); return;
+    }
+    if (!conv.visitorId || conv.visitorId !== visitorId) {
       res.status(403).json({ error: "forbidden", message: "Visitor mismatch" }); return;
     }
 
@@ -260,7 +264,10 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
 
     const [conv] = await db.select().from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
     if (!conv) { res.status(404).json({ error: "not_found", message: "Conversation not found" }); return; }
-    if (conv.visitorId && conv.visitorId !== visitorId) {
+    if (conv.channel !== "widget") {
+      res.status(403).json({ error: "forbidden", message: "Not a widget conversation" }); return;
+    }
+    if (!conv.visitorId || conv.visitorId !== visitorId) {
       res.status(403).json({ error: "forbidden", message: "Visitor mismatch" }); return;
     }
 
@@ -331,6 +338,15 @@ const WIDGET_LOADER_JS = `(function(){
   var storeId = cfg.storeId;
   var lang = cfg.lang || "fr";
 
+  var scriptEl = document.currentScript;
+  var baseUrl = "";
+  if(scriptEl && scriptEl.src) {
+    var srcUrl = new URL(scriptEl.src);
+    baseUrl = srcUrl.origin;
+  } else {
+    baseUrl = window.location.origin;
+  }
+
   var btn = document.createElement("div");
   btn.id = "flychat-launcher";
   btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>';
@@ -341,13 +357,12 @@ const WIDGET_LOADER_JS = `(function(){
   container.style.cssText = "position:fixed;bottom:96px;right:24px;width:380px;height:560px;max-height:calc(100vh - 120px);border-radius:16px;overflow:hidden;z-index:2147483646;box-shadow:0 8px 40px rgba(0,0,0,0.2);display:none;";
 
   var iframe = document.createElement("iframe");
-  var origin = window.location.origin;
-  iframe.src = origin + "/embed/widget?storeId=" + encodeURIComponent(storeId) + "&lang=" + encodeURIComponent(lang);
+  iframe.src = baseUrl + "/embed/widget?storeId=" + encodeURIComponent(storeId) + "&lang=" + encodeURIComponent(lang);
   iframe.style.cssText = "width:100%;height:100%;border:none;border-radius:16px;";
   iframe.allow = "clipboard-write";
   container.appendChild(iframe);
 
-  fetch(origin + "/api/widget/public/config/" + encodeURIComponent(storeId))
+  fetch(baseUrl + "/api/widget/public/config/" + encodeURIComponent(storeId))
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(data) {
       if(data && data.primaryColor) {
