@@ -101,13 +101,13 @@ export default function WidgetEmbed() {
       let cid = localStorage.getItem(`flychat_conversation_${storeId}`);
 
       if (cid) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages`);
+        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid!)}`);
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           setMessages(msgData.messages || []);
           setConversationId(cid);
           setLoading(false);
-          startPolling(cid);
+          startPolling(cid, vid!);
           return;
         }
         localStorage.removeItem(`flychat_conversation_${storeId}`);
@@ -130,7 +130,7 @@ export default function WidgetEmbed() {
       setConversationId(cid);
 
       if (convData.resumed) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages`);
+        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid!)}`);
         if (msgRes.ok) {
           const msgData = await msgRes.json();
           setMessages(msgData.messages || []);
@@ -138,18 +138,18 @@ export default function WidgetEmbed() {
       }
 
       setLoading(false);
-      startPolling(cid!);
+      startPolling(cid!, vid!);
     } catch {
       setError(t.error);
       setLoading(false);
     }
   }
 
-  function startPolling(cid: string) {
+  function startPolling(cid: string, vid: string) {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
-        const res = await fetch(`${API_BASE}/conversations/${cid}/messages`);
+        const res = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}`);
         if (res.ok) {
           const data = await res.json();
           setMessages(data.messages || []);

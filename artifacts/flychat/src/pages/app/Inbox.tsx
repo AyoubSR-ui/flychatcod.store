@@ -5,6 +5,10 @@ import { useGetConversations, useGetMessages, useSendMessage, Conversation } fro
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 
+interface ConversationWithWidget extends Conversation {
+  sourcePageUrl?: string | null;
+}
+
 export default function Inbox() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [msgInput, setMsgInput] = useState("");
@@ -18,7 +22,7 @@ export default function Inbox() {
 
   const sendMutation = useSendMessage();
 
-  const activeConv = convsData?.conversations?.find(c => c.id === activeConvId);
+  const activeConv = convsData?.conversations?.find(c => c.id === activeConvId) as ConversationWithWidget | undefined;
 
   const handleSend = () => {
     if (!msgInput.trim() || !activeConvId) return;
@@ -85,11 +89,11 @@ export default function Inbox() {
                   <h3 className="font-bold text-foreground leading-tight">{activeConv.customerName}</h3>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="w-2 h-2 rounded-full bg-green-500"></span> Online via {activeConv.channel}
-                    {(activeConv as any).sourcePageUrl && (() => {
+                    {activeConv.sourcePageUrl && (() => {
                       try {
-                        const hostname = new URL((activeConv as any).sourcePageUrl).hostname;
+                        const hostname = new URL(activeConv.sourcePageUrl).hostname;
                         return (
-                          <span className="flex items-center gap-1 ml-2 text-blue-500" title={(activeConv as any).sourcePageUrl}>
+                          <span className="flex items-center gap-1 ml-2 text-blue-500" title={activeConv.sourcePageUrl}>
                             <Globe className="w-3 h-3" />
                             <span className="truncate max-w-[200px]">{hostname}</span>
                           </span>
