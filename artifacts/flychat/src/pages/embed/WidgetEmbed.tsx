@@ -41,17 +41,9 @@ function getSearchParam(key: string): string {
   return params.get(key) || "";
 }
 
-function getParentPageUrl(): string {
-  try {
-    if (window.parent !== window && document.referrer) {
-      return document.referrer;
-    }
-  } catch {}
-  return "";
-}
-
 export default function WidgetEmbed() {
   const storeId = getSearchParam("storeId");
+  const pageUrl = getSearchParam("pageUrl");
   const langParam = getSearchParam("lang") || "fr";
   const lang = langParam === "en" ? "en" : "fr";
   const t = dict[lang] || dict.fr;
@@ -85,7 +77,6 @@ export default function WidgetEmbed() {
       setConfig(cfgData);
 
       const existingVisitorId = localStorage.getItem("flychat_visitor_id") || undefined;
-      const parentPageUrl = getParentPageUrl();
 
       const sessRes = await fetch(`${API_BASE}/session`, {
         method: "POST",
@@ -94,7 +85,7 @@ export default function WidgetEmbed() {
           storeId,
           visitorId: existingVisitorId,
           language: lang,
-          currentPageUrl: parentPageUrl || undefined,
+          currentPageUrl: pageUrl || undefined,
           referrer: document.referrer || undefined,
         }),
       });
@@ -127,7 +118,7 @@ export default function WidgetEmbed() {
           storeId,
           visitorId: vid,
           language: lang,
-          currentPageUrl: parentPageUrl || undefined,
+          currentPageUrl: pageUrl || undefined,
           referrer: document.referrer || undefined,
         }),
       });

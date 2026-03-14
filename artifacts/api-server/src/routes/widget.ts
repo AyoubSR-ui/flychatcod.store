@@ -16,7 +16,8 @@ router.get("/config", requireAuth, async (req, res) => {
     const [config] = await db.select().from(widgetConfigsTable).where(eq(widgetConfigsTable.storeId, storeId)).limit(1);
     if (!config) { res.status(404).json({ error: "not_found", message: "Widget config not found" }); return; }
 
-    const embedCode = `<script>window.FLYCHAT_CONFIG={storeId:"${storeId}"};</script>\n<script src="/api/widget/widget.js"></script>`;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const embedCode = `<script>window.FLYCHAT_CONFIG={storeId:"${storeId}"};</script>\n<script src="${baseUrl}/api/widget/widget.js"></script>`;
 
     res.json({ ...config, embedCode });
   } catch (err) {
@@ -57,7 +58,8 @@ router.patch("/config", requireAuth, async (req, res) => {
       [config] = await db.insert(widgetConfigsTable).values(insertValues).returning();
     }
 
-    const embedCode = `<script>window.FLYCHAT_CONFIG={storeId:"${storeId}"};</script>\n<script src="/api/widget/widget.js"></script>`;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const embedCode = `<script>window.FLYCHAT_CONFIG={storeId:"${storeId}"};</script>\n<script src="${baseUrl}/api/widget/widget.js"></script>`;
     res.json({ ...config, embedCode });
   } catch (err) {
     console.error(err);
@@ -101,8 +103,8 @@ const sessionSchema = z.object({
   storeId: z.string().min(1),
   visitorId: z.string().optional(),
   language: z.string().default("fr"),
-  currentPageUrl: z.string().optional(),
-  referrer: z.string().optional(),
+  currentPageUrl: z.string().max(2048).optional(),
+  referrer: z.string().max(2048).optional(),
 });
 
 router.post("/public/session", async (req, res) => {
@@ -164,8 +166,8 @@ const createConvSchema = z.object({
   storeId: z.string().min(1),
   visitorId: z.string().min(1),
   language: z.string().default("fr"),
-  currentPageUrl: z.string().optional(),
-  referrer: z.string().optional(),
+  currentPageUrl: z.string().max(2048).optional(),
+  referrer: z.string().max(2048).optional(),
 });
 
 router.post("/public/conversations", async (req, res) => {
@@ -287,6 +289,9 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
     if (!conv.visitorId || conv.visitorId !== visitorId) {
       res.status(403).json({ error: "forbidden", message: "Visitor mismatch" }); return;
     }
+    if (conv.status !== "open") {
+      res.status(403).json({ error: "conversation_closed", message: "This conversation is closed" }); return;
+    }
 
     const msgId = generateId("msg");
     const now = new Date();
@@ -338,18 +343,24 @@ const WIDGET_LOADER_JS = `(function(){
     baseUrl = window.location.origin;
   }
 
+  var pageUrl = "";
+  try { pageUrl = window.location.href; } catch(e) {}
+
+  var style = document.createElement("style");
+  style.textContent = "#flychat-container{position:fixed;bottom:96px;right:16px;width:min(380px,calc(100vw - 32px));height:min(560px,calc(100vh - 120px));border-radius:16px;overflow:hidden;z-index:2147483646;box-shadow:0 8px 40px rgba(0,0,0,0.2);display:none;}@media(max-width:430px){#flychat-container{right:0;bottom:0;width:100vw;height:100vh;border-radius:0;}#flychat-launcher{bottom:16px!important;right:16px!important;width:52px!important;height:52px!important;}}";
+  document.head.appendChild(style);
+
   var btn = document.createElement("div");
   btn.id = "flychat-launcher";
   btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>';
-  btn.style.cssText = "position:fixed;bottom:24px;right:24px;width:60px;height:60px;border-radius:50%;background:#2563eb;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483646;box-shadow:0 4px 20px rgba(0,0,0,0.25);transition:transform 0.2s,background 0.3s;";
+  btn.style.cssText = "position:fixed;bottom:24px;right:24px;width:60px;height:60px;border-radius:50%;background:#2563eb;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;box-shadow:0 4px 20px rgba(0,0,0,0.25);transition:transform 0.2s,background 0.3s;";
 
   var container = document.createElement("div");
   container.id = "flychat-container";
-  container.style.cssText = "position:fixed;bottom:96px;right:24px;width:380px;height:560px;max-height:calc(100vh - 120px);border-radius:16px;overflow:hidden;z-index:2147483646;box-shadow:0 8px 40px rgba(0,0,0,0.2);display:none;";
 
   var iframe = document.createElement("iframe");
-  iframe.src = baseUrl + "/embed/widget?storeId=" + encodeURIComponent(storeId) + "&lang=" + encodeURIComponent(lang);
-  iframe.style.cssText = "width:100%;height:100%;border:none;border-radius:16px;";
+  iframe.src = baseUrl + "/embed/widget?storeId=" + encodeURIComponent(storeId) + "&lang=" + encodeURIComponent(lang) + "&pageUrl=" + encodeURIComponent(pageUrl);
+  iframe.style.cssText = "width:100%;height:100%;border:none;";
   iframe.allow = "clipboard-write";
   container.appendChild(iframe);
 

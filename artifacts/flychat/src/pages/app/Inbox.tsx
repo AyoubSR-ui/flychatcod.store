@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe } from "lucide-react";
-import { useGetConversations, useGetMessages, useSendMessage, Conversation } from "@workspace/api-client-react";
+import { useGetConversations, useGetMessages, useSendMessage, Conversation, getGetMessagesQueryKey, getGetConversationsQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 
@@ -13,6 +14,7 @@ export default function Inbox() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [msgInput, setMsgInput] = useState("");
   const { t } = useI18n();
+  const queryClient = useQueryClient();
 
   const { data: convsData, isLoading: isLoadingConvs } = useGetConversations({ status: "open" });
   
@@ -26,9 +28,16 @@ export default function Inbox() {
 
   const handleSend = () => {
     if (!msgInput.trim() || !activeConvId) return;
-    sendMutation.mutate({ id: activeConvId, data: { content: msgInput } });
+    sendMutation.mutate(
+      { id: activeConvId, data: { content: msgInput } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(activeConvId) });
+          queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+        },
+      }
+    );
     setMsgInput("");
-    // In a real app, optimistic update here or invalidate queries
   };
 
   return (

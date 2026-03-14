@@ -15,21 +15,31 @@
 </head>
 <body>
   <h1>FlyChat Widget Test Page</h1>
-  <p>This page embeds the FlyChat chat widget for testing purposes. If the widget is configured correctly, you should see a floating chat button in the bottom-right corner.</p>
+  <p>This page embeds the FlyChat chat widget for testing. You should see a floating chat button in the bottom-right corner.</p>
 
   <div class="card">
-    <h3>How to test</h3>
+    <h3>Local Testing (same-origin)</h3>
     <ol>
-      <li>Log in to the dashboard with <code>demo@flychat.dz / demo123456</code></li>
-      <li>Go to <strong>Widget</strong> settings and copy your store ID from the embed snippet</li>
-      <li>Replace the <code>storeId</code> value below with your actual store ID</li>
-      <li>Open this page and click the chat button</li>
-      <li>Send a message, then check your Inbox to see it</li>
+      <li>Make sure the API server and frontend are running.</li>
+      <li>Open this page at <code>/test-widget.html</code> in the preview.</li>
+      <li>Click the blue chat button in the bottom-right corner.</li>
+      <li>Send a message in the chat window.</li>
+      <li>Log in to the dashboard (<code>demo@flychat.dz / demo123456</code>) and open <strong>Inbox</strong> — your message should appear.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>External Testing (third-party site)</h3>
+    <ol>
+      <li>Log in to the dashboard and go to the <strong>Widget</strong> &gt; <strong>Installation</strong> tab.</li>
+      <li>Copy the embed snippet — it includes the full absolute URL to <code>widget.js</code>.</li>
+      <li>Paste the snippet into your external HTML page before <code>&lt;/body&gt;</code>.</li>
+      <li>Open that page — the chat button should load and connect back to your FlyChat instance.</li>
     </ol>
   </div>
 
   <div class="note">
-    <strong>Note:</strong> Replace <code>YOUR_STORE_ID_HERE</code> in the script below with your actual store ID from the Widget settings page.
+    <strong>Note:</strong> The storeId below is pre-filled with the seeded demo store. To use a different store, replace the value in <code>FLYCHAT_CONFIG</code>.
   </div>
 
   <div class="card">
@@ -38,8 +48,8 @@
     <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
   </div>
 
-  <!-- FlyChat Widget Embed -->
-  <script>window.FLYCHAT_CONFIG = { storeId: "YOUR_STORE_ID_HERE" };</script>
+  <!-- FlyChat Widget Embed — storeId is the seeded demo store -->
+  <script>window.FLYCHAT_CONFIG = { storeId: "str_3e82b5c3fbb0e9d3ee660fd6" };</script>
   <script src="/api/widget/widget.js"></script>
 </body>
 </html>
