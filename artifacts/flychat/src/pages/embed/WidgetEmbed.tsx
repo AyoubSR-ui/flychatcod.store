@@ -22,6 +22,7 @@ interface WidgetMessage {
   id: string;
   content: string;
   sender: "customer" | "agent" | "bot" | "system";
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
 }
 

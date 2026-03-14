@@ -161,7 +161,7 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
         const io = getIO();
         io.to(`conv:${req.params.id}`).emit("new_message", {
           conversationId: req.params.id,
-          message: { id: msg.id, content: msg.content, sender: msg.sender, createdAt: msg.createdAt },
+          message: { id: msg.id, content: msg.content, sender: msg.sender, metadata: msg.metadata, createdAt: msg.createdAt },
         });
       } catch {}
     }

@@ -250,6 +250,7 @@ router.get("/public/conversations/:conversationId/messages", async (req, res) =>
       id: messagesTable.id,
       content: messagesTable.content,
       sender: messagesTable.sender,
+      metadata: messagesTable.metadata,
       createdAt: messagesTable.createdAt,
     })
       .from(messagesTable)
@@ -315,6 +316,7 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
       id: messagesTable.id,
       content: messagesTable.content,
       sender: messagesTable.sender,
+      metadata: messagesTable.metadata,
       createdAt: messagesTable.createdAt,
     }).from(messagesTable).where(eq(messagesTable.id, msgId));
 
