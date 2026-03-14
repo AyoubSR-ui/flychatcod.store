@@ -656,7 +656,7 @@ export default function Inbox() {
 
         {/* ── RIGHT PANEL ── */}
         {activeConv && (
-          <div className="w-72 border-l border-border bg-card hidden xl:flex flex-col shrink-0 overflow-hidden">
+          <div className="w-64 border-l border-border bg-card hidden lg:flex flex-col shrink-0 overflow-hidden">
             {rightPanel === "customer" ? (
               /* Customer context panel (original) */
               <>
