@@ -42,7 +42,7 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - Public API endpoints under `/api/widget/public/` for session, conversation, and message management
 - All Zod schemas enforce `max(2048)` on URL fields; send endpoint blocks writes to closed conversations
 - Visitor sessions tracked in `widget_sessions` table; conversations linked via `visitorId` column
-- No polling or Socket.IO yet (Layer 1); messages fetched after each send
+- Real-time via Socket.IO (Layer 2): agent replies appear instantly in the widget; visitor messages appear instantly in the Inbox
 - Embed snippet (absolute URL generated from request host): `<script>window.FLYCHAT_CONFIG={storeId:"..."};</script><script src="https://<host>/api/widget/widget.js"></script>`
 - `test-widget.html` pre-filled with demo store ID for zero-config local testing
 
@@ -50,6 +50,11 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - Global proxy routes `/api` → API Server (port 8080); `/` → Frontend (port 21894)
 - Frontend uses relative `/api/...` URLs — no proxy config needed in Vite
 - Auth token auto-injected via `lib/api-client-react/src/custom-fetch.ts`
+- Socket.IO server attached to the HTTP server at path `/api/socket.io`
+  - Agent connections: JWT in `auth.token`, auto-joins `store:<storeId>` room
+  - Visitor connections: `visitorId` + `storeId` + `conversationId` in auth, joins `conv:<id>` room
+  - Events: `new_message` emitted to `conv:<id>` and `store:<storeId>` rooms on each message send
+  - Both Inbox and WidgetEmbed listen for `new_message` and update their UIs in real-time
 
 ## Structure
 
@@ -131,14 +136,16 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 
 Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
 
-## Layer 2: Real-time (Socket.IO) — Remaining Work
+## Layer 2: Real-time (Socket.IO) — COMPLETED
 
-1. **Server-side Socket.IO setup** — Install `socket.io` in `api-server`, attach it to the existing HTTP server. Create rooms per `store:<storeId>` and `conv:<conversationId>`.
-2. **Inbox socket auth** — On connection, validate the JWT from the `auth` handshake query/header. Join the user to their store's room. Reject unauthenticated connections.
-3. **Widget socket (public)** — On connection from the widget iframe, join the socket to the specific `conv:<conversationId>` room. Validate `visitorId` + `storeId` before joining.
-4. **Emit on public message send** — After a visitor sends a message via `POST /public/conversations/:id/messages`, emit a `new_message` event to the conversation room and the store room so the Inbox receives it.
-5. **Emit on agent reply** — After an agent sends a message via the authenticated send endpoint, emit a `new_message` event to the conversation room so the widget embed receives it.
-6. **Inbox frontend subscription** — Connect the Inbox page to the Socket.IO server with the JWT token. Listen for `new_message` events and prepend/update the conversation list + active thread in real-time (invalidate React Query cache or merge directly).
-7. **Widget embed subscription** — Connect the widget embed to Socket.IO (no auth, pass `visitorId` + `conversationId`). Listen for `new_message` and append agent replies to the message list without polling.
-8. **Typing indicators (optional)** — Emit `typing_start` / `typing_stop` events from both sides so the other party sees "is typing..." status.
-9. **Online presence (optional)** — Track connected visitors per store and surface a "1 visitor online" indicator in the Inbox header.
+All core real-time items implemented:
+1. Server-side Socket.IO setup with rooms per conversation + store
+2. JWT auth for agents, visitorId+storeId auth for visitors
+3. Emit `new_message` on visitor send (to conv + store rooms)
+4. Emit `new_message` on agent reply (to conv room, skipped for internal notes)
+5. Inbox subscribes via Socket.IO with JWT, invalidates React Query on events
+6. Widget embed subscribes via Socket.IO, appends agent replies in real-time
+
+**Remaining optional work:**
+- Typing indicators (`typing_start` / `typing_stop`)
+- Online presence (visitor count per store)

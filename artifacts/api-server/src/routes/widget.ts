@@ -5,6 +5,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { z } from "zod";
+import { getIO } from "../socket.js";
 
 const router = Router();
 
@@ -316,6 +317,12 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
       sender: messagesTable.sender,
       createdAt: messagesTable.createdAt,
     }).from(messagesTable).where(eq(messagesTable.id, msgId));
+
+    try {
+      const io = getIO();
+      io.to(`conv:${conversationId}`).emit("new_message", { conversationId, message: msg });
+      io.to(`store:${storeId}`).emit("new_message", { conversationId, message: msg });
+    } catch {}
 
     res.status(201).json(msg);
   } catch (err) {

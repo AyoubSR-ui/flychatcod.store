@@ -3,6 +3,7 @@ import { db, conversationsTable, messagesTable } from "@workspace/db";
 import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
+import { getIO } from "../socket.js";
 
 const router = Router();
 
@@ -148,11 +149,22 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
       isInternal: isInternal ? 1 : 0,
     }).returning();
 
-    // Update conversation last message
     await db.update(conversationsTable).set({ lastMessage: content, updatedAt: new Date() })
       .where(eq(conversationsTable.id, req.params.id));
 
-    res.status(201).json({ ...msg, isInternal: msg.isInternal === 1 });
+    const responseMsg = { ...msg, isInternal: msg.isInternal === 1 };
+
+    if (!isInternal) {
+      try {
+        const io = getIO();
+        io.to(`conv:${req.params.id}`).emit("new_message", {
+          conversationId: req.params.id,
+          message: { id: msg.id, content: msg.content, sender: msg.sender, createdAt: msg.createdAt },
+        });
+      } catch {}
+    }
+
+    res.status(201).json(responseMsg);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to send message" });

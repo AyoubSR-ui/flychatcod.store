@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { io, Socket } from "socket.io-client";
 
 const dict: Record<string, Record<string, string>> = {
   en: {
@@ -57,6 +58,7 @@ export default function WidgetEmbed() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -68,6 +70,33 @@ export default function WidgetEmbed() {
   }, [storeId]);
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    if (!conversationId || !visitorId || !storeId) return;
+
+    const origin = window.location.origin;
+    const socket = io(origin, {
+      path: "/api/socket.io",
+      auth: { visitorId, storeId, conversationId },
+      transports: ["websocket", "polling"],
+    });
+
+    socket.on("new_message", (data: { conversationId: string; message: WidgetMessage }) => {
+      if (data.conversationId !== conversationId) return;
+      if (data.message.sender === "customer") return;
+      setMessages(prev => {
+        if (prev.some(m => m.id === data.message.id)) return prev;
+        return [...prev, data.message];
+      });
+    });
+
+    socketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [conversationId, visitorId, storeId]);
 
   async function init() {
     try {

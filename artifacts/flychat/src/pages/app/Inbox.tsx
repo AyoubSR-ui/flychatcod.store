@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe } from "lucide-react";
 import { useGetConversations, useGetMessages, useSendMessage, Conversation, getGetMessagesQueryKey, getGetConversationsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { io, Socket } from "socket.io-client";
 
 interface ConversationWithWidget extends Conversation {
   sourcePageUrl?: string | null;
@@ -15,6 +16,7 @@ export default function Inbox() {
   const [msgInput, setMsgInput] = useState("");
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const socketRef = useRef<Socket | null>(null);
 
   const { data: convsData, isLoading: isLoadingConvs } = useGetConversations({ status: "open" });
   
@@ -23,6 +25,38 @@ export default function Inbox() {
   });
 
   const sendMutation = useSendMessage();
+
+  useEffect(() => {
+    const token = localStorage.getItem("flychat_token");
+    if (!token) return;
+
+    const socket = io(window.location.origin, {
+      path: "/api/socket.io",
+      auth: { token },
+      transports: ["websocket", "polling"],
+    });
+
+    socket.on("new_message", (data: { conversationId: string; message: any }) => {
+      queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+      queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(data.conversationId) });
+    });
+
+    socketRef.current = socket;
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [queryClient]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !activeConvId) return;
+    socket.emit("join_conversation", activeConvId);
+    return () => {
+      socket.emit("leave_conversation", activeConvId);
+    };
+  }, [activeConvId]);
 
   const activeConv = convsData?.conversations?.find(c => c.id === activeConvId) as ConversationWithWidget | undefined;
 
