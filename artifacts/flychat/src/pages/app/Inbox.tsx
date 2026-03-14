@@ -66,16 +66,27 @@ export default function Inbox() {
     if ((!msgInput.trim() && !selectedFile) || !activeConvId) return;
     
     let fileUrl = null;
+    let fileMetadata = null;
     if (selectedFile) {
+      // Validate file size (max 5MB)
+      if (selectedFile.size > 5 * 1024 * 1024) {
+        alert("File too large. Maximum size is 5MB.");
+        return;
+      }
       const reader = new FileReader();
       fileUrl = await new Promise<string>((resolve) => {
         reader.onload = () => resolve(reader.result as string);
         reader.readAsDataURL(selectedFile);
       });
+      fileMetadata = {
+        name: selectedFile.name,
+        size: selectedFile.size,
+        type: selectedFile.type,
+      };
     }
     
     sendMutation.mutate(
-      { id: activeConvId, data: { content: msgInput || "📎 File attachment", fileUrl } },
+      { id: activeConvId, data: { content: msgInput || "📎 File attachment", fileUrl, fileMetadata } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(activeConvId) });
@@ -170,7 +181,43 @@ export default function Inbox() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#f8fafc]">
               {msgsData?.messages.map((msg) => {
                 const isCustomer = msg.sender === 'customer';
-                const fileUrl = (msg.metadata as any)?.fileUrl;
+                const metadata = msg.metadata as any;
+                const fileUrl = metadata?.fileUrl;
+                const fileMetadata = metadata?.fileMetadata;
+                
+                const renderFile = () => {
+                  if (!fileUrl) return null;
+                  try {
+                    if (fileUrl.startsWith('data:image')) {
+                      return (
+                        <div className="mb-2">
+                          <img src={fileUrl} alt="Attachment" className="max-w-xs rounded-lg max-h-64 object-cover" />
+                        </div>
+                      );
+                    } else if (fileUrl.startsWith('data:')) {
+                      const fileName = fileMetadata?.name || 'Document';
+                      return (
+                        <div className="mb-2">
+                          <button
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = fileUrl;
+                              link.download = fileName;
+                              link.click();
+                            }}
+                            className="text-blue-500 hover:text-blue-700 underline text-xs flex items-center gap-1"
+                          >
+                            📎 {fileName}
+                          </button>
+                        </div>
+                      );
+                    }
+                  } catch (e) {
+                    return <div className="text-xs text-red-500 mb-2">Failed to load file</div>;
+                  }
+                  return null;
+                };
+                
                 return (
                   <div key={msg.id} className={`flex ${isCustomer ? "justify-start" : "justify-end"}`}>
                     <div className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm ${
@@ -178,17 +225,7 @@ export default function Inbox() {
                         ? "bg-white border border-border/50 text-foreground rounded-tl-sm" 
                         : "bg-primary text-primary-foreground rounded-tr-sm"
                     }`}>
-                      {fileUrl && (
-                        <div className="mb-2">
-                          {fileUrl.startsWith('data:image') ? (
-                            <img src={fileUrl} alt="Attachment" className="max-w-xs rounded-lg" />
-                          ) : (
-                            <a href={fileUrl} download className="text-blue-500 underline text-xs">
-                              📎 Download File
-                            </a>
-                          )}
-                        </div>
-                      )}
+                      {renderFile()}
                       <p className="text-sm">{msg.content}</p>
                       <span className={`text-[10px] mt-2 block ${isCustomer ? "text-muted-foreground" : "text-primary-foreground/70"}`}>
                         {format(new Date(msg.createdAt), 'HH:mm')}

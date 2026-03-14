@@ -251,6 +251,10 @@ export default function WidgetEmbed() {
         )}
         {messages.map((msg) => {
           const isCustomer = msg.sender === "customer";
+          const metadata = (msg as any).metadata;
+          const fileUrl = metadata?.fileUrl;
+          const fileMetadata = metadata?.fileMetadata;
+          
           return (
             <div key={msg.id} style={{ display: "flex", justifyContent: isCustomer ? "flex-end" : "flex-start" }}>
               <div style={{
@@ -265,6 +269,28 @@ export default function WidgetEmbed() {
                 border: isCustomer ? "none" : "1px solid #e2e8f0",
                 wordBreak: "break-word",
               }}>
+                {fileUrl && fileUrl.startsWith("data:image") && (
+                  <img src={fileUrl} alt="attachment" style={{ maxWidth: "100%", borderRadius: 8, marginBottom: 8, maxHeight: 200, objectFit: "cover" }} />
+                )}
+                {fileUrl && !fileUrl.startsWith("data:image") && (
+                  <div style={{ marginBottom: 8, fontSize: 12 }}>
+                    <button
+                      onClick={() => {
+                        const link = document.createElement("a");
+                        link.href = fileUrl;
+                        link.download = fileMetadata?.name || "file";
+                        link.click();
+                      }}
+                      style={{
+                        cursor: "pointer",
+                        color: isCustomer ? "#fff" : "#3b82f6",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      📎 {fileMetadata?.name || "Download File"}
+                    </button>
+                  </div>
+                )}
                 {msg.content}
                 <div style={{
                   fontSize: 10,
