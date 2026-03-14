@@ -331,6 +331,7 @@ export type CreateOrderRequestItemsItem = {
 export interface CreateOrderRequest {
   customerName: string;
   customerPhone: string;
+  customerEmail?: string | null;
   wilaya: string;
   address?: string | null;
   customerId?: string | null;

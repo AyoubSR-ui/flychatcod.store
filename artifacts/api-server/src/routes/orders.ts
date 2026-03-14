@@ -44,7 +44,7 @@ router.post("/", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
 
-    const { customerName, customerPhone, wilaya, address, customerId, conversationId, sellerNote, items = [] } = req.body;
+    const { customerName, customerPhone, customerEmail, wilaya, address, customerId, conversationId, sellerNote, items = [] } = req.body;
     if (!customerName || !customerPhone || !wilaya || items.length === 0) {
       res.status(400).json({ error: "validation_error", message: "customerName, customerPhone, wilaya, and items are required" });
       return;
@@ -61,6 +61,7 @@ router.post("/", requireAuth, async (req, res) => {
       conversationId,
       customerName,
       customerPhone,
+      customerEmail: customerEmail || null,
       wilaya,
       address,
       sellerNote,

@@ -1415,6 +1415,9 @@ components:
           type: string
         customerPhone:
           type: string
+        customerEmail:
+          type: string
+          nullable: true
         wilaya:
           type: string
         address:

@@ -34,6 +34,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({
     customerName: "",
     customerPhone: "",
+    customerEmail: "",
     wilaya: "",
     address: "",
     sellerNote: "",
@@ -72,6 +73,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
         data: {
           customerName: form.customerName,
           customerPhone: form.customerPhone,
+          customerEmail: form.customerEmail || undefined,
           wilaya: form.wilaya,
           address: form.address || undefined,
           sellerNote: form.sellerNote || undefined,
@@ -136,6 +138,16 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
                   placeholder="0550 123 456"
                 />
                 {errors.customerPhone && <p className="text-red-500 text-xs mt-1">{errors.customerPhone}</p>}
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium mb-1">Email <span className="text-muted-foreground text-xs font-normal">(optional)</span></label>
+                <input
+                  type="email"
+                  value={form.customerEmail}
+                  onChange={e => setForm(f => ({ ...f, customerEmail: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="customer@example.com"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Wilaya <span className="text-red-500">*</span></label>

@@ -383,6 +383,7 @@ export const GetOrdersResponse = zod.object({
 export const CreateOrderBody = zod.object({
   customerName: zod.string(),
   customerPhone: zod.string(),
+  customerEmail: zod.string().nullish(),
   wilaya: zod.string(),
   address: zod.string().nullish(),
   customerId: zod.string().nullish(),

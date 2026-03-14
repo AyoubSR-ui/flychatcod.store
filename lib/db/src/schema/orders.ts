@@ -20,6 +20,7 @@ export const ordersTable = pgTable("orders", {
   conversationId: text("conversation_id"),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone").notNull(),
+  customerEmail: text("customer_email"),
   wilaya: text("wilaya").notNull(),
   address: text("address"),
   status: orderStatusEnum("status").notNull().default("new"),
