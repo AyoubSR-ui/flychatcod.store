@@ -1,0 +1,99 @@
+Upgrade FlyChat COD Layer 4 from simple Inbox → Order creation into an Inbox → Order Draft Builder workflow.
+
+IMPORTANT
+Do not rebuild the app.
+Work inside the existing monorepo and preserve current architecture, auth, realtime chat, widget, orders, customers, products, and layout.
+
+GOAL
+Allow agents to build an order draft directly from the Inbox by clicking visitor messages and mapping them into order fields.
+
+FEATURE REQUIREMENTS
+
+1. Create Order action
+- In the Inbox, clicking "Create Order" should open or activate an order draft panel in the right column
+- This panel should be tied to the current conversation
+- It should feel fast and polished, not like a disconnected modal
+
+2. Order draft fields
+Include these fields in the right-side draft panel:
+- customer name
+- phone number
+- email
+- address
+- optional note
+- wilaya if available
+- products / line items
+- quantity
+- total
+- create order button
+
+3. Message-to-field mapping
+When the agent clicks a visitor/customer message in the center chat thread, show a contextual action menu with options like:
+- Use as Name
+- Use as Phone
+- Use as Email
+- Use as Address
+- Use as Note
+
+When the agent clicks one of these options, push the full message content into the corresponding order draft field on the right.
+
+4. Safe field update behavior
+- If the target field is empty, fill it directly
+- If the field already has content, show a small replace/append/cancel interaction or another clean UX to avoid silent overwrites
+
+5. Customer context prefill
+If the conversation already has linked customer data, prefill the draft from the customer record where available:
+- name
+- phone
+- email
+- address
+- notes
+
+6. Product handling
+Keep product selection manual for now.
+Allow the agent to:
+- search products from current store catalog
+- add one or multiple products
+- set quantity
+- remove line items
+- calculate totals in DZD
+
+Do not auto-extract products from chat yet.
+
+7. Final order creation
+When agent clicks Create Order:
+- validate required fields
+- create or update linked customer if needed
+- create order
+- link order to the source conversation
+- refresh inbox/order/customer views
+- show success feedback
+
+8. Inbox compatibility
+- Keep the existing 3-panel Inbox layout
+- Do not break realtime chat
+- Keep attachment rendering intact
+- If possible, visually indicate when a message has already been used to fill an order field
+
+9. UX polish
+- bilingual support (English/French)
+- no hardcoded English-only strings
+- polished contextual menu
+- clean draft panel states
+- empty states and validation states
+
+10. Scope limits
+Do not add AI.
+Do not add automatic extraction.
+Do not add WhatsApp integration.
+Do not rebuild the whole inbox.
+
+OPTIONAL NICE-TO-HAVE
+If easy and clean, add support for selecting part of a message later, but the main MVP requirement is full-message mapping only.
+
+OUTPUT SUMMARY
+After implementation, summarize:
+1. how the order draft builder works
+2. what files changed
+3. whether any schema changes were needed
+4. what remains for the next enhancement
