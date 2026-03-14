@@ -33,6 +33,14 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - JWT auth with Bearer token stored in localStorage; injected automatically on all API calls
 - Realistic Algerian demo data seeded (5 customers, 5 orders, 5 conversations, 4 products)
 
+**Embeddable Widget (Layer 1)**
+- Widget.js loader served at `/api/widget/widget.js` — vanilla JS, creates floating chat button + iframe
+- Widget embed UI at `/embed/widget?storeId=...&lang=en|fr` — standalone React page, no auth required
+- Public API endpoints under `/api/widget/public/` for session, conversation, and message management
+- Visitor sessions tracked in `widget_sessions` table; conversations linked via `visitorId` column
+- Polling-based message refresh (4s interval); no Socket.IO yet
+- Embed snippet: `<script>window.FLYCHAT_CONFIG={storeId:"..."};</script><script src="/api/widget/widget.js"></script>`
+
 **Architecture**
 - Global proxy routes `/api` → API Server (port 8080); `/` → Frontend (port 21894)
 - Frontend uses relative `/api/...` URLs — no proxy config needed in Vite

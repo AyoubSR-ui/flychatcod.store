@@ -33,6 +33,9 @@ import Billing from "@/pages/app/Billing";
 import Settings from "@/pages/app/Settings";
 import Admin from "@/pages/app/Admin";
 
+// Embed pages (no auth)
+import WidgetEmbed from "@/pages/embed/WidgetEmbed";
+
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -59,6 +62,9 @@ function Router() {
       <Route path="/features" component={Features} />
       <Route path="/pricing" component={Pricing} />
       <Route path="/contact" component={Contact} />
+
+      {/* Embed (no auth) */}
+      <Route path="/embed/widget" component={WidgetEmbed} />
 
       {/* Auth */}
       <Route path="/login" component={Login} />

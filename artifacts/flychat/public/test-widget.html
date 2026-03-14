@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlyChat Widget Test Page</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; background: #f8fafc; }
+    h1 { color: #1e293b; }
+    p { color: #64748b; line-height: 1.6; }
+    code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin: 20px 0; }
+    .note { background: #fefce8; border: 1px solid #fef08a; border-radius: 8px; padding: 16px; margin: 20px 0; color: #854d0e; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>FlyChat Widget Test Page</h1>
+  <p>This page embeds the FlyChat chat widget for testing purposes. If the widget is configured correctly, you should see a floating chat button in the bottom-right corner.</p>
+
+  <div class="card">
+    <h3>How to test</h3>
+    <ol>
+      <li>Log in to the dashboard with <code>demo@flychat.dz / demo123456</code></li>
+      <li>Go to <strong>Widget</strong> settings and copy your store ID from the embed snippet</li>
+      <li>Replace the <code>storeId</code> value below with your actual store ID</li>
+      <li>Open this page and click the chat button</li>
+      <li>Send a message, then check your Inbox to see it</li>
+    </ol>
+  </div>
+
+  <div class="note">
+    <strong>Note:</strong> Replace <code>YOUR_STORE_ID_HERE</code> in the script below with your actual store ID from the Widget settings page.
+  </div>
+
+  <div class="card">
+    <h3>Sample content</h3>
+    <p>This is a sample ecommerce landing page. The chat widget appears as a floating button in the corner, allowing visitors to start a conversation with the store owner.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+  </div>
+
+  <!-- FlyChat Widget Embed -->
+  <script>window.FLYCHAT_CONFIG = { storeId: "YOUR_STORE_ID_HERE" };</script>
+  <script src="/api/widget/widget.js"></script>
+</body>
+</html>

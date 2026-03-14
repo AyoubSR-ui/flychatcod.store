@@ -17,6 +17,21 @@ export const widgetConfigsTable = pgTable("widget_configs", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const widgetSessionsTable = pgTable("widget_sessions", {
+  id: text("id").primaryKey(),
+  storeId: text("store_id").notNull(),
+  visitorId: text("visitor_id").notNull(),
+  language: text("language").notNull().default("fr"),
+  currentPageUrl: text("current_page_url"),
+  referrer: text("referrer"),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertWidgetConfigSchema = createInsertSchema(widgetConfigsTable).omit({ createdAt: true, updatedAt: true });
 export type InsertWidgetConfig = z.infer<typeof insertWidgetConfigSchema>;
 export type WidgetConfig = typeof widgetConfigsTable.$inferSelect;
+
+export const insertWidgetSessionSchema = createInsertSchema(widgetSessionsTable).omit({ createdAt: true });
+export type InsertWidgetSession = z.infer<typeof insertWidgetSessionSchema>;
+export type WidgetSession = typeof widgetSessionsTable.$inferSelect;

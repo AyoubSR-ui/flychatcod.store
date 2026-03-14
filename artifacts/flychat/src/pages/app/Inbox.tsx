@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Search, Phone, ShoppingBag, Send, User, MessageSquare } from "lucide-react";
+import { Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe } from "lucide-react";
 import { useGetConversations, useGetMessages, useSendMessage, Conversation } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
@@ -85,6 +85,17 @@ export default function Inbox() {
                   <h3 className="font-bold text-foreground leading-tight">{activeConv.customerName}</h3>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="w-2 h-2 rounded-full bg-green-500"></span> Online via {activeConv.channel}
+                    {(activeConv as any).sourcePageUrl && (() => {
+                      try {
+                        const hostname = new URL((activeConv as any).sourcePageUrl).hostname;
+                        return (
+                          <span className="flex items-center gap-1 ml-2 text-blue-500" title={(activeConv as any).sourcePageUrl}>
+                            <Globe className="w-3 h-3" />
+                            <span className="truncate max-w-[200px]">{hostname}</span>
+                          </span>
+                        );
+                      } catch { return null; }
+                    })()}
                   </div>
                 </div>
               </div>
