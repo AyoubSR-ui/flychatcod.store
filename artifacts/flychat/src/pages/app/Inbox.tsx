@@ -63,7 +63,7 @@ export default function Inbox() {
   const activeConv = convsData?.conversations?.find(c => c.id === activeConvId) as ConversationWithWidget | undefined;
 
   const handleSend = async () => {
-    if (!msgInput.trim() || !activeConvId) return;
+    if ((!msgInput.trim() && !selectedFile) || !activeConvId) return;
     
     let fileUrl = null;
     if (selectedFile) {
@@ -75,7 +75,7 @@ export default function Inbox() {
     }
     
     sendMutation.mutate(
-      { id: activeConvId, data: { content: msgInput, fileUrl } },
+      { id: activeConvId, data: { content: msgInput || "📎 File attachment", fileUrl } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(activeConvId) });
@@ -232,7 +232,7 @@ export default function Inbox() {
                 />
                 <button 
                   onClick={handleSend}
-                  disabled={!msgInput.trim() || sendMutation.isPending}
+                  disabled={(!msgInput.trim() && !selectedFile) || sendMutation.isPending}
                   className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 transition-colors shrink-0 mb-0.5 mr-0.5"
                 >
                   <Send className="w-4 h-4 ml-0.5" />
