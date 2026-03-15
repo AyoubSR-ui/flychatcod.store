@@ -38,7 +38,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Sidebar */}
-      <aside className="w-64 bg-card border-r border-border flex flex-col shadow-sm z-10">
+      <aside className="w-56 bg-card border-r border-border flex flex-col shadow-sm z-10">
         <div className="h-20 flex items-center px-6 border-b border-border/50">
           <Link href="/dashboard" className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white shadow-md shadow-primary/20">

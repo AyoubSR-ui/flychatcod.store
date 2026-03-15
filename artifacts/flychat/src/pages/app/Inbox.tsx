@@ -556,19 +556,12 @@ export default function Inbox() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {rightPanel === "draft" ? (
-                  <button onClick={cancelDraft}
-                    className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors">
-                    <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
-                  </button>
-                ) : (
-                  <button onClick={initDraft}
-                    className="px-4 py-2 bg-primary/10 text-primary font-bold text-sm rounded-xl hover:bg-primary/20 flex items-center gap-2 transition-colors">
-                    <ShoppingBag className="w-4 h-4" /> {t("order.create")}
-                  </button>
-                )}
-              </div>
+              {rightPanel === "draft" && (
+                <button onClick={cancelDraft}
+                  className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors shrink-0">
+                  <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
+                </button>
+              )}
             </div>
 
             {/* Draft mode hint bar */}
