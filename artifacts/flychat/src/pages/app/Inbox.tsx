@@ -171,6 +171,7 @@ export default function Inbox() {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
   const [draftTab, setDraftTab] = useState<"crm" | "draft">("draft");
+  const [lastCreatedOrder, setLastCreatedOrder] = useState<{ orderNumber: string; total: number; status: string; customerName: string } | null>(null);
 
   const msgMenuRef = useRef<HTMLDivElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -222,6 +223,15 @@ export default function Inbox() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgsData?.messages]);
 
+  // When messages finish loading for a conversation, the server resets unreadCount to 0.
+  // We need to refresh the conversations list so the badge disappears in the UI.
+  const prevUnreadConvId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeConvId || !msgsData || prevUnreadConvId.current === activeConvId) return;
+    prevUnreadConvId.current = activeConvId;
+    queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+  }, [activeConvId, msgsData, queryClient]);
+
   // Reset state when switching conversations
   useEffect(() => {
     setRightPanel("customer");
@@ -231,6 +241,7 @@ export default function Inbox() {
     setOrderSuccess(false);
     setDraftErrors({});
     setProductSearch("");
+    setLastCreatedOrder(null);
   }, [activeConvId]);
 
   // Close message menu on outside click
@@ -392,9 +403,17 @@ export default function Inbox() {
         })),
       },
     }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
-        queryClient.refetchQueries({ queryKey: ['/api/orders'] });
+      onSuccess: (data: any) => {
+        queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() });
+        // Refresh conversations so the updated customerId/customerName is picked up by the CRM sidebar
+        queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+        // Store order summary for CRM sidebar display
+        setLastCreatedOrder({
+          orderNumber: data.orderNumber,
+          total: data.total,
+          status: data.status,
+          customerName: data.customerName,
+        });
         setOrderSuccess(true);
         setTimeout(() => {
           setRightPanel("customer");
@@ -718,6 +737,22 @@ export default function Inbox() {
                       )}
                     </div>
                   </div>
+                  {lastCreatedOrder && (
+                    <div>
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3">Latest Order</h4>
+                      <div className="bg-green-50 border border-green-200 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Package className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                          <span className="text-xs font-bold text-green-800">#{lastCreatedOrder.orderNumber}</span>
+                          <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 uppercase">{lastCreatedOrder.status}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Total</span>
+                          <span className="font-bold text-green-700">{lastCreatedOrder.total.toLocaleString()} DZD</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {rightPanel === "customer" && (
                     <button onClick={initDraft}
                       className="w-full px-4 py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 flex items-center justify-center gap-2 transition-colors shadow-sm">

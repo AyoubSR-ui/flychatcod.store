@@ -1,0 +1,111 @@
+Upgrade FlyChat COD by implementing Layer 3: customer, conversation, and order linking cleanup.
+
+IMPORTANT
+Do not rebuild the app.
+Work inside the existing monorepo and preserve the current architecture, realtime chat, widget, order draft builder, attachments, and existing dashboard structure.
+
+GOAL
+Make FlyChat COD's Inbox, CRM context, and Orders system truly connected.
+
+Right now:
+- widget conversations are usually anonymous
+- orders can be created from a conversation
+- but customer linking is usually missing
+- the conversation does not show related orders
+- the CRM sidebar still shows incorrect order counts
+- conversation records are not updated properly after order creation
+
+This layer must make the product behave like a real CRM and chat-to-order platform.
+
+REQUIRED FEATURES
+
+1. Customer linking during order creation
+When an agent creates an order from the Inbox:
+- if the conversation already has a customerId, reuse that customer
+- otherwise attempt same-store customer lookup by phone number
+- if a matching customer exists in the same store, reuse and update that customer
+- if no matching customer exists, create a new customer record
+- assign the final customerId to the new order
+- also update the source conversation with that customerId
+
+2. Update conversation identity after order creation
+If the conversation currently has anonymous widget-style identity like "Visitor xxxxxx":
+- update the conversation customerName/display name to the real customer name if available
+- keep visitorId if needed for widget continuity
+- do not break realtime messaging
+
+3. Conversation enrichment
+Implement proper conversation enrichment so a conversation can show its related order(s).
+Replace any hardcoded relatedOrders: [] behavior.
+
+The conversation detail or Inbox CRM context should be able to access:
+- linked customer
+- total orders for linked customer
+- orders created from this conversation
+- latest order status
+- order links if practical
+
+4. CRM sidebar correctness
+Fix the right-side CRM context so it reflects real data after an order is created:
+- correct customer name
+- correct phone/email if available
+- total orders count
+- customer status or repeat customer state if supported
+- latest linked order summary if practical
+
+5. Keep order and conversation linkage clean
+If orders table already stores conversationId, use that relationship.
+Also ensure the conversation can be enriched from that relationship when loaded.
+
+6. Same-store dedup only
+All customer matching must be scoped to the current store.
+Never reuse a customer from another store.
+
+7. Unread count reset
+When an agent opens a conversation in the Inbox, reset unreadCount correctly for that conversation.
+This should remove stale unread badges.
+
+8. Preserve current UX
+Do not break:
+- realtime inbox
+- widget messaging
+- file attachments
+- order draft builder
+- bilingual UI
+- existing Orders and Customers pages
+
+9. Validation and data safety
+- keep strong validation
+- do not silently merge unrelated customers
+- prefer phone number as the main dedup key
+- update existing customer fields carefully
+- avoid overwriting useful customer data with blank values
+
+10. Nice UX outcomes
+After successful order creation from Inbox:
+- the conversation should feel upgraded from anonymous visitor to real customer
+- the right sidebar should show real CRM information
+- the order should be visibly connected to the conversation
+- the data should persist on refresh
+
+BACKEND REQUIREMENTS
+- extend existing order creation logic cleanly
+- add customer lookup/create/update logic in a safe place
+- add or update any conversation enrichment endpoint as needed
+- preserve multitenant isolation on all queries
+
+DATABASE / SCHEMA
+Only make minimal schema changes if needed.
+If changes are required:
+- update Drizzle schema
+- add migration
+- keep seed/demo data working
+
+OUTPUT SUMMARY
+At the end, clearly summarize:
+1. how customer linking now works
+2. how conversations are enriched with orders
+3. how the CRM sidebar changed
+4. whether unreadCount reset was fixed
+5. which files changed
+6. any schema changes made

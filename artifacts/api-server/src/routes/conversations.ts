@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, conversationsTable, messagesTable } from "@workspace/db";
+import { db, conversationsTable, messagesTable, ordersTable, customersTable } from "@workspace/db";
 import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
@@ -89,7 +89,36 @@ router.get("/:id", requireAuth, async (req, res) => {
       .where(eq(messagesTable.conversationId, conv.id))
       .orderBy(messagesTable.createdAt);
 
-    res.json({ ...conv, messages, customer: null, relatedOrders: [] });
+    // Fetch orders linked to this conversation
+    const relatedOrders = await db
+      .select({
+        id: ordersTable.id,
+        orderNumber: ordersTable.orderNumber,
+        customerName: ordersTable.customerName,
+        total: ordersTable.total,
+        status: ordersTable.status,
+        createdAt: ordersTable.createdAt,
+      })
+      .from(ordersTable)
+      .where(and(eq(ordersTable.conversationId, conv.id), eq(ordersTable.storeId, storeId!)))
+      .orderBy(sql`${ordersTable.createdAt} desc`)
+      .limit(10);
+
+    // Fetch linked customer
+    let customer = null;
+    if (conv.customerId) {
+      const [c] = await db.select().from(customersTable)
+        .where(eq(customersTable.id, conv.customerId))
+        .limit(1);
+      customer = c || null;
+    }
+
+    res.json({
+      ...conv,
+      messages,
+      customer,
+      relatedOrders: relatedOrders.map(o => ({ ...o, total: Number(o.total) })),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to fetch conversation" });
@@ -119,9 +148,26 @@ router.patch("/:id", requireAuth, async (req, res) => {
 
 router.get("/:id/messages", requireAuth, async (req, res) => {
   try {
+    const storeId = req.user!.storeId;
+
+    // Verify conversation belongs to this store, then reset unread count
+    const [conv] = await db
+      .select({ id: conversationsTable.id })
+      .from(conversationsTable)
+      .where(and(eq(conversationsTable.id, req.params.id), eq(conversationsTable.storeId, storeId!)))
+      .limit(1);
+
+    if (conv) {
+      await db
+        .update(conversationsTable)
+        .set({ unreadCount: 0 })
+        .where(eq(conversationsTable.id, conv.id));
+    }
+
     const messages = await db.select().from(messagesTable)
       .where(eq(messagesTable.conversationId, req.params.id))
       .orderBy(messagesTable.createdAt);
+
     res.json({ messages });
   } catch (err) {
     console.error(err);
