@@ -1,0 +1,202 @@
+Provide a full technical audit of the current FlyChat COD implementation.
+
+Do NOT explain the product concept.
+Explain exactly what has been implemented in the codebase and what is still missing.
+
+Answer the following questions clearly.
+
+-----------------------------------
+
+SECTION 1 — Inbox → Order Draft Builder
+
+1. When "Create Order" is clicked in the Inbox, how is the order draft panel rendered?
+- Which React component handles it?
+- Is it inside the chat column or the right sidebar?
+
+2. How is the draft state stored?
+- React state
+- context
+- React Query
+- another store
+
+3. What fields exist in the order draft object?
+
+Example:
+name
+phone
+email
+address
+wilaya
+notes
+products
+quantity
+total
+
+List the exact structure.
+
+4. How does message-to-field mapping work?
+
+When the agent clicks a visitor message:
+- which component handles the click
+- how does it push data to the draft
+- which function updates the draft state
+
+5. Does the system prevent overwriting existing fields?
+
+If a field already contains data and the agent maps another message:
+- replace?
+- append?
+- confirm dialog?
+
+Explain current behavior.
+
+-----------------------------------
+
+SECTION 2 — Order Creation
+
+6. What happens technically when the agent clicks "Create Order"?
+
+Explain step-by-step:
+- validation
+- API call
+- database insert
+- linking order to conversation
+- linking order to customer
+
+7. Which API endpoint creates the order?
+
+Example:
+POST /api/orders
+
+Provide the request payload structure.
+
+8. Is the conversation ID stored in the order record?
+
+If yes:
+- which field stores it
+- how is it used later
+
+9. How is the customer linked or created?
+
+Does the system:
+- reuse existing customer by phone
+- always create new customer
+- check duplicates
+
+Explain the logic.
+
+-----------------------------------
+
+SECTION 3 — Inbox Integration
+
+10. After an order is created from the Inbox:
+
+Does the UI show that the conversation now has an order?
+
+Examples:
+- order badge
+- order link
+- CRM context update
+
+Explain current behavior.
+
+11. Does the conversation sidebar update automatically?
+
+Explain how React Query cache or Socket.IO events refresh the UI.
+
+-----------------------------------
+
+SECTION 4 — Draft Behavior
+
+12. What happens when "Cancel Draft" is clicked?
+
+Explain:
+- does the draft close
+- does the state reset
+- is any data preserved
+
+13. What happens if the agent switches to another conversation while a draft is open?
+
+Possible behaviors:
+- draft resets
+- draft persists
+- warning appears
+
+Explain current behavior.
+
+-----------------------------------
+
+SECTION 5 — Widget → Inbox Flow
+
+14. Explain the full flow from widget message to agent inbox:
+
+Visitor → widget → API → database → Socket.IO → agent UI.
+
+15. Are widget conversations automatically linked to customers?
+
+Or are they anonymous until the agent fills details?
+
+-----------------------------------
+
+SECTION 6 — Attachments
+
+16. Are attachments supported in both directions?
+
+Visitor → Agent  
+Agent → Visitor
+
+Explain how they are stored and delivered.
+
+-----------------------------------
+
+SECTION 7 — Performance
+
+17. How are messages loaded in the inbox?
+
+- full history
+- pagination
+- infinite scroll
+- limit queries
+
+18. What is the current query limit for messages?
+
+-----------------------------------
+
+SECTION 8 — Missing Features
+
+List features that exist in the UI but are not implemented yet.
+
+Examples:
+- automation engine
+- WhatsApp
+- billing
+- typing indicators
+- AI extraction
+- visitor file upload
+
+-----------------------------------
+
+SECTION 9 — Architecture Check
+
+Confirm if these systems are implemented:
+
+- Socket.IO realtime messaging
+- Google Cloud Storage for attachments
+- JWT authentication
+- multi-tenant store isolation
+- OpenAPI + Orval client
+
+Explain if any are partial.
+
+-----------------------------------
+
+SECTION 10 — Known Technical Risks
+
+Identify any potential problems in the current architecture.
+
+Examples:
+- scaling issues
+- state management issues
+- missing validations
+- race conditions
+- missing indexes
