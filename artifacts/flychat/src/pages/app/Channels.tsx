@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { MessageSquare, CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play } from "lucide-react";
+import { MessageSquare, CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X } from "lucide-react";
 import { useGetChannels } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
+import WidgetGuideVideo from "@/components/WidgetGuideVideo";
 
 const CHANNEL_META = {
   widget: {
@@ -9,24 +11,28 @@ const CHANNEL_META = {
     icon: "💬",
     description: "Embed a floating chat widget on your website. Customers can start a chat and place COD orders directly from your store.",
     color: "from-blue-500 to-blue-600",
+    hasGuide: true,
   },
   whatsapp: {
     name: "WhatsApp",
     icon: "📱",
     description: "Connect your WhatsApp Business account to receive and respond to customer messages. Requires Meta Business verification.",
     color: "from-green-500 to-green-600",
+    hasGuide: false,
   },
   instagram: {
     name: "Instagram DMs",
     icon: "📸",
     description: "Manage Instagram Direct Messages alongside your other conversations. Requires a connected Instagram Business account.",
     color: "from-pink-500 to-rose-500",
+    hasGuide: false,
   },
   messenger: {
     name: "Facebook Messenger",
     icon: "💙",
     description: "Handle Facebook Messenger conversations from your Page. Requires a connected Facebook Business Page.",
     color: "from-blue-600 to-indigo-600",
+    hasGuide: false,
   },
 } as const;
 
@@ -49,6 +55,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 export default function Channels() {
   const { data, isLoading } = useGetChannels();
   const { t } = useI18n();
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
 
@@ -111,7 +118,14 @@ export default function Channels() {
                         >
                           {isActive ? "Manage" : isComingSoon ? "Not Available Yet" : "Connect"}
                         </button>
-                        <button className="px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-1.5 text-muted-foreground">
+                        <button
+                          onClick={() => meta.hasGuide && setGuideOpen(true)}
+                          className={`px-3 py-2 border rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
+                            meta.hasGuide
+                              ? "border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+                              : "border-border text-muted-foreground opacity-40 cursor-not-allowed"
+                          }`}
+                        >
                           <Play className="w-3 h-3" /> Guide
                         </button>
                         {!isComingSoon && (
@@ -128,6 +142,28 @@ export default function Channels() {
           )}
         </div>
       </div>
+
+      {/* Video Guide Modal */}
+      {guideOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setGuideOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10"
+            style={{ aspectRatio: "16/9" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <WidgetGuideVideo />
+            <button
+              onClick={() => setGuideOpen(false)}
+              className="absolute top-3 right-3 z-20 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors backdrop-blur-sm"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
