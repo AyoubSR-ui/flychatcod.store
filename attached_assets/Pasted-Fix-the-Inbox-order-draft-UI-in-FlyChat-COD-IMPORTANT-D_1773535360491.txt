@@ -1,0 +1,90 @@
+Fix the Inbox order draft UI in FlyChat COD.
+
+IMPORTANT
+Do not rebuild the app.
+Work inside the existing monorepo and preserve the current architecture, realtime inbox, widget, file attachments, and current 3-column Inbox structure.
+
+PROBLEM TO FIX
+Right now the order draft window is opening inside or on top of the chat column.
+This makes it hard for the agent to read the conversation while building the order.
+
+DESIRED BEHAVIOR
+The order draft panel must appear as a separate panel next to the chat, not inside the chat thread and not overlaying the messages in a way that blocks visibility.
+
+TARGET LAYOUT
+Keep the Inbox readable and professional.
+
+Expected layout when a conversation is selected and order draft is opened:
+- left column: conversation list
+- middle column: chat thread
+- right side area: customer/CRM context + order draft panel
+
+If needed, expand the right column into tabs, stacked sections, or a split layout, but the draft must stay outside the message thread.
+The chat column must remain fully visible and usable while the draft is open.
+
+REQUIREMENTS
+
+1. Move draft panel out of chat column
+- The draft/order builder must render in the right-side column area, not inside the message list
+- It must not cover message bubbles
+- It must not break scroll behavior in the conversation thread
+- It must not overlap the message composer
+
+2. Preserve conversation visibility
+- Agent should still be able to read the full conversation while the draft is open
+- Agent should be able to keep clicking visitor messages and mapping them into order fields
+- Keep the workflow fast and readable
+
+3. Fix order draft open/close behavior
+- Test the “Create Order” action
+- Test the “Cancel Draft” button
+- Right now I need you to verify that Cancel Draft actually closes the draft properly and resets state correctly if that is the intended behavior
+- If Cancel Draft is currently broken or partially working, fix it
+
+4. Define correct Cancel Draft behavior
+Implement a clean and predictable behavior:
+- clicking Cancel Draft should close the draft panel
+- draft local UI state should be cleared if the intended behavior is discard
+- if there is any unsaved draft state kept intentionally, make the UX explicit
+- no broken half-open draft states
+- no hidden overlay left behind
+
+5. Improve layout structure
+Use a proper responsive layout.
+Good options:
+- right sidebar becomes scrollable and contains both CRM context and draft section
+- CRM context stays at top and draft appears below it
+- or right panel uses tabs like “CRM” and “Order Draft”
+Choose the cleanest UX, but keep the draft clearly outside the chat area
+
+6. Keep current features working
+Do not break:
+- realtime messages
+- file attachments
+- customer context card
+- Create Order button
+- message-to-field mapping flow
+- bilingual UI
+
+7. UI polish
+- make the draft panel visually consistent with the existing design
+- add proper spacing
+- avoid clipped buttons or overlapping headers
+- ensure the draft panel is usable on common desktop widths
+- if needed, make the right column wider while the draft is open
+- keep the layout stable and professional
+
+8. Testing
+After fixing:
+- test opening Create Order
+- test filling draft fields
+- test clicking Cancel Draft
+- test reopening Create Order
+- test that the chat remains readable during all of this
+
+OUTPUT SUMMARY
+At the end, summarize:
+1. what caused the draft to appear inside/over the chat
+2. what layout changes were made
+3. whether Cancel Draft was fixed and how it behaves now
+4. which files were changed
