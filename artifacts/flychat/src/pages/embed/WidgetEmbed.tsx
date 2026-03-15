@@ -158,15 +158,30 @@ export default function WidgetEmbed() {
       localStorage.setItem(`flychat_conversation_${storeId}`, cid!);
       setConversationId(cid);
 
-      if (convData.resumed) {
-        const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}&storeId=${encodeURIComponent(storeId)}`);
-        if (msgRes.ok) {
-          const msgData = await msgRes.json();
-          setMessages(msgData.messages || []);
-        }
+      // Fetch existing messages (covers resumed convs AND any automation messages
+      // that fired synchronously before this point)
+      const msgRes = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}&storeId=${encodeURIComponent(storeId)}`);
+      if (msgRes.ok) {
+        const msgData = await msgRes.json();
+        setMessages(msgData.messages || []);
       }
 
       setLoading(false);
+
+      // Automation (e.g. welcome message) fires server-side just after the HTTP response.
+      // The socket may not be connected yet, so poll once after a short delay to
+      // catch any bot messages that arrived in that gap.
+      if (!convData.resumed) {
+        setTimeout(async () => {
+          try {
+            const r = await fetch(`${API_BASE}/conversations/${cid}/messages?visitorId=${encodeURIComponent(vid)}&storeId=${encodeURIComponent(storeId)}`);
+            if (r.ok) {
+              const d = await r.json();
+              setMessages(d.messages || []);
+            }
+          } catch {}
+        }, 1500);
+      }
     } catch {
       setError(t.error);
       setLoading(false);
