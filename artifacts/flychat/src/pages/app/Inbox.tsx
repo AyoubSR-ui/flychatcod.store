@@ -170,6 +170,7 @@ export default function Inbox() {
   const [usedMsgIds, setUsedMsgIds] = useState<string[]>([]);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
+  const [draftPanelOpen, setDraftPanelOpen] = useState(false);
 
   const msgMenuRef = useRef<HTMLDivElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -266,6 +267,7 @@ export default function Inbox() {
       items: [],
     });
     setRightPanel("draft");
+    setDraftPanelOpen(true);
     setOrderSuccess(false);
     setDraftErrors({});
     setProductSearch("");
@@ -547,10 +549,17 @@ export default function Inbox() {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {rightPanel === "draft" ? (
-                  <button onClick={() => { setRightPanel("customer"); setOrderDraft(null); setMsgMenu(null); }}
-                    className="px-3 py-2 bg-secondary text-muted-foreground font-bold text-sm rounded-xl hover:bg-secondary/80 flex items-center gap-1.5 transition-colors">
-                    <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
-                  </button>
+                  <>
+                    <button onClick={() => setDraftPanelOpen(v => !v)}
+                      className="px-3 py-2 bg-primary/10 text-primary font-bold text-sm rounded-xl hover:bg-primary/20 flex items-center gap-1.5 transition-colors">
+                      <ClipboardList className="w-4 h-4" />
+                      {draftPanelOpen ? t("order.hide_draft") : t("order.show_draft")}
+                    </button>
+                    <button onClick={() => { setRightPanel("customer"); setOrderDraft(null); setMsgMenu(null); setDraftPanelOpen(false); }}
+                      className="px-3 py-2 bg-secondary text-muted-foreground font-bold text-sm rounded-xl hover:bg-secondary/80 flex items-center gap-1.5 transition-colors">
+                      <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
+                    </button>
+                  </>
                 ) : (
                   <button onClick={initDraft}
                     className="px-4 py-2 bg-primary/10 text-primary font-bold text-sm rounded-xl hover:bg-primary/20 flex items-center gap-2 transition-colors">
@@ -643,65 +652,10 @@ export default function Inbox() {
                 </button>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-[#f8fafc]">
-            <div className="w-20 h-20 bg-white border border-border rounded-full flex items-center justify-center mb-4 shadow-sm">
-              <MessageSquare className="w-10 h-10 text-border" />
-            </div>
-            <p className="text-lg font-medium text-foreground">No conversation selected</p>
-            <p className="text-sm">Choose a chat from the list to start replying.</p>
-          </div>
-        )}
 
-        {/* ── RIGHT PANEL ── */}
-        {activeConv && (
-          <div className="w-64 border-l border-border bg-card hidden lg:flex flex-col shrink-0 overflow-hidden">
-            {rightPanel === "customer" ? (
-              /* Customer context panel (original) */
-              <>
-                <div className="p-5 border-b border-border/50 text-center">
-                  <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 mx-auto rounded-full flex items-center justify-center mb-4">
-                    <User className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <h3 className="font-bold text-lg">{activeConv.customerName}</h3>
-                  <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
-                    <Phone className="w-3 h-3" /> {activeConv.customerPhone || "No phone"}
-                  </p>
-                </div>
-                <div className="p-5 space-y-6 flex-1 overflow-y-auto">
-                  <div>
-                    <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">CRM Context</h4>
-                    <div className="bg-secondary/50 rounded-xl p-4 space-y-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Total Orders</span>
-                        <span className="font-bold">{customerData?.totalOrders ?? 0}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Status</span>
-                        <span className={`font-medium px-2 py-0.5 rounded text-xs ${customerData?.isRepeat ? "text-green-700 bg-green-50" : "text-blue-600 bg-blue-50"}`}>
-                          {customerData?.isRepeat ? "Repeat" : "New Lead"}
-                        </span>
-                      </div>
-                      {customerData?.wilaya && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Wilaya</span>
-                          <span className="font-medium text-xs">{customerData.wilaya}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <button onClick={initDraft}
-                      className="w-full px-4 py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 flex items-center justify-center gap-2 transition-colors shadow-sm">
-                      <ShoppingBag className="w-4 h-4" /> {t("order.create")}
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : orderDraft ? (
-              /* ── ORDER DRAFT PANEL ── */
-              <>
+            {/* ── DRAFT OVERLAY PANEL ── */}
+            {rightPanel === "draft" && orderDraft && (
+              <div className={`absolute right-0 top-0 h-full w-80 bg-card border-l border-border shadow-2xl flex flex-col z-20 transition-transform duration-200 ease-in-out ${draftPanelOpen ? "translate-x-0" : "translate-x-full"}`}>
                 {/* Draft header */}
                 <div className="p-4 border-b border-border/50 flex items-center gap-3 shrink-0">
                   <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
@@ -709,9 +663,9 @@ export default function Inbox() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-sm text-foreground">{t("order.draft")}</p>
-                    <p className="text-xs text-muted-foreground truncate">{activeConv.customerName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{activeConv?.customerName}</p>
                   </div>
-                  <button onClick={() => { setRightPanel("customer"); setOrderDraft(null); }}
+                  <button onClick={() => setDraftPanelOpen(false)}
                     className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
                     <X className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
@@ -727,15 +681,10 @@ export default function Inbox() {
                     <p className="text-xs text-muted-foreground">{t("order.success_desc")}</p>
                   </div>
                 ) : (
-                  /* Draft form */
                   <div className="flex-1 overflow-y-auto">
                     <div className="p-4 space-y-4">
-
-                      {/* Customer Info section */}
                       <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                          {t("order.customer_info")}
-                        </p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">{t("order.customer_info")}</p>
                         <div className="space-y-2">
                           <DraftField label={t("order.name")} value={orderDraft.customerName}
                             onChange={v => updateDraftField("customerName", v)}
@@ -757,30 +706,16 @@ export default function Inbox() {
                             placeholder="Internal note..." as="textarea" />
                         </div>
                       </div>
-
-                      {/* Divider */}
                       <div className="border-t border-border/50" />
-
-                      {/* Products section */}
                       <div>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                          {t("order.products")}
-                        </p>
-
-                        {draftErrors.items && (
-                          <p className="text-red-500 text-[10px] mb-2">{draftErrors.items}</p>
-                        )}
-
-                        {/* Product search */}
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">{t("order.products")}</p>
+                        {draftErrors.items && <p className="text-red-500 text-[10px] mb-2">{draftErrors.items}</p>}
                         <div className="relative mb-2">
-                          <input
-                            ref={productInputRef}
-                            value={productSearch}
+                          <input ref={productInputRef} value={productSearch}
                             onChange={e => { setProductSearch(e.target.value); setProductDropOpen(true); }}
                             onFocus={() => productSearch.length >= 1 && setProductDropOpen(true)}
                             placeholder={t("order.search_product")}
-                            className="w-full px-2.5 py-1.5 rounded-lg border border-border text-xs outline-none focus:ring-2 focus:ring-primary/20 pr-7"
-                          />
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-border text-xs outline-none focus:ring-2 focus:ring-primary/20 pr-7" />
                           <Search className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                           {productSearch && productDropOpen && (
                             <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-border rounded-xl shadow-lg max-h-48 overflow-y-auto">
@@ -797,14 +732,10 @@ export default function Inbox() {
                             </div>
                           )}
                         </div>
-
-                        {/* Custom item button */}
                         <button onClick={addCustomItem}
                           className="w-full text-xs text-primary font-semibold py-1.5 rounded-lg border border-dashed border-primary/30 hover:bg-primary/5 flex items-center justify-center gap-1 transition-colors mb-3">
                           <Plus className="w-3 h-3" /> {t("order.add_custom_item")}
                         </button>
-
-                        {/* Line items */}
                         {orderDraft.items.length > 0 && (
                           <div className="space-y-2">
                             {orderDraft.items.map((item, idx) => (
@@ -820,7 +751,6 @@ export default function Inbox() {
                                   </button>
                                 </div>
                                 <div className="flex gap-1.5">
-                                  {/* Qty control */}
                                   <div className="flex items-center border border-border rounded-lg overflow-hidden">
                                     <button onClick={() => updateItem(idx, "quantity", Math.max(1, item.quantity - 1))}
                                       className="px-1.5 py-1 text-muted-foreground hover:bg-secondary transition-colors">
@@ -832,10 +762,8 @@ export default function Inbox() {
                                       <Plus className="w-2.5 h-2.5" />
                                     </button>
                                   </div>
-                                  {/* Price */}
                                   <div className="flex-1 relative">
-                                    <input type="number" min={0}
-                                      value={item.price || ""}
+                                    <input type="number" min={0} value={item.price || ""}
                                       onChange={e => updateItem(idx, "price", Number(e.target.value))}
                                       className={`w-full px-2 py-1 text-xs rounded-lg border outline-none focus:ring-1 focus:ring-primary/20 ${draftErrors[`item_${idx}_price`] ? "border-red-400" : "border-border"}`}
                                       placeholder="Price DZD" />
@@ -853,15 +781,14 @@ export default function Inbox() {
                   </div>
                 )}
 
-                {/* Draft footer: total + create button */}
+                {/* Footer: total + confirm */}
                 {!orderSuccess && (
                   <div className="p-4 border-t border-border shrink-0 space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("order.total")}</span>
                       <span className="text-lg font-bold text-primary">DZD {draftTotal.toLocaleString()}</span>
                     </div>
-                    <button onClick={handleCreateOrder}
-                      disabled={createOrderMutation.isPending}
+                    <button onClick={handleCreateOrder} disabled={createOrderMutation.isPending}
                       className="w-full py-2.5 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors shadow-sm">
                       {createOrderMutation.isPending
                         ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
@@ -869,8 +796,60 @@ export default function Inbox() {
                     </button>
                   </div>
                 )}
-              </>
-            ) : null}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-[#f8fafc]">
+            <div className="w-20 h-20 bg-white border border-border rounded-full flex items-center justify-center mb-4 shadow-sm">
+              <MessageSquare className="w-10 h-10 text-border" />
+            </div>
+            <p className="text-lg font-medium text-foreground">No conversation selected</p>
+            <p className="text-sm">Choose a chat from the list to start replying.</p>
+          </div>
+        )}
+
+        {/* ── RIGHT PANEL: Customer Context (flex sibling, no draft) ── */}
+        {activeConv && rightPanel === "customer" && (
+          <div className="w-64 border-l border-border bg-card hidden lg:flex flex-col shrink-0 overflow-hidden">
+            <div className="p-5 border-b border-border/50 text-center">
+              <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 mx-auto rounded-full flex items-center justify-center mb-4">
+                <User className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="font-bold text-lg">{activeConv.customerName}</h3>
+              <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
+                <Phone className="w-3 h-3" /> {activeConv.customerPhone || "No phone"}
+              </p>
+            </div>
+            <div className="p-5 space-y-6 flex-1 overflow-y-auto">
+              <div>
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">CRM Context</h4>
+                <div className="bg-secondary/50 rounded-xl p-4 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Total Orders</span>
+                    <span className="font-bold">{customerData?.totalOrders ?? 0}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className={`font-medium px-2 py-0.5 rounded text-xs ${customerData?.isRepeat ? "text-green-700 bg-green-50" : "text-blue-600 bg-blue-50"}`}>
+                      {customerData?.isRepeat ? "Repeat" : "New Lead"}
+                    </span>
+                  </div>
+                  {customerData?.wilaya && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Wilaya</span>
+                      <span className="font-medium text-xs">{customerData.wilaya}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <button onClick={initDraft}
+                  className="w-full px-4 py-3 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 flex items-center justify-center gap-2 transition-colors shadow-sm">
+                  <ShoppingBag className="w-4 h-4" /> {t("order.create")}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

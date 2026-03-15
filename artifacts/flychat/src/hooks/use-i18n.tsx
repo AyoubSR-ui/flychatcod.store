@@ -76,7 +76,9 @@ const translations: Record<Language, Record<string, string>> = {
     "order.note": "Seller Note",
     "order.qty": "Qty",
     "order.price": "Price",
-    "order.error_creating": "Failed to create order. Please try again."
+    "order.error_creating": "Failed to create order. Please try again.",
+    "order.hide_draft": "Hide Draft",
+    "order.show_draft": "Order Draft"
   },
   fr: {
     "nav.home": "Accueil",
@@ -145,7 +147,9 @@ const translations: Record<Language, Record<string, string>> = {
     "order.note": "Note vendeur",
     "order.qty": "Qté",
     "order.price": "Prix",
-    "order.error_creating": "Échec de la création de la commande. Veuillez réessayer."
+    "order.error_creating": "Échec de la création de la commande. Veuillez réessayer.",
+    "order.hide_draft": "Masquer",
+    "order.show_draft": "Brouillon"
   }
 };
 
