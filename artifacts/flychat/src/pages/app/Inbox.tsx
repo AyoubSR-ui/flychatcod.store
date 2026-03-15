@@ -550,13 +550,15 @@ export default function Inbox() {
               <div className="flex items-center gap-2 shrink-0">
                 {rightPanel === "draft" ? (
                   <>
-                    <button onClick={() => setDraftPanelOpen(v => !v)}
-                      className="px-3 py-2 bg-primary/10 text-primary font-bold text-sm rounded-xl hover:bg-primary/20 flex items-center gap-1.5 transition-colors">
-                      <ClipboardList className="w-4 h-4" />
-                      {draftPanelOpen ? t("order.hide_draft") : t("order.show_draft")}
-                    </button>
+                    {!draftPanelOpen && (
+                      <button onClick={() => setDraftPanelOpen(true)}
+                        className="px-3 py-2 bg-primary/10 text-primary font-bold text-sm rounded-xl hover:bg-primary/20 flex items-center gap-1.5 transition-colors">
+                        <ClipboardList className="w-4 h-4" />
+                        {t("order.show_draft")}
+                      </button>
+                    )}
                     <button onClick={() => { setRightPanel("customer"); setOrderDraft(null); setMsgMenu(null); setDraftPanelOpen(false); }}
-                      className="px-3 py-2 bg-secondary text-muted-foreground font-bold text-sm rounded-xl hover:bg-secondary/80 flex items-center gap-1.5 transition-colors">
+                      className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors">
                       <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
                     </button>
                   </>
@@ -665,9 +667,9 @@ export default function Inbox() {
                     <p className="font-bold text-sm text-foreground">{t("order.draft")}</p>
                     <p className="text-xs text-muted-foreground truncate">{activeConv?.customerName}</p>
                   </div>
-                  <button onClick={() => setDraftPanelOpen(false)}
-                    className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
-                    <X className="w-3.5 h-3.5 text-muted-foreground" />
+                  <button onClick={() => { setRightPanel("customer"); setOrderDraft(null); setMsgMenu(null); setDraftPanelOpen(false); }}
+                    className="p-1.5 hover:bg-red-50 rounded-lg transition-colors" title={t("order.close_draft")}>
+                    <X className="w-3.5 h-3.5 text-muted-foreground hover:text-red-500" />
                   </button>
                 </div>
 
