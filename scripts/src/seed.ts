@@ -138,9 +138,10 @@ async function seed() {
   }).onConflictDoNothing();
 
   // ─── Team Members ─────────────────────────────────────────────────────────
+  const agentTeamMemberId = generateId("tm");
   await db.insert(teamMembersTable).values([
     { id: generateId("tm"), userId: ownerId, storeId, email: "demo@flychat.dz", name: "Karim Benali", role: "owner", status: "active" },
-    { id: generateId("tm"), userId: agentId, storeId, email: "agent@flychat.dz", name: "Sara Meghani", role: "agent", status: "active" },
+    { id: agentTeamMemberId, userId: agentId, storeId, email: "agent@flychat.dz", name: "Sara Meghani", role: "agent", status: "active" },
     { id: generateId("tm"), userId: null, storeId, email: "youssef@algershop.dz", name: "Youssef Amara", role: "admin", status: "invited" },
   ]).onConflictDoNothing();
 
@@ -331,6 +332,28 @@ async function seed() {
       config: {
         delayMinutes: 10,
         message: "Êtes-vous toujours là? Nous sommes disponibles pour vous aider. / Are you still there? We're here to help!",
+      },
+    },
+    {
+      id: generateId("rule"), storeId, name: "Quick inactivity test (1 min)",
+      trigger: "inactivity", action: "send_message", isActive: true,
+      config: {
+        delayMinutes: 1,
+        message: "Are you still there? Let us know if you need help! / Êtes-vous toujours là? Dites-nous si vous avez besoin d'aide!",
+      },
+    },
+    {
+      id: generateId("rule"), storeId, name: "Auto-assign commandes à l'agent",
+      trigger: "order_created", action: "assign_agent", isActive: true,
+      config: {
+        agentId: agentTeamMemberId,
+      },
+    },
+    {
+      id: generateId("rule"), storeId, name: "Alerte commande → équipe",
+      trigger: "order_created", action: "notify_team", isActive: true,
+      config: {
+        message: "Nouvelle commande reçue! / New order received!",
       },
     },
   ]).onConflictDoNothing();
