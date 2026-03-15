@@ -216,6 +216,11 @@ router.post("/public/conversations", async (req, res) => {
     // Fire automation in background — do not block the response
     fireTrigger({ storeId, conversationId: convId, triggerType: "new_conversation" })
       .catch(err => console.error("[Widget] new_conversation automation error:", err));
+
+    // Start inactivity timers for this new conversation so the trigger fires
+    // even if the visitor never sends a message (opens chat and goes silent).
+    rescheduleInactivityChecks(storeId, convId)
+      .catch(err => console.error("[Widget] inactivity schedule (new conv) error:", err));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to create conversation" });
