@@ -174,6 +174,7 @@ export default function Inbox() {
 
   const msgMenuRef = useRef<HTMLDivElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
+  const productDropRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: convsData, isLoading: isLoadingConvs } = useGetConversations({ status: "open" });
@@ -244,11 +245,11 @@ export default function Inbox() {
     return () => document.removeEventListener("mousedown", handler);
   }, [msgMenu]);
 
-  // Close product drop on outside click
+  // Close product drop on outside click (use container ref so clicking inside dropdown is not "outside")
   useEffect(() => {
     if (!productDropOpen) return;
     const handler = (e: MouseEvent) => {
-      if (productInputRef.current && !productInputRef.current.contains(e.target as Node)) {
+      if (productDropRef.current && !productDropRef.current.contains(e.target as Node)) {
         setProductDropOpen(false);
       }
     };
@@ -784,7 +785,7 @@ export default function Inbox() {
                       <div>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">{t("order.products")}</p>
                         {draftErrors.items && <p className="text-red-500 text-[10px] mb-2">{draftErrors.items}</p>}
-                        <div className="relative mb-2">
+                        <div ref={productDropRef} className="relative mb-2">
                           <input ref={productInputRef} value={productSearch}
                             onChange={e => { setProductSearch(e.target.value); setProductDropOpen(true); }}
                             onFocus={() => productSearch.length >= 1 && setProductDropOpen(true)}
