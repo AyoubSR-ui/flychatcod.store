@@ -496,7 +496,7 @@ export default function Inbox() {
         )}
 
         {/* ── LEFT PANEL: Conversation list ── */}
-        <div className="w-80 flex flex-col border-r border-border bg-card z-10 shrink-0">
+        <div className="w-64 flex flex-col border-r border-border bg-card z-10 shrink-0">
           <div className="p-4 border-b border-border/50">
             <h2 className="text-lg font-bold mb-4">{t("nav.inbox")}</h2>
             <div className="relative">
@@ -668,7 +668,7 @@ export default function Inbox() {
 
         {/* ── RIGHT PANEL: CRM + Order Draft (always visible, tabbed in draft mode) ── */}
         {activeConv && (
-          <div className={`border-l border-border bg-card hidden lg:flex flex-col shrink-0 overflow-hidden transition-all duration-200 ${rightPanel === "draft" ? "w-80" : "w-64"}`}>
+          <div className="border-l border-border bg-card hidden lg:flex flex-col shrink-0 overflow-hidden w-64">
 
             {/* Tab switcher — only in draft mode */}
             {rightPanel === "draft" && (
