@@ -42,6 +42,10 @@ export interface AutomationTriggerContext {
   triggerType: TriggerType;
   /** Only set for keyword trigger */
   message?: { content: string; sender: string };
+  /** Set for order_created trigger */
+  orderId?: string;
+  orderNumber?: string;
+  customerName?: string;
 }
 
 // ── Inactivity timer registry ─────────────────────────────────────────────────
@@ -275,6 +279,36 @@ async function executeAction(
           .update(conversationsTable)
           .set({ tags: [...currentTags, tag], updatedAt: new Date() })
           .where(eq(conversationsTable.id, ctx.conversationId));
+      }
+      break;
+    }
+
+    case "notify_team": {
+      // Sends a real-time in-app notification to all connected agents for this store.
+      // Does NOT insert a message into the conversation — invisible to the customer.
+      const defaultMsg = ctx.orderNumber
+        ? `New order ${ctx.orderNumber} created${ctx.customerName ? ` for ${ctx.customerName}` : ""}`
+        : `New order created in conversation`;
+
+      const notifText = (typeof cfg.message === "string" && cfg.message.trim())
+        ? cfg.message
+        : defaultMsg;
+
+      try {
+        const io = getIO();
+        io.to(`store:${ctx.storeId}`).emit("team_notification", {
+          type: ctx.triggerType,
+          message: notifText,
+          conversationId: ctx.conversationId,
+          orderId: ctx.orderId ?? null,
+          orderNumber: ctx.orderNumber ?? null,
+          customerName: ctx.customerName ?? null,
+          timestamp: new Date().toISOString(),
+        });
+        console.log(`[AutoEngine] team_notification emitted to store ${ctx.storeId}: "${notifText}"`);
+      } catch {
+        // socket not ready — notification is best-effort
+        console.warn(`[AutoEngine] Socket not ready for team_notification (rule: ${rule.id})`);
       }
       break;
     }

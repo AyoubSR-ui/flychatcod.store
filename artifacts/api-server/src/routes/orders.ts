@@ -161,8 +161,14 @@ router.post("/", requireAuth, async (req, res) => {
 
     // Fire order_created automation in background if linked to a conversation
     if (conversationId) {
-      fireTrigger({ storeId, conversationId, triggerType: "order_created" })
-        .catch(err => console.error("[Orders] order_created automation error:", err));
+      fireTrigger({
+        storeId,
+        conversationId,
+        triggerType: "order_created",
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+      }).catch(err => console.error("[Orders] order_created automation error:", err));
     }
   } catch (err) {
     console.error(err);

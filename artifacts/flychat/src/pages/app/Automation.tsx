@@ -55,6 +55,12 @@ const ACTION_META: Record<string, { label: string; description: string; live: bo
     live: true,
     configFields: ["tag"],
   },
+  notify_team: {
+    label: "Notify Team",
+    description: "Send a real-time in-app alert to all connected agents (invisible to customer)",
+    live: true,
+    configFields: ["notifyMessage"],
+  },
   create_order_flow: {
     label: "Start Order Flow",
     description: "Initiate guided order creation",
@@ -424,6 +430,22 @@ export default function Automation() {
                     onChange={e => setConfig("tag", e.target.value)}
                     placeholder="e.g. vip, inquiry, urgent"
                     className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background" />
+                </div>
+              )}
+
+              {(actionMeta.configFields.includes("notifyMessage") || (editingId && form.action === "notify_team")) && (
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5">
+                    Notification Message <span className="normal-case font-normal">(optional — leave blank for auto)</span>
+                  </label>
+                  <input
+                    value={typeof form.config.message === "string" ? form.config.message : ""}
+                    onChange={e => setConfig("message", e.target.value)}
+                    placeholder="e.g. New order created — check the inbox"
+                    className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background" />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    This alert appears as a real-time toast in the Inbox for all connected agents. It is <strong>not</strong> visible to the customer.
+                  </p>
                 </div>
               )}
 

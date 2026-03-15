@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import {
   Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe,
   Paperclip, Loader2, X, Plus, Minus, Trash2, ChevronRight, ChevronLeft,
-  Check, ClipboardList, CheckCircle2, Package,
+  Check, ClipboardList, CheckCircle2, Package, Bell,
 } from "lucide-react";
 import {
   useGetConversations, useGetMessages, useSendMessage,
@@ -68,6 +68,16 @@ interface FieldConflict {
   label: string;
   newValue: string;
   msgId: string;
+}
+
+interface TeamNotificationToast {
+  id: number;
+  type: string;
+  message: string;
+  conversationId: string | null;
+  orderNumber: string | null;
+  customerName: string | null;
+  timestamp: string;
 }
 
 async function uploadFileToStorage(file: File): Promise<FileAttachment> {
@@ -172,6 +182,7 @@ export default function Inbox() {
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
   const [draftTab, setDraftTab] = useState<"crm" | "draft">("draft");
   const [lastCreatedOrder, setLastCreatedOrder] = useState<{ orderNumber: string; total: number; status: string; customerName: string } | null>(null);
+  const [teamNotifications, setTeamNotifications] = useState<TeamNotificationToast[]>([]);
 
   const msgMenuRef = useRef<HTMLDivElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +218,15 @@ export default function Inbox() {
       queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
       queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(data.conversationId) });
     });
+
+    socket.on("team_notification", (data: Omit<TeamNotificationToast, "id">) => {
+      const toastId = Date.now();
+      setTeamNotifications(prev => [...prev, { ...data, id: toastId }]);
+      setTimeout(() => {
+        setTeamNotifications(prev => prev.filter(n => n.id !== toastId));
+      }, 7000);
+    });
+
     socketRef.current = socket;
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [queryClient]);
@@ -911,6 +931,37 @@ export default function Inbox() {
           </div>
         )}
       </div>
+
+      {/* Team Notification Toasts (order_created / automation alerts) */}
+      {teamNotifications.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+          {teamNotifications.map((notif) => (
+            <div
+              key={notif.id}
+              className="bg-white dark:bg-zinc-900 border border-green-200 dark:border-green-800 rounded-2xl shadow-2xl p-4 flex items-start gap-3 pointer-events-auto animate-in slide-in-from-bottom-4 fade-in duration-300"
+            >
+              <div className="w-9 h-9 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                <Bell className="w-4 h-4 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-0.5">
+                  {notif.type === "order_created" ? "New Order" : "Automation Alert"}
+                </p>
+                <p className="text-sm font-medium text-foreground leading-snug">{notif.message}</p>
+                {notif.orderNumber && (
+                  <p className="text-xs text-muted-foreground mt-0.5">Order #{notif.orderNumber}</p>
+                )}
+              </div>
+              <button
+                onClick={() => setTeamNotifications(prev => prev.filter(n => n.id !== notif.id))}
+                className="p-1 hover:bg-secondary rounded-lg shrink-0"
+              >
+                <X className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </AppLayout>
   );
 }
