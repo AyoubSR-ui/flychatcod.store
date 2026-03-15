@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import {
   Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe,
-  Paperclip, Loader2, X, Plus, Minus, Trash2, ChevronRight,
+  Paperclip, Loader2, X, Plus, Minus, Trash2, ChevronRight, ChevronLeft,
   Check, ClipboardList, CheckCircle2, Package,
 } from "lucide-react";
 import {
@@ -496,7 +496,7 @@ export default function Inbox() {
         )}
 
         {/* ── LEFT PANEL: Conversation list ── */}
-        <div className="w-64 flex flex-col border-r border-border bg-card z-10 shrink-0">
+        <div className={`w-64 flex-col border-r border-border bg-card z-10 shrink-0 ${activeConvId ? "hidden xl:flex" : "flex"}`}>
           <div className="p-4 border-b border-border/50">
             <h2 className="text-lg font-bold mb-4">{t("nav.inbox")}</h2>
             <div className="relative">
@@ -533,7 +533,11 @@ export default function Inbox() {
           <div className="flex-1 flex flex-col h-full bg-white min-w-0">
             {/* Chat header */}
             <div className="h-16 border-b border-border flex items-center justify-between px-6 bg-white shrink-0">
-              <div className="flex items-center gap-4 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <button onClick={() => setActiveConvId(null)}
+                  className="xl:hidden p-1.5 -ml-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors shrink-0">
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
                 <div className="w-10 h-10 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold shrink-0">
                   {activeConv.customerName.charAt(0).toUpperCase()}
                 </div>
