@@ -312,17 +312,26 @@ async function seed() {
     {
       id: generateId("rule"), storeId, name: "Message de bienvenue",
       trigger: "new_conversation", action: "send_message", isActive: true,
-      config: { message_fr: "Bonjour! Bienvenue chez AlgerShop Pro. Comment pouvons-nous vous aider aujourd'hui?", message_en: "Hello! Welcome to AlgerShop Pro. How can we help you today?" },
+      config: {
+        message: "Bonjour! Bienvenue chez AlgerShop Pro. Comment pouvons-nous vous aider aujourd'hui? / Hello! Welcome to AlgerShop Pro. How can we help you today?",
+      },
     },
     {
-      id: generateId("rule"), storeId, name: "Déclencheur de commande",
-      trigger: "keyword", action: "create_order_flow", isActive: true,
-      config: { keywords: ["commander", "commande", "acheter", "prix", "disponible"] },
+      id: generateId("rule"), storeId, name: "Prix / Tarif — aide automatique",
+      trigger: "keyword", action: "send_message", isActive: true,
+      config: {
+        keyword: "prix",
+        matchType: "contains",
+        message: "Bonjour! Pour connaître nos prix, consultez notre catalogue ou envoyez-nous le nom du produit qui vous intéresse. / Hello! To get pricing, please check our catalogue or send us the product name you're interested in.",
+      },
     },
     {
-      id: generateId("rule"), storeId, name: "Escalade après 5 minutes",
-      trigger: "inactivity", action: "escalate", isActive: false,
-      config: { inactivity_minutes: 5, escalate_to: "human" },
+      id: generateId("rule"), storeId, name: "Relance inactivité (10 min)",
+      trigger: "inactivity", action: "send_message", isActive: true,
+      config: {
+        delayMinutes: 10,
+        message: "Êtes-vous toujours là? Nous sommes disponibles pour vous aider. / Are you still there? We're here to help!",
+      },
     },
   ]).onConflictDoNothing();
 

@@ -12,6 +12,7 @@ export const automationTriggerEnum = pgEnum("automation_trigger", [
 export const automationActionEnum = pgEnum("automation_action", [
   "send_message",
   "assign_agent",
+  "add_tag",
   "create_order_flow",
   "escalate",
 ]);

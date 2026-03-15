@@ -3,6 +3,7 @@ import { db, ordersTable, orderItemsTable, customersTable, conversationsTable } 
 import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
+import { fireTrigger } from "../lib/automation-engine.js";
 
 const router = Router();
 
@@ -157,6 +158,12 @@ router.post("/", requireAuth, async (req, res) => {
       items: orderItems.map(i => ({ ...i, price: Number(i.price) })),
       customerId: finalCustomerId,
     });
+
+    // Fire order_created automation in background if linked to a conversation
+    if (conversationId) {
+      fireTrigger({ storeId, conversationId, triggerType: "order_created" })
+        .catch(err => console.error("[Orders] order_created automation error:", err));
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to create order" });

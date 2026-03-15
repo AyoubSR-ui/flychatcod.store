@@ -6,6 +6,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { z } from "zod";
 import { getIO } from "../socket.js";
+import { fireTrigger, rescheduleInactivityChecks } from "../lib/automation-engine.js";
 
 const router = Router();
 
@@ -211,6 +212,10 @@ router.post("/public/conversations", async (req, res) => {
     });
 
     res.status(201).json({ conversationId: convId, status: "open", resumed: false });
+
+    // Fire automation in background — do not block the response
+    fireTrigger({ storeId, conversationId: convId, triggerType: "new_conversation" })
+      .catch(err => console.error("[Widget] new_conversation automation error:", err));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to create conversation" });
@@ -327,6 +332,12 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
     } catch {}
 
     res.status(201).json(msg);
+
+    // Fire keyword/message automation + reschedule inactivity timers in background
+    fireTrigger({ storeId, conversationId, triggerType: "keyword", message: { content, sender: "customer" } })
+      .catch(err => console.error("[Widget] keyword automation error:", err));
+    rescheduleInactivityChecks(storeId, conversationId)
+      .catch(err => console.error("[Widget] inactivity schedule error:", err));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to send message" });

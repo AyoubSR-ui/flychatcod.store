@@ -1,0 +1,203 @@
+Implement Layer 4 for FlyChat COD: the first real Automation Engine.
+
+IMPORTANT
+Do not rebuild the app.
+Work inside the existing monorepo and preserve the current architecture, realtime chat, widget, attachments, order draft builder, customer/order linking, and current dashboard UI.
+
+GOAL
+Turn the existing automation rules UI + database records into a working automation runtime.
+
+CURRENT CONTEXT
+The app already has:
+- automation_rules table
+- Automation page UI to create/toggle rules
+- realtime widget + inbox messaging
+- customers, conversations, orders, team members
+- multitenant store isolation
+- Socket.IO
+- existing message send APIs for visitors and agents
+
+Right now automation rules are dead data.
+This layer must make selected automation rules actually execute.
+
+SCOPE
+Build a practical MVP automation engine.
+Do NOT overbuild.
+Do NOT add AI.
+Do NOT add external providers.
+Do NOT add WhatsApp automation yet.
+
+AUTOMATION MVP REQUIREMENTS
+
+SUPPORTED TRIGGERS
+Implement support for these triggers first:
+
+1. new_conversation
+Fires when a widget visitor creates a new conversation for a store.
+
+2. new_customer_message
+Fires when a visitor/customer sends a new message in an existing conversation.
+
+3. conversation_inactive
+Fires after a configurable inactivity delay if the conversation has had no new messages from the customer.
+
+OPTIONAL ONLY IF CLEAN AND EASY:
+4. order_created
+If already convenient to wire from the existing order flow, support it; otherwise scaffold cleanly for later.
+
+SUPPORTED ACTIONS
+Implement only these actions for MVP:
+
+1. send_message
+Sends an automated text message into the conversation as an agent/system message.
+
+2. assign_agent
+Assigns the conversation to a team member.
+
+3. add_tag
+Adds a tag/label to the conversation.
+If conversation tags are not yet fully modeled, implement a minimal safe structure or scaffold honestly.
+
+RULE CONDITIONS
+Support simple rule conditions only.
+Keep them safe and understandable.
+
+For MVP support:
+- message contains text
+- exact match optional
+- trigger enabled/disabled
+- inactivity delay in minutes for conversation_inactive
+- optional store-scoped agent assignment target
+
+If the current automation_rules schema is too generic or too weak, extend it minimally and clearly.
+
+ARCHITECTURE REQUIREMENTS
+Create a clean automation runtime module on the backend.
+Recommended structure:
+- automation-engine.ts or similar service
+- trigger handlers
+- action executors
+- rule evaluator
+- conversation inactivity scheduler/checker
+
+Do not mix all logic directly inside route files if avoidable.
+Keep the implementation modular.
+
+EVENT SOURCES TO WIRE
+Wire the engine into existing backend flows:
+
+1. Widget/public conversation creation
+When a new conversation is created via widget public API:
+- fire new_conversation trigger for that store/conversation
+
+2. Widget/public message creation
+When a new customer message is created:
+- fire new_customer_message trigger
+
+3. Inactivity trigger
+Implement a simple MVP mechanism for conversation_inactive.
+Possible acceptable approaches:
+- setTimeout-based scheduling in-memory with clear comments about limitations
+- or periodic polling/check job if cleaner in this architecture
+
+Choose the cleanest realistic MVP for the current codebase.
+Be honest about limitations if the solution is process-memory based.
+
+Do NOT create a fake distributed job queue unless it already exists.
+
+SEND_MESSAGE ACTION REQUIREMENTS
+When automation sends a message:
+- store it in the messages table
+- sender should be clearly marked as system or agent-like automation in a clean way
+- emit Socket.IO new_message so both agent inbox and widget visitor see it immediately
+- keep the message visually distinguishable if practical, but do not break current UI
+
+ASSIGN_AGENT ACTION REQUIREMENTS
+- update the conversation assignedToId
+- validate the assigned agent belongs to the same store
+- if possible, reflect assignment in the Inbox UI without requiring major UI rebuild
+- emit any needed conversation update events if helpful
+
+ADD_TAG ACTION REQUIREMENTS
+If conversation tags already exist, use them.
+If not, add a minimal implementation:
+- store tags in a simple safe way
+- make sure tags are store-scoped logically
+- avoid overengineering a full tagging system unless needed
+
+If full tagging is too much for this layer, scaffold the data structure and implement only enough to prove the action works.
+
+AUTOMATION PAGE / UI REQUIREMENTS
+Update the existing Automation page only as needed so it matches the implemented runtime.
+
+Requirements:
+- clearly show which triggers are supported now
+- clearly show which actions are supported now
+- keep bilingual UI support (English/French)
+- do not show misleading options that do nothing
+- if the current UI exposes unsupported rule types, either disable them or label them as coming soon
+- allow enabling/disabling rules reliably
+
+RULE EXECUTION SAFETY
+- all rule execution must be store-scoped
+- do not run rules across stores
+- avoid infinite loops:
+  automated send_message must NOT retrigger new_customer_message automations
+- only customer/visitor messages should fire new_customer_message
+- automation messages should not recursively trigger themselves
+
+DATA MODEL / SCHEMA
+Review the current automation_rules schema and make only minimal changes required to support:
+- trigger type
+- condition data
+- action type
+- action payload/config
+- enabled flag
+- timestamps
+
+If changes are needed:
+- update Drizzle schema
+- add migration
+- keep seed/demo data working
+- add or update sample automation rules in seed if helpful
+
+CONVERSATION INACTIVE MVP
+Implement a realistic first version.
+
+Recommended behavior:
+- when a customer message arrives, reset inactivity timer for that conversation
+- after X minutes of no new customer message, fire matching conversation_inactive rules
+- prevent duplicate firing for the same inactivity window if practical
+
+If needed, add a small conversation metadata field to track last inactivity automation fire.
+Keep it minimal.
+
+SOCKET.IO / REALTIME
+Any automation-generated message or conversation assignment update should appear in the UI as close to real-time as possible.
+Reuse existing Socket.IO rooms and event conventions where possible.
+
+TESTING / DEMO
+Add at least a simple way to verify each supported automation works, such as:
+- seeded example rules
+- documented test steps in README or handoff summary
+
+Good seed examples:
+1. On new_conversation → send welcome message
+2. On new_customer_message containing "price" → send pricing help message
+3. On conversation_inactive after N minutes → send follow-up message
+
+OUTPUT REQUIREMENTS
+After implementation, provide a clear handoff summary with:
+1. which triggers are truly implemented
+2. which actions are truly implemented
+3. how rules are executed in code
+4. any schema changes made
+5. any limitations of the inactivity scheduler
+6. how to test each supported automation locally
+7. which files were added or changed
+
+QUALITY BAR
+- preserve existing features
+- do not fake unsupported automation
+- prefer a smaller working engine over a broad fake system
+- keep the code modular and maintainable
