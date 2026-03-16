@@ -1,5 +1,5 @@
 import { AppLayout } from "@/components/AppLayout";
-import { UserPlus, Trash2, Crown, Shield, Headphones } from "lucide-react";
+import { UserPlus, Trash2, Crown, Shield, Headphones, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { useGetTeamMembers, useInviteTeamMember, useRemoveTeamMember } from "@workspace/api-client-react";
 import { format } from "date-fns";
@@ -24,12 +24,34 @@ export default function Team() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ email: "", role: "agent" as "admin" | "agent" });
   const [inviting, setInviting] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const { t } = useI18n();
 
   const handleInvite = async () => {
     setInviting(true);
     await inviteMember.mutateAsync({ data: form });
     setInviting(false); setShowModal(false); setForm({ email: "", role: "agent" }); refetch();
+  };
+
+  const handleResendInvite = async (id: string) => {
+    setResendingId(id);
+    try {
+      const token = localStorage.getItem("flychat_token");
+      const resp = await fetch(`/api/team/members/${id}/resend-invite`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        alert(data.inviteSent ? "Invitation email resent!" : "Invite created (email service not configured yet).");
+      } else {
+        alert(data.message || "Failed to resend invite.");
+      }
+    } catch {
+      alert("Network error. Please try again.");
+    } finally {
+      setResendingId(null);
+    }
   };
 
   const handleRemove = async (id: string) => {
@@ -81,11 +103,20 @@ export default function Team() {
                       <p className="text-sm text-muted-foreground mt-0.5">{member.email}</p>
                     </div>
                     <p className="text-xs text-muted-foreground hidden sm:block">{format(new Date(member.createdAt), 'MMM dd, yyyy')}</p>
-                    {member.role !== "owner" && (
-                      <button onClick={() => handleRemove(member.id)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-lg text-muted-foreground transition-colors">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {member.status === "invited" && (
+                        <button onClick={() => handleResendInvite(member.id)} disabled={resendingId === member.id}
+                          className="p-2 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-muted-foreground transition-colors disabled:opacity-50"
+                          title="Resend invitation">
+                          <RotateCw className={`w-4 h-4 ${resendingId === member.id ? "animate-spin" : ""}`} />
+                        </button>
+                      )}
+                      {member.role !== "owner" && (
+                        <button onClick={() => handleRemove(member.id)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-lg text-muted-foreground transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}

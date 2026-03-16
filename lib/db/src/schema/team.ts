@@ -17,6 +17,18 @@ export const teamMembersTable = pgTable("team_members", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const inviteTokensTable = pgTable("invite_tokens", {
+  id: text("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  storeId: text("store_id").notNull(),
+  teamMemberId: text("team_member_id").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertTeamMemberSchema = createInsertSchema(teamMembersTable).omit({ createdAt: true, updatedAt: true });
 export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
 export type TeamMember = typeof teamMembersTable.$inferSelect;

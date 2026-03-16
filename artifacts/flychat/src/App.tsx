@@ -16,6 +16,7 @@ import Login from "@/pages/auth/Login";
 import Signup from "@/pages/auth/Signup";
 import ResetPassword from "@/pages/auth/ResetPassword";
 import Onboarding from "@/pages/auth/Onboarding";
+import AcceptInvite from "@/pages/auth/AcceptInvite";
 
 // App pages
 import Dashboard from "@/pages/app/Dashboard";
@@ -71,6 +72,7 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/onboarding" component={Onboarding} />
+      <Route path="/accept-invite" component={AcceptInvite} />
 
       {/* App — protected */}
       <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
