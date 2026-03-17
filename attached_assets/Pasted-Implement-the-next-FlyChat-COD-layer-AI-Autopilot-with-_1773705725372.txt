@@ -1,0 +1,465 @@
+Implement the next FlyChat COD layer: AI Autopilot with plan-based AI credit usage and top-up support.
+
+IMPORTANT
+Do not rebuild the app.
+Work inside the existing monorepo and preserve the current architecture, widget, realtime inbox, automation engine, order flow, customer linking, attachments, billing UI, team management, and bilingual EN/FR support.
+
+ALSO FIX THESE EXISTING ISSUES FIRST BEFORE OR ALONGSIDE THE AI LAYER
+1. Fix the Inbox order draft builder layout/visibility:
+   - The order draft builder is currently not appearing as requested
+   - It must appear in a way that keeps the Inbox conversation readable
+   - It must not hide or replace the conversation thread
+   - It must not disappear entirely
+   - The final layout must let the agent clearly see the conversation while using the draft builder
+   - Preferred behavior: chat stays visible in the middle column, and the right-side area shows CRM + Draft in a usable split/tabbed/sidebar flow
+
+2. Fix the email service configuration issue:
+   - The UI currently says: "Invite created (email service not configured yet)"
+   - I have already added the Resend API key in Replit Secrets
+   - Fix the backend so it actually reads the Resend secret correctly and sends emails
+   - Verify the Team invite flow uses the configured email service
+   - Remove or replace the misleading "email service not configured yet" behavior once email sending works
+   - If a restart/reload/init step is required in code, handle it properly
+   - Add clear error handling if the secret is missing, but do not show a false "not configured" message when the secret exists
+
+GOAL
+Add a controlled AI chatbot/autopilot system to FlyChat COD that:
+1. can answer visitor questions automatically
+2. can be turned ON/OFF from the automation portal and conversation level
+3. only runs when the store plan allows AI
+4. consumes AI credits/tokens from the store account
+5. pauses automatically when AI credits are exhausted
+6. allows stores to buy extra AI credits/top-ups later
+7. keeps human takeover available at all times
+
+DO NOT IMPLEMENT
+- full self-learning pipeline
+- uncontrolled live retraining
+- WhatsApp/Instagram/Messenger AI yet
+- automatic final order creation by AI
+- unlimited free AI usage
+- fake billing logic
+
+CURRENT PRODUCT CONTEXT
+FlyChat COD already has:
+- widget + public conversation/message APIs
+- realtime Socket.IO chat
+- Inbox with agents
+- order draft builder
+- customer linking
+- automation engine with working triggers/actions
+- billing page and subscription concepts
+- multitenant store isolation
+- OpenAPI + Orval-generated client
+- bilingual English/French UI
+- Team invite flow already partially wired
+- Resend secret already added in Replit Secrets and should be used by the email layer
+
+THIS LAYER MUST ADD
+A. AI Autopilot runtime
+B. Conversation-level AI mode control
+C. Automation action for AI reply
+D. Store plan/quota/credit gating
+E. AI usage tracking and logs
+F. Billing/top-up-ready data model and UI states
+G. Fix the order draft builder layout so chat remains visible
+H. Fix Resend email service integration for invites and related flows
+
+--------------------------------------------------
+PART 0 — REQUIRED BUG FIXES BEFORE AI FEATURES
+--------------------------------------------------
+
+A. FIX ORDER DRAFT BUILDER LAYOUT / VISIBILITY
+The order draft builder currently does not behave as requested.
+Fix it so:
+- the Inbox conversation remains visible and readable
+- the draft builder does not replace or hide the conversation thread
+- the draft builder does not vanish completely
+- the agent can build/edit an order while still reading the conversation
+- the final layout is stable and professional on normal desktop widths
+
+Preferred acceptable solutions:
+- right column with tabs: CRM | Draft
+- right column with stacked CRM + Draft sections
+- expandable right sidebar
+- another clean layout that preserves the middle conversation column fully
+
+Do NOT:
+- render the draft builder inside the message thread in a way that blocks messages
+- remove the conversation view when opening the draft
+- create a broken half-visible draft state
+
+Also verify:
+- Create Order opens the draft correctly
+- Cancel Draft works correctly
+- reopening the draft works correctly
+- message-to-field mapping still works
+
+B. FIX EMAIL SERVICE CONFIGURATION / RESEND USAGE
+The Team invite flow currently still shows:
+"Invite created (email service not configured yet)."
+
+Fix this properly.
+
+Requirements:
+- read the Resend API key from Replit Secrets / environment variables correctly
+- ensure the API server actually sees the env var at runtime
+- use Resend to send invite emails if the secret exists
+- remove the false fallback message once email sending works
+- improve success/failure feedback in the frontend
+- if an invite is created and email sends successfully, show proper success feedback
+- if invite creation succeeds but email fails, show a truthful and useful error/warning
+- verify the invite endpoint logic and any mail service module
+- document any required runtime expectations clearly
+
+If the current code already contains the email logic but it is not being reached, diagnose and fix the actual wiring/configuration issue.
+
+--------------------------------------------------
+PART 1 — AI AUTOPILOT CORE
+--------------------------------------------------
+
+Implement a controlled AI assistant for visitor conversations.
+
+REQUIRED BEHAVIOR
+- AI only answers when AI is enabled for the store
+- AI only answers when the conversation is in AI/autopilot mode
+- AI must not answer if credits are exhausted
+- AI must not recursively answer itself
+- AI must allow human takeover at any time
+- AI should only answer visitor/customer messages, not agent/system messages
+- AI should fallback safely when uncertain
+
+CONVERSATION MODES
+Add a clean conversation mode model. Minimum:
+- human
+- ai_autopilot
+
+Optional if clean:
+- hybrid
+
+For now, implement at least:
+- human
+- ai_autopilot
+
+Add conversation-level controls so agents can:
+- Enable Autopilot
+- Disable Autopilot
+- Take Over (sets mode back to human)
+
+This should be visible in the Inbox conversation header or right-side context.
+
+--------------------------------------------------
+PART 2 — AI AS AUTOMATION ACTION
+--------------------------------------------------
+
+Extend the automation engine to support a new action:
+- ai_reply
+
+This action should work with existing automation triggers where appropriate, especially:
+- new_conversation
+- keyword / new_customer_message
+
+Examples:
+- Trigger: new_conversation → Action: ai_reply
+- Trigger: new_customer_message → Action: ai_reply
+- Trigger: keyword "human" → Action: disable AI / notify team (optional if clean)
+
+IMPORTANT
+Do not let ai_reply create infinite loops.
+Only customer/visitor messages should trigger AI reply evaluation.
+Messages created by AI must not retrigger ai_reply.
+
+AI reply flow:
+1. customer sends message
+2. automation/event layer checks if ai_reply applies
+3. system verifies store AI eligibility + remaining credits + conversation mode
+4. if allowed, call AI provider
+5. save AI reply as a message in DB
+6. emit realtime new_message via Socket.IO
+7. deduct credits/tokens and store usage log
+
+--------------------------------------------------
+PART 3 — STORE-LEVEL AI SETTINGS
+--------------------------------------------------
+
+Add store-level AI settings/configuration.
+
+Store should have AI settings such as:
+- aiEnabled: boolean
+- aiSystemPrompt or storeInstructions
+- aiFallbackToHuman: boolean
+- aiReplyLanguageMode if useful
+- aiMonthlyCreditQuota
+- aiCreditsRemaining / or usage model tied to billing period
+- aiLowCreditThreshold optional
+
+Expose a clean settings section or Billing/AI section where the store owner can see:
+- whether AI is enabled for their plan
+- current credits used
+- credits remaining
+- current AI status:
+  - Active
+  - Low credits
+  - Paused (credits exhausted)
+  - Not included in plan
+
+--------------------------------------------------
+PART 4 — PLAN / CREDIT / TOKEN GATING
+--------------------------------------------------
+
+Implement AI access based on the user/store plan.
+
+IMPORTANT PRODUCT MODEL
+Internally track token usage accurately.
+Externally present it as AI Credits in the UI.
+
+REQUIRED LOGIC
+- Each store plan can include a monthly AI credit quota
+- AI actions consume credits
+- If credits are exhausted, AI autopilot must stop answering
+- Store can continue using the platform manually even when AI is paused
+- Structure the system so extra credit packs can be purchased later
+
+START WITH MANUAL / BACKEND-DRIVEN TOP-UP SUPPORT
+You do not need to build full Stripe purchase flow yet.
+But you must build:
+- data model for extra AI credit purchases / top-ups
+- a way to add top-up credits cleanly later
+- UI placeholders/buttons on Billing page like:
+  - Buy 50k credits
+  - Buy 100k credits
+  - Buy 500k credits
+These can be placeholders for now if payment is not wired, but the data model and gating logic should be real.
+
+PLAN MODEL
+Extend current billing/subscription logic to support:
+- aiAvailable: boolean
+- aiMonthlyCreditsIncluded: number
+- aiExtraCreditsPurchased: number
+- aiCreditsUsedCurrentPeriod: number
+- aiCreditsRemainingCurrentPeriod: number
+
+If needed, compute remaining credits dynamically from included + purchased - used.
+
+--------------------------------------------------
+PART 5 — AI USAGE TRACKING
+--------------------------------------------------
+
+Create a proper AI usage logging system.
+
+Add a table/model such as ai_runs or equivalent with fields like:
+- id
+- storeId
+- conversationId
+- triggerMessageId
+- responseMessageId optional
+- modelName
+- inputTokens
+- outputTokens
+- totalTokens
+- creditsCharged
+- status (success, failed, blocked_no_credits, blocked_plan, blocked_mode, etc.)
+- createdAt
+- optional errorReason
+
+Also add store-period usage aggregation support, either via:
+- an ai_usage table
+or
+- efficient queryable structure
+
+Need to support:
+- monthly usage calculations
+- billing display
+- audit/debugging
+- future analytics
+
+--------------------------------------------------
+PART 6 — AI PROVIDER INTEGRATION
+--------------------------------------------------
+
+Implement the AI provider in a modular way.
+
+Requirements:
+- use environment variable(s) for provider API key
+- create a dedicated service module, e.g. ai-service.ts
+- do not hardcode secrets
+- keep provider abstraction clean so model/provider can be swapped later
+- include a clear system prompt approach
+
+The AI should be instructed to behave like a sales/support assistant for COD ecommerce.
+It should handle:
+- greetings
+- price questions
+- delivery questions
+- availability questions
+- simple product/support questions
+- asking clarifying questions if needed
+- handing off to human when uncertain
+
+IMPORTANT SAFETY RULES
+- AI should not finalize sensitive decisions blindly
+- AI should not create final orders automatically in this layer
+- AI should not invent store policy
+- If unsure, respond briefly and suggest human support
+- If customer explicitly asks for a human, AI should stop and notify/escalate if implemented
+
+Keep the implementation honest.
+If exact provider token usage metadata is available, store it.
+If not, structure for it cleanly and estimate only if absolutely necessary.
+Prefer actual provider usage data if the SDK/API returns it.
+
+--------------------------------------------------
+PART 7 — INBOX UX
+--------------------------------------------------
+
+Update the Inbox UI to support AI autopilot clearly.
+
+Required UI changes:
+- show conversation mode badge:
+  - Human
+  - AI Active
+- add controls:
+  - Enable AI
+  - Disable AI
+  - Take Over
+- show AI-generated messages clearly but without breaking current message styling
+- if credits are exhausted, show a visible status like:
+  - AI paused: no credits remaining
+- if AI is not included in plan, show:
+  - Upgrade to use AI
+
+Keep the UX bilingual (EN/FR) and professional.
+
+Also preserve and fix the order draft builder layout in the Inbox while making these changes.
+
+--------------------------------------------------
+PART 8 — AUTOMATION PORTAL UX
+--------------------------------------------------
+
+Update the Automation page so AI is visible as a supported action.
+
+Requirements:
+- add “AI Reply” or “AI Autopilot Reply” as a supported action
+- clearly indicate whether the store currently has AI available
+- if AI is unavailable due to plan, show that clearly
+- if some AI-related options are not fully implemented yet, label them honestly
+
+Do not show fake capabilities.
+Do not present “self-learning” or unsupported features as live.
+
+--------------------------------------------------
+PART 9 — BILLING PAGE UX
+--------------------------------------------------
+
+Update the Billing page to include AI usage and top-up-ready UI.
+
+Required sections:
+1. AI Usage
+- current period
+- included credits
+- used credits
+- remaining credits
+- reset date if available
+
+2. AI Status
+- Active
+- Low credits
+- Paused
+- Not included
+
+3. Extra Credits
+Add UI cards/buttons for:
+- 50k credits
+- 100k credits
+- 500k credits
+
+If purchase flow is not yet implemented:
+- make them clear placeholders
+- but keep data model ready for real integration
+
+4. Plan visibility
+Show whether the current plan includes AI or requires add-on.
+
+--------------------------------------------------
+PART 10 — API / BACKEND REQUIREMENTS
+--------------------------------------------------
+
+Add/extend backend APIs as needed for:
+- getting AI store settings/status
+- toggling conversation mode
+- retrieving AI usage summary
+- retrieving AI run logs if useful
+- future top-up support
+
+All routes must remain store-scoped and multitenant-safe.
+
+Ensure:
+- one store cannot access another store’s AI usage or settings
+- only authorized users can enable/disable AI at store/conversation level where appropriate
+
+Also audit and fix any backend route/service needed for:
+- Team invite email sending through Resend
+- order draft builder layout dependencies if backend data affects rendering
+
+--------------------------------------------------
+PART 11 — DATA MODEL / SCHEMA
+--------------------------------------------------
+
+Add minimal but real schema changes needed for:
+- conversation mode / AI state
+- store AI settings / subscription AI quotas
+- AI usage logs
+- AI credit purchases/top-ups scaffold
+- optional monthly usage snapshots
+
+If needed for email/invite or draft builder correctness, include minimal safe schema changes there too.
+
+If schema changes are needed:
+- update Drizzle schema
+- add migration
+- keep seed/demo data working
+- update seed data with at least one AI-enabled plan/store example if useful
+
+--------------------------------------------------
+PART 12 — TESTING / DEMO
+--------------------------------------------------
+
+Provide a clear way to test the feature locally.
+
+Need to verify:
+1. AI disabled store → AI does not respond
+2. AI enabled store + autopilot off → AI does not respond
+3. AI enabled store + autopilot on + credits available → AI replies
+4. AI enabled store + credits exhausted → AI pauses and no reply is sent
+5. Agent can switch conversation from AI to Human
+6. AI usage is recorded
+7. Billing page reflects usage state
+8. Create Order opens the draft builder in a visible usable layout
+9. Draft builder does not hide the conversation
+10. Team invite email actually sends when Resend secret exists
+
+--------------------------------------------------
+PART 13 — QUALITY RULES
+--------------------------------------------------
+
+- preserve all current features
+- do not rebuild unrelated pages
+- do not fake unsupported billing or unsupported AI capabilities
+- prefer a smaller working AI autopilot over a broad fake assistant
+- keep implementation modular and production-structured
+- keep EN/FR support intact
+- do not break Socket.IO realtime behavior
+- do not leave misleading UI messages about email configuration if the service is actually configured
+
+OUTPUT REQUIREMENTS
+After implementation, provide a complete handoff summary:
+1. exactly what AI features are now live
+2. how AI autopilot is enabled/disabled
+3. how conversation-level autopilot works
+4. how credits are tracked and enforced
+5. how the order draft builder layout was fixed
+6. how the Resend/team invite flow was fixed
+7. what schema changes were made
+8. what new APIs/services were added
+9. how to test locally
+10. what remains for a later phase (e.g. knowledge base, training pipeline, real top-up payments)
