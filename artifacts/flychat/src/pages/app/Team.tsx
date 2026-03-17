@@ -77,7 +77,7 @@ export default function Team() {
   };
 
   const handleRemove = async (id: string) => {
-    if (!confirm("Remove this team member?")) return;
+    if (!confirm(t("team.remove_confirm"))) return;
     await removeMember.mutateAsync({ id });
     refetch();
   };
@@ -89,10 +89,10 @@ export default function Team() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.team")}</h1>
-              <p className="text-muted-foreground mt-1">Manage your support and sales team members.</p>
+              <p className="text-muted-foreground mt-1">{t("team.manage_desc")}</p>
             </div>
             <button onClick={() => setShowModal(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">
-              <UserPlus className="w-4 h-4" /> Invite Member
+              <UserPlus className="w-4 h-4" /> {t("team.invite_member")}
             </button>
           </div>
 
@@ -108,13 +108,13 @@ export default function Team() {
 
           <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-border">
-              <p className="text-sm text-muted-foreground">{data?.members.length || 0} team member{(data?.members.length || 0) !== 1 ? "s" : ""}</p>
+              <p className="text-sm text-muted-foreground">{t("team.members_count").replace("{count}", String(data?.members.length || 0))}</p>
             </div>
             <div className="divide-y divide-border/50">
               {isLoading ? (
                 <p className="px-6 py-10 text-center text-muted-foreground">{t("common.loading")}</p>
               ) : data?.members.length === 0 ? (
-                <p className="px-6 py-10 text-center text-muted-foreground">No team members yet. Invite your first agent to get started.</p>
+                <p className="px-6 py-10 text-center text-muted-foreground">{t("team.no_members")}</p>
               ) : data?.members.map((member) => {
                 const roleConfig = ROLE_CONFIG[member.role as keyof typeof ROLE_CONFIG] || ROLE_CONFIG.agent;
                 const statusConfig = STATUS_CONFIG[member.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.inactive;
@@ -181,7 +181,7 @@ export default function Team() {
             <div className="p-6 border-t border-border flex justify-end gap-3">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
               <button onClick={handleInvite} disabled={!form.email || inviting} className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
-                {inviting ? "Sending..." : "Send Invitation"}
+                {inviting ? t("team.sending") : t("team.invite_member")}
               </button>
             </div>
           </div>

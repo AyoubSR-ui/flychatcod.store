@@ -629,12 +629,21 @@ export default function Inbox() {
                 {aiStatus?.statusLabel === "paused" && activeConv.aiMode === "ai_autopilot" && (
                   <span className="text-xs text-amber-600 font-medium">{t("ai.paused_no_credits")}</span>
                 )}
-                {activeConv.aiMode === "human" ? (
-                  <button onClick={() => toggleAiMode("ai_autopilot")} disabled={togglingAiMode}
-                    className="px-3 py-1.5 bg-violet-50 text-violet-700 font-bold text-xs rounded-xl hover:bg-violet-100 flex items-center gap-1 transition-colors disabled:opacity-50">
-                    <Bot className="w-3 h-3" /> {t("ai.enable")}
-                  </button>
-                ) : (
+                {activeConv.aiMode === "human" ? (() => {
+                  const aiUnavailable = aiStatus?.statusLabel === "not_included";
+                  const aiStoreDisabled = aiStatus?.statusLabel === "disabled";
+                  const disableEnable = togglingAiMode || aiUnavailable || aiStoreDisabled;
+                  const enableTooltip = aiUnavailable ? t("ai.not_available") : aiStoreDisabled ? t("ai.store_disabled") : undefined;
+                  return (
+                    <button
+                      onClick={() => !disableEnable && toggleAiMode("ai_autopilot")}
+                      disabled={disableEnable}
+                      title={enableTooltip}
+                      className={`px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1 transition-colors disabled:opacity-50 ${aiUnavailable || aiStoreDisabled ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-violet-50 text-violet-700 hover:bg-violet-100"}`}>
+                      <Bot className="w-3 h-3" /> {t("ai.enable")}
+                    </button>
+                  );
+                })() : (
                   <button onClick={() => toggleAiMode("human")} disabled={togglingAiMode}
                     className="px-3 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-xl hover:bg-amber-100 flex items-center gap-1 transition-colors disabled:opacity-50">
                     <UserCheck className="w-3 h-3" /> {t("ai.take_over")}
@@ -747,8 +756,8 @@ export default function Inbox() {
             <div className="w-20 h-20 bg-white border border-border rounded-full flex items-center justify-center mb-4 shadow-sm">
               <MessageSquare className="w-10 h-10 text-border" />
             </div>
-            <p className="text-lg font-medium text-foreground">No conversation selected</p>
-            <p className="text-sm">Choose a chat from the list to start replying.</p>
+            <p className="text-lg font-medium text-foreground">{t("inbox.no_conv_selected")}</p>
+            <p className="text-sm">{t("inbox.no_conv_hint")}</p>
           </div>
         )}
 
@@ -970,7 +979,7 @@ export default function Inbox() {
                     <button onClick={handleCreateOrder} disabled={createOrderMutation.isPending}
                       className="w-full py-2.5 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors shadow-sm">
                       {createOrderMutation.isPending
-                        ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</>
+                        ? <><Loader2 className="w-4 h-4 animate-spin" /> {t("common.loading")}</>
                         : <><Check className="w-4 h-4" /> {t("order.confirm")}</>}
                     </button>
                   </div>
@@ -994,7 +1003,7 @@ export default function Inbox() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-green-700 dark:text-green-400 uppercase tracking-wide mb-0.5">
-                  {notif.type === "order_created" ? "New Order" : "Automation Alert"}
+                  {notif.type === "order_created" ? t("inbox.toast_new_order") : t("inbox.toast_automation")}
                 </p>
                 <p className="text-sm font-medium text-foreground leading-snug">{notif.message}</p>
                 {notif.orderNumber && (

@@ -62,7 +62,10 @@ export default function Billing() {
                     </div>
                   </div>
                 </div>
-                <button className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">Manage Subscription</button>
+                <button disabled className="px-4 py-2 border border-border rounded-xl text-sm font-medium opacity-50 cursor-not-allowed flex items-center gap-2">
+                  {t("billing.manage_subscription")}
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-secondary rounded-full text-muted-foreground">{t("billing.coming_soon_badge")}</span>
+                </button>
               </div>
             </div>
           )}
@@ -140,7 +143,7 @@ export default function Billing() {
           )}
 
           <div>
-            <h2 className="text-xl font-display font-bold text-foreground mb-5">Available Plans</h2>
+            <h2 className="text-xl font-display font-bold text-foreground mb-5">{t("billing.available_plans")}</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {plansData?.plans.map((plan) => {
                 const isCurrent = sub?.plan === plan.id;
@@ -151,7 +154,7 @@ export default function Billing() {
                     <div className="p-6 flex-1">
                       <div className="flex items-center justify-between mb-1">
                         <h3 className="font-display font-bold text-foreground text-lg">{plan.name}</h3>
-                        {isCurrent && <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded-full">Current</span>}
+                        {isCurrent && <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded-full">{t("billing.current_badge")}</span>}
                       </div>
                       <div className="mt-2 mb-5">
                         {plan.price === 0 ? (
@@ -173,7 +176,7 @@ export default function Billing() {
                     </div>
                     <div className="p-4 border-t border-border">
                       <button disabled={isCurrent} className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${isCurrent ? "bg-secondary text-muted-foreground cursor-default" : "bg-primary text-white hover:bg-primary/90"}`}>
-                        {isCurrent ? "Current Plan" : (<><ArrowUpRight className="w-4 h-4" /> Upgrade</>)}
+                        {isCurrent ? t("billing.current_badge") : (<><ArrowUpRight className="w-4 h-4" /> {t("billing.upgrade")}</>)}
                       </button>
                     </div>
                   </div>
@@ -185,12 +188,12 @@ export default function Billing() {
           <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-5">
               <FileText className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-display font-bold text-foreground">Invoice History</h2>
+              <h2 className="text-xl font-display font-bold text-foreground">{t("billing.invoice_history")}</h2>
             </div>
             <div className="text-center py-8 border border-dashed border-border rounded-xl">
               <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-              <p className="font-semibold text-muted-foreground">No invoices yet</p>
-              <p className="text-sm text-muted-foreground mt-1">Your billing history will appear here once you upgrade to a paid plan.</p>
+              <p className="font-semibold text-muted-foreground">{t("billing.no_invoices")}</p>
+              <p className="text-sm text-muted-foreground mt-1">{t("billing.no_invoices_desc")}</p>
             </div>
           </div>
         </div>

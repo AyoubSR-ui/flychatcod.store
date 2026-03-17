@@ -33,7 +33,10 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - Super Admin panel (`/admin`) — visible only to superadmin role
 - JWT auth with Bearer token stored in localStorage; injected automatically on all API calls
 - Realistic Algerian demo data seeded (5 customers, 5 orders, 5 conversations, 4 products)
-- AI Autopilot Layer: per-conversation AI mode (Human/AI Autopilot), credit-gated AI replies via OpenAI gpt-4o-mini, AI usage tracking on Billing page with usage bar + top-up cards (coming soon), AI Reply automation action, AI settings endpoints, widget-triggered AI replies with deduplication guard
+- AI Autopilot Layer: per-conversation AI mode (Human/AI Autopilot), credit-gated AI replies via OpenAI gpt-4o-mini, AI usage tracking on Billing page with usage bar + top-up cards (coming soon), AI Reply automation action, AI settings endpoints, widget-triggered AI replies with deduplication guard; "Enable AI" button in Inbox disabled when plan has no AI credits
+- Team Invitations: full invite flow via Resend API (RESEND_API_KEY), invite_tokens table with 7-day expiry, /accept-invite page with auto-login, "Resend invite" button; honest warning toast when email could not send
+- i18n completeness: all Billing, Team, Inbox, and AI strings fully bilingual EN/FR via use-i18n.tsx; no hardcoded display text remaining in dashboard pages
+- Demo AI credits seeded: all pro subscriptions updated with 50k aiMonthlyCreditsIncluded + aiEnabled=true on all stores
 
 **Embeddable Widget (Layer 1)**
 - Widget.js loader served at `/api/widget/widget.js` — vanilla JS, creates floating chat button + iframe
