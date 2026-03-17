@@ -14,6 +14,7 @@ export const automationActionEnum = pgEnum("automation_action", [
   "assign_agent",
   "add_tag",
   "notify_team",
+  "ai_reply",
   "create_order_flow",
   "escalate",
 ]);

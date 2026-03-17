@@ -14,6 +14,7 @@ import teamRouter from "./team.js";
 import billingRouter from "./billing.js";
 import settingsRouter from "./settings.js";
 import adminRouter from "./admin.js";
+import aiRouter from "./ai.js";
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.use("/team", teamRouter);
 router.use("/billing", billingRouter);
 router.use("/settings", settingsRouter);
 router.use("/admin", adminRouter);
+router.use("/ai", aiRouter);
 router.use("/", storageRouter);
 
 export default router;

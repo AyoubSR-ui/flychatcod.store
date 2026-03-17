@@ -3,11 +3,12 @@ import { AppLayout } from "@/components/AppLayout";
 import {
   Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe,
   Paperclip, Loader2, X, Plus, Minus, Trash2, ChevronRight, ChevronLeft,
-  Check, ClipboardList, CheckCircle2, Package, Bell,
+  Check, ClipboardList, CheckCircle2, Package, Bell, Bot, UserCheck,
 } from "lucide-react";
 import {
   useGetConversations, useGetMessages, useSendMessage,
   useGetCustomer, useGetProducts, useCreateOrder,
+  useGetAiStatus, useUpdateConversationAiMode,
   Conversation, Product,
   getGetMessagesQueryKey, getGetConversationsQueryKey, getGetOrdersQueryKey,
 } from "@workspace/api-client-react";
@@ -263,6 +264,21 @@ export default function Inbox() {
     setProductSearch("");
     setLastCreatedOrder(null);
   }, [activeConvId]);
+
+  const { data: aiStatusData } = useGetAiStatus();
+  const aiStatus = aiStatusData ?? null;
+  const updateAiMode = useUpdateConversationAiMode();
+  const togglingAiMode = updateAiMode.isPending;
+
+  const toggleAiMode = useCallback(async (mode: "human" | "ai_autopilot") => {
+    if (!activeConvId) return;
+    try {
+      await updateAiMode.mutateAsync({ id: activeConvId, data: { mode } });
+      queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+    } catch (err) {
+      console.error("[AI Mode] Toggle error:", err);
+    }
+  }, [activeConvId, queryClient, updateAiMode]);
 
   // Close message menu on outside click
   useEffect(() => {
@@ -600,12 +616,37 @@ export default function Inbox() {
                   </div>
                 </div>
               </div>
-              {rightPanel === "draft" && (
-                <button onClick={cancelDraft}
-                  className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors shrink-0">
-                  <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
-                </button>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {activeConv.aiMode === "ai_autopilot" ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-100 text-violet-700 text-xs font-bold rounded-full border border-violet-200">
+                    <Bot className="w-3 h-3" /> {t("ai.active")}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-full border border-gray-200">
+                    <UserCheck className="w-3 h-3" /> {t("ai.human")}
+                  </span>
+                )}
+                {aiStatus?.statusLabel === "paused" && activeConv.aiMode === "ai_autopilot" && (
+                  <span className="text-xs text-amber-600 font-medium">{t("ai.paused_no_credits")}</span>
+                )}
+                {activeConv.aiMode === "human" ? (
+                  <button onClick={() => toggleAiMode("ai_autopilot")} disabled={togglingAiMode}
+                    className="px-3 py-1.5 bg-violet-50 text-violet-700 font-bold text-xs rounded-xl hover:bg-violet-100 flex items-center gap-1 transition-colors disabled:opacity-50">
+                    <Bot className="w-3 h-3" /> {t("ai.enable")}
+                  </button>
+                ) : (
+                  <button onClick={() => toggleAiMode("human")} disabled={togglingAiMode}
+                    className="px-3 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-xl hover:bg-amber-100 flex items-center gap-1 transition-colors disabled:opacity-50">
+                    <UserCheck className="w-3 h-3" /> {t("ai.take_over")}
+                  </button>
+                )}
+                {rightPanel === "draft" && (
+                  <button onClick={cancelDraft}
+                    className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors">
+                    <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Draft mode hint bar */}
@@ -620,10 +661,11 @@ export default function Inbox() {
             <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[#f8fafc]">
               {msgsData?.messages.map((msg) => {
                 const isCustomer = msg.sender === "customer";
-                const metadata = msg.metadata as any;
-                const attachment: FileAttachment | null = metadata?.attachment ?? null;
+                const metadata = (msg.metadata ?? {}) as Record<string, unknown>;
+                const attachment: FileAttachment | null = (metadata?.attachment as FileAttachment) ?? null;
                 const isUsed = usedMsgIds.includes(msg.id);
                 const isClickable = isCustomer && rightPanel === "draft";
+                const isAiGenerated = metadata?.aiGenerated === true;
 
                 return (
                   <div key={msg.id} className={`flex ${isCustomer ? "justify-start" : "justify-end"}`}>
@@ -633,7 +675,9 @@ export default function Inbox() {
                           ? `bg-white text-foreground rounded-tl-sm border
                              ${isClickable ? "cursor-pointer hover:border-primary/50 hover:shadow-md active:scale-[0.99]" : "border-border/50"}
                              ${isUsed ? "border-green-400 bg-green-50/60" : ""}`
-                          : "bg-primary text-primary-foreground rounded-tr-sm"
+                          : isAiGenerated
+                            ? "bg-violet-600 text-white rounded-tr-sm"
+                            : "bg-primary text-primary-foreground rounded-tr-sm"
                         }`}
                       onClick={isClickable ? (e) => {
                         const content = (msg.content && msg.content !== `📎 ${attachment?.name}`)
@@ -642,6 +686,11 @@ export default function Inbox() {
                         setMsgMenu({ msgId: msg.id, content, x: e.clientX, y: e.clientY });
                       } : undefined}
                     >
+                      {isAiGenerated && (
+                        <span className="text-[10px] text-violet-200 font-bold flex items-center gap-1 mb-1.5">
+                          <Bot className="w-3 h-3" /> {t("ai.generated")}
+                        </span>
+                      )}
                       {isUsed && (
                         <span className="text-[10px] text-green-600 font-bold flex items-center gap-1 mb-1.5">
                           <Check className="w-3 h-3" /> {t("order.used")}
@@ -651,7 +700,7 @@ export default function Inbox() {
                       {msg.content && msg.content !== `📎 ${attachment?.name}` && (
                         <p className="text-sm leading-relaxed">{msg.content}</p>
                       )}
-                      <span className={`text-[10px] mt-2 block ${isCustomer ? "text-muted-foreground" : "text-primary-foreground/70"}`}>
+                      <span className={`text-[10px] mt-2 block ${isCustomer ? "text-muted-foreground" : isAiGenerated ? "text-violet-200/70" : "text-primary-foreground/70"}`}>
                         {format(new Date(msg.createdAt), "HH:mm")}
                       </span>
                     </div>

@@ -161,6 +161,14 @@ export const ConversationChannel = {
   messenger: "messenger",
 } as const;
 
+export type ConversationAiMode =
+  (typeof ConversationAiMode)[keyof typeof ConversationAiMode];
+
+export const ConversationAiMode = {
+  human: "human",
+  ai_autopilot: "ai_autopilot",
+} as const;
+
 export interface Conversation {
   id: string;
   storeId: string;
@@ -173,6 +181,7 @@ export interface Conversation {
   tags: string[];
   lastMessage?: string | null;
   unreadCount: number;
+  aiMode: ConversationAiMode;
   createdAt: string;
   updatedAt: string;
 }
@@ -820,6 +829,51 @@ export interface AdminUserListResponse {
   limit: number;
 }
 
+export type AiModeResponseAiMode =
+  (typeof AiModeResponseAiMode)[keyof typeof AiModeResponseAiMode];
+
+export const AiModeResponseAiMode = {
+  human: "human",
+  ai_autopilot: "ai_autopilot",
+} as const;
+
+export interface AiModeResponse {
+  id: string;
+  aiMode: AiModeResponseAiMode;
+}
+
+export type AiStatusStatusLabel =
+  (typeof AiStatusStatusLabel)[keyof typeof AiStatusStatusLabel];
+
+export const AiStatusStatusLabel = {
+  active: "active",
+  low_credits: "low_credits",
+  paused: "paused",
+  not_included: "not_included",
+  disabled: "disabled",
+} as const;
+
+export interface AiStatus {
+  eligible: boolean;
+  aiEnabled: boolean;
+  creditsIncluded: number;
+  creditsExtra: number;
+  creditsUsed: number;
+  creditsRemaining: number;
+  statusLabel: AiStatusStatusLabel;
+  resetAt?: string | null;
+}
+
+export interface AiSettings {
+  aiEnabled: boolean;
+  aiSystemPrompt: string;
+  aiFallbackToHuman: boolean;
+}
+
+export type InviteTeamMemberResponse = TeamMember & {
+  inviteSent?: boolean;
+};
+
 export type GetConversationsParams = {
   status?: GetConversationsStatus;
   search?: string;
@@ -878,4 +932,22 @@ export type GetAdminStoresParams = {
 export type GetAdminUsersParams = {
   page?: number;
   limit?: number;
+};
+
+export type UpdateConversationAiModeBodyMode =
+  (typeof UpdateConversationAiModeBodyMode)[keyof typeof UpdateConversationAiModeBodyMode];
+
+export const UpdateConversationAiModeBodyMode = {
+  human: "human",
+  ai_autopilot: "ai_autopilot",
+} as const;
+
+export type UpdateConversationAiModeBody = {
+  mode: UpdateConversationAiModeBodyMode;
+};
+
+export type UpdateAiSettingsBody = {
+  aiEnabled?: boolean;
+  aiSystemPrompt?: string;
+  aiFallbackToHuman?: boolean;
 };

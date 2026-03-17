@@ -1,13 +1,11 @@
 import { AppLayout } from "@/components/AppLayout";
-import { Plus, Zap, ToggleRight, ToggleLeft, Trash2, Bot, Info, CheckCircle2, Clock, ChevronRight } from "lucide-react";
+import { Plus, Zap, ToggleRight, ToggleLeft, Trash2, Bot, Info, CheckCircle2, Clock, ChevronRight, Lock } from "lucide-react";
 import { useState } from "react";
 import {
   useGetAutomationRules, useCreateAutomationRule, useUpdateAutomationRule, useDeleteAutomationRule,
-  useGetTeamMembers,
+  useGetTeamMembers, useGetAiStatus,
 } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
-
-// ─── Trigger / Action metadata ────────────────────────────────────────────────
 
 const TRIGGER_META: Record<string, { label: string; description: string; live: boolean; configFields: string[] }> = {
   new_conversation: {
@@ -36,7 +34,7 @@ const TRIGGER_META: Record<string, { label: string; description: string; live: b
   },
 };
 
-const ACTION_META: Record<string, { label: string; description: string; live: boolean; configFields: string[] }> = {
+const ACTION_META: Record<string, { label: string; description: string; live: boolean; configFields: string[]; requiresAi?: boolean }> = {
   send_message: {
     label: "Send Message",
     description: "Send an automated message to the visitor",
@@ -60,6 +58,13 @@ const ACTION_META: Record<string, { label: string; description: string; live: bo
     description: "Send a real-time in-app alert to all connected agents (invisible to customer)",
     live: true,
     configFields: ["notifyMessage"],
+  },
+  ai_reply: {
+    label: "AI Reply",
+    description: "Generate an AI-powered response using conversation context",
+    live: true,
+    configFields: [],
+    requiresAi: true,
   },
   create_order_flow: {
     label: "Start Order Flow",
@@ -95,13 +100,11 @@ function configSummary(rule: any): string {
   const parts: string[] = [];
   if (cfg.keyword) parts.push(`keyword: "${cfg.keyword}"`);
   if (cfg.delayMinutes) parts.push(`after ${cfg.delayMinutes}m`);
-  if (cfg.message) parts.push(`"${String(cfg.message).slice(0, 50)}${String(cfg.message).length > 50 ? "…" : ""}"`);
-  if (cfg.message_en) parts.push(`"${String(cfg.message_en).slice(0, 50)}…"`);
+  if (cfg.message) parts.push(`"${String(cfg.message).slice(0, 50)}${String(cfg.message).length > 50 ? "..." : ""}"`);
+  if (cfg.message_en) parts.push(`"${String(cfg.message_en).slice(0, 50)}..."`);
   if (cfg.tag) parts.push(`tag: "${cfg.tag}"`);
   return parts.join(" · ");
 }
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 type TriggerKey = keyof typeof TRIGGER_META;
 type ActionKey = keyof typeof ACTION_META;
@@ -133,6 +136,8 @@ export default function Automation() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleForm>(DEFAULT_FORM);
   const { t } = useI18n();
+  const { data: aiStatusData } = useGetAiStatus();
+  const aiStatus = aiStatusData ?? null;
 
   const teamMembers = teamData?.members ?? [];
 
@@ -162,7 +167,7 @@ export default function Automation() {
     if (editingId) {
       await updateRule.mutateAsync({ id: editingId, data: { name: form.name, isActive: form.isActive, config: form.config } });
     } else {
-      await createRule.mutateAsync({ data: { name: form.name, trigger: form.trigger as any, action: form.action as any, isActive: form.isActive, config: form.config } });
+      await createRule.mutateAsync({ data: { name: form.name, trigger: form.trigger as "new_conversation" | "keyword" | "order_created" | "inactivity", action: form.action as "send_message" | "assign_agent" | "add_tag" | "notify_team" | "ai_reply" | "create_order_flow" | "escalate", isActive: form.isActive, config: form.config } });
     }
     setShowModal(false);
     setForm(DEFAULT_FORM);
@@ -189,7 +194,6 @@ export default function Automation() {
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-5xl mx-auto space-y-6">
 
-          {/* Header */}
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <div className="flex items-center gap-3">
@@ -203,7 +207,6 @@ export default function Automation() {
             </button>
           </div>
 
-          {/* Supported triggers/actions overview */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-card border border-border rounded-2xl p-5">
               <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">Supported Triggers</h3>
@@ -224,9 +227,17 @@ export default function Automation() {
               <div className="space-y-2">
                 {Object.entries(ACTION_META).map(([key, meta]) => (
                   <div key={key} className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-medium">{meta.label}</span>
-                      <p className="text-[11px] text-muted-foreground">{meta.description}</p>
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <span className="text-sm font-medium">{meta.label}</span>
+                        {meta.requiresAi && aiStatus && aiStatus.statusLabel === "not_included" && (
+                          <span className="ml-2 text-[10px] text-amber-600 font-medium">{t("ai.upgrade_to_use")}</span>
+                        )}
+                        {meta.requiresAi && aiStatus && aiStatus.statusLabel === "paused" && (
+                          <span className="ml-2 text-[10px] text-amber-600 font-medium">{t("ai.paused_no_credits")}</span>
+                        )}
+                        <p className="text-[11px] text-muted-foreground">{meta.description}</p>
+                      </div>
                     </div>
                     <LiveBadge live={meta.live} />
                   </div>
@@ -235,7 +246,6 @@ export default function Automation() {
             </div>
           </div>
 
-          {/* Rules list */}
           <div className="space-y-3">
             <h2 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">Your Rules</h2>
             {isLoading ? (
@@ -252,8 +262,12 @@ export default function Automation() {
               const summary = configSummary(rule);
               return (
                 <div key={rule.id} className="bg-card border border-border rounded-2xl p-5 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${rule.isActive ? "bg-primary/10" : "bg-secondary"}`}>
-                    <Zap className={`w-5 h-5 ${rule.isActive ? "text-primary" : "text-muted-foreground"}`} />
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${rule.isActive ? rule.action === "ai_reply" ? "bg-violet-100" : "bg-primary/10" : "bg-secondary"}`}>
+                    {rule.action === "ai_reply" ? (
+                      <Bot className={`w-5 h-5 ${rule.isActive ? "text-violet-600" : "text-muted-foreground"}`} />
+                    ) : (
+                      <Zap className={`w-5 h-5 ${rule.isActive ? "text-primary" : "text-muted-foreground"}`} />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -287,20 +301,28 @@ export default function Automation() {
             })}
           </div>
 
-          {/* AI coming soon */}
           <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-2xl p-5 flex items-start gap-4">
             <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center shrink-0">
               <Bot className="w-5 h-5 text-violet-600" />
             </div>
             <div>
-              <p className="font-bold text-violet-900">AI Automation — Coming Soon</p>
-              <p className="text-sm text-violet-700 mt-1">Intent detection, order entity extraction, and AI-powered responses are on the roadmap. Current rules are structured and rule-based.</p>
+              <p className="font-bold text-violet-900">{t("ai.autopilot_section_title")}</p>
+              <p className="text-sm text-violet-700 mt-1">{t("ai.autopilot_section_desc")}</p>
+              {aiStatus?.statusLabel === "not_included" && (
+                <p className="text-xs text-amber-600 mt-2 font-medium flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> {t("ai.upgrade_to_use")}
+                </p>
+              )}
+              {aiStatus?.statusLabel === "paused" && (
+                <p className="text-xs text-amber-600 mt-2 font-medium flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> {t("ai.paused_no_credits")}
+                </p>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Create / Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -310,7 +332,6 @@ export default function Automation() {
             </div>
 
             <div className="p-6 space-y-5">
-              {/* Name */}
               <div>
                 <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Rule Name *</label>
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -318,7 +339,6 @@ export default function Automation() {
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background" />
               </div>
 
-              {/* Trigger */}
               {!editingId && (
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5">
@@ -334,7 +354,6 @@ export default function Automation() {
                 </div>
               )}
 
-              {/* Action */}
               {!editingId && (
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5">
@@ -344,16 +363,23 @@ export default function Automation() {
                   <select value={form.action} onChange={e => setForm(f => ({ ...f, action: e.target.value as ActionKey, config: {} }))}
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background">
                     {Object.entries(ACTION_META).map(([k, v]) => (
-                      <option key={k} value={k}>{v.label} {v.live ? "" : "⏳"}</option>
+                      <option key={k} value={k} disabled={v.requiresAi && aiStatus?.statusLabel === "not_included"}>
+                        {v.label} {v.live ? "" : "⏳"} {v.requiresAi && aiStatus?.statusLabel === "not_included" ? "(Upgrade required)" : ""}
+                      </option>
                     ))}
                   </select>
                   {!actionMeta.live && (
-                    <p className="text-xs text-amber-600 mt-1">⚠️ This action is not yet implemented and will have no effect.</p>
+                    <p className="text-xs text-amber-600 mt-1">This action is not yet implemented and will have no effect.</p>
+                  )}
+                  {actionMeta.requiresAi && aiStatus?.statusLabel === "not_included" && (
+                    <p className="text-xs text-amber-600 mt-1">{t("ai.upgrade_to_use")}</p>
+                  )}
+                  {actionMeta.requiresAi && aiStatus?.statusLabel === "paused" && (
+                    <p className="text-xs text-amber-600 mt-1">{t("ai.paused_no_credits")}</p>
                   )}
                 </div>
               )}
 
-              {/* Config fields — trigger-specific */}
               {(triggerMeta.configFields.includes("keyword") || editingId) && (
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5">
@@ -387,7 +413,6 @@ export default function Automation() {
                 </div>
               )}
 
-              {/* Config fields — action-specific */}
               {(actionMeta.configFields.includes("message") || (editingId && form.action === "send_message")) && (
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5">Message Text *</label>
@@ -449,7 +474,6 @@ export default function Automation() {
                 </div>
               )}
 
-              {/* Active toggle */}
               <div className="flex items-center gap-3 pt-1">
                 <input type="checkbox" id="ruleActive" checked={form.isActive} onChange={e => setForm(f => ({ ...f, isActive: e.target.checked }))} className="w-4 h-4 accent-primary" />
                 <label htmlFor="ruleActive" className="text-sm font-medium">Active (rule fires immediately)</label>

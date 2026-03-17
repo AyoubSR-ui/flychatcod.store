@@ -20,6 +20,9 @@ import type {
   AdminStats,
   AdminStoreListResponse,
   AdminUserListResponse,
+  AiModeResponse,
+  AiSettings,
+  AiStatus,
   AuthResponse,
   AutomationRule,
   AutomationRuleListResponse,
@@ -46,6 +49,7 @@ import type {
   GetProductsParams,
   HealthStatus,
   InviteTeamMemberRequest,
+  InviteTeamMemberResponse,
   LoginRequest,
   Message,
   MessageListResponse,
@@ -67,7 +71,9 @@ import type {
   SuccessResponse,
   TeamMember,
   TeamMemberListResponse,
+  UpdateAiSettingsBody,
   UpdateAutomationRuleRequest,
+  UpdateConversationAiModeBody,
   UpdateConversationRequest,
   UpdateCustomerRequest,
   UpdateOrderRequest,
@@ -3144,8 +3150,8 @@ export const getInviteTeamMemberUrl = () => {
 export const inviteTeamMember = async (
   inviteTeamMemberRequest: InviteTeamMemberRequest,
   options?: RequestInit,
-): Promise<TeamMember> => {
-  return customFetch<TeamMember>(getInviteTeamMemberUrl(), {
+): Promise<InviteTeamMemberResponse> => {
+  return customFetch<InviteTeamMemberResponse>(getInviteTeamMemberUrl(), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -4135,4 +4141,401 @@ export const useStartWidgetConversation = <
   TContext
 > => {
   return useMutation(getStartWidgetConversationMutationOptions(options));
+};
+
+/**
+ * @summary Update the AI mode for a conversation
+ */
+export const getUpdateConversationAiModeUrl = (id: string) => {
+  return `/api/conversations/${id}/ai-mode`;
+};
+
+export const updateConversationAiMode = async (
+  id: string,
+  updateConversationAiModeBody: UpdateConversationAiModeBody,
+  options?: RequestInit,
+): Promise<AiModeResponse> => {
+  return customFetch<AiModeResponse>(getUpdateConversationAiModeUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateConversationAiModeBody),
+  });
+};
+
+export const getUpdateConversationAiModeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateConversationAiMode>>,
+    TError,
+    { id: string; data: BodyType<UpdateConversationAiModeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateConversationAiMode>>,
+  TError,
+  { id: string; data: BodyType<UpdateConversationAiModeBody> },
+  TContext
+> => {
+  const mutationKey = ["updateConversationAiMode"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateConversationAiMode>>,
+    { id: string; data: BodyType<UpdateConversationAiModeBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateConversationAiMode(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateConversationAiModeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateConversationAiMode>>
+>;
+export type UpdateConversationAiModeMutationBody =
+  BodyType<UpdateConversationAiModeBody>;
+export type UpdateConversationAiModeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update the AI mode for a conversation
+ */
+export const useUpdateConversationAiMode = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateConversationAiMode>>,
+    TError,
+    { id: string; data: BodyType<UpdateConversationAiModeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateConversationAiMode>>,
+  TError,
+  { id: string; data: BodyType<UpdateConversationAiModeBody> },
+  TContext
+> => {
+  return useMutation(getUpdateConversationAiModeMutationOptions(options));
+};
+
+/**
+ * @summary Get AI credit status for the current store
+ */
+export const getGetAiStatusUrl = () => {
+  return `/api/ai/status`;
+};
+
+export const getAiStatus = async (options?: RequestInit): Promise<AiStatus> => {
+  return customFetch<AiStatus>(getGetAiStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAiStatusQueryKey = () => {
+  return [`/api/ai/status`] as const;
+};
+
+export const getGetAiStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAiStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAiStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAiStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiStatus>>> = ({
+    signal,
+  }) => getAiStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAiStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAiStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAiStatus>>
+>;
+export type GetAiStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get AI credit status for the current store
+ */
+
+export function useGetAiStatus<
+  TData = Awaited<ReturnType<typeof getAiStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAiStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAiStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get AI credit status (billing context)
+ */
+export const getGetBillingAiStatusUrl = () => {
+  return `/api/billing/ai-status`;
+};
+
+export const getBillingAiStatus = async (
+  options?: RequestInit,
+): Promise<AiStatus> => {
+  return customFetch<AiStatus>(getGetBillingAiStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBillingAiStatusQueryKey = () => {
+  return [`/api/billing/ai-status`] as const;
+};
+
+export const getGetBillingAiStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBillingAiStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBillingAiStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBillingAiStatusQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBillingAiStatus>>
+  > = ({ signal }) => getBillingAiStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBillingAiStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBillingAiStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBillingAiStatus>>
+>;
+export type GetBillingAiStatusQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get AI credit status (billing context)
+ */
+
+export function useGetBillingAiStatus<
+  TData = Awaited<ReturnType<typeof getBillingAiStatus>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBillingAiStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBillingAiStatusQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get AI settings for the store (owner/admin only)
+ */
+export const getGetAiSettingsUrl = () => {
+  return `/api/settings/ai`;
+};
+
+export const getAiSettings = async (
+  options?: RequestInit,
+): Promise<AiSettings> => {
+  return customFetch<AiSettings>(getGetAiSettingsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAiSettingsQueryKey = () => {
+  return [`/api/settings/ai`] as const;
+};
+
+export const getGetAiSettingsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAiSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAiSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAiSettingsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiSettings>>> = ({
+    signal,
+  }) => getAiSettings({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAiSettings>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAiSettingsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAiSettings>>
+>;
+export type GetAiSettingsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get AI settings for the store (owner/admin only)
+ */
+
+export function useGetAiSettings<
+  TData = Awaited<ReturnType<typeof getAiSettings>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAiSettings>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAiSettingsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update AI settings for the store (owner/admin only)
+ */
+export const getUpdateAiSettingsUrl = () => {
+  return `/api/settings/ai`;
+};
+
+export const updateAiSettings = async (
+  updateAiSettingsBody: UpdateAiSettingsBody,
+  options?: RequestInit,
+): Promise<AiSettings> => {
+  return customFetch<AiSettings>(getUpdateAiSettingsUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateAiSettingsBody),
+  });
+};
+
+export const getUpdateAiSettingsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAiSettings>>,
+    TError,
+    { data: BodyType<UpdateAiSettingsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAiSettings>>,
+  TError,
+  { data: BodyType<UpdateAiSettingsBody> },
+  TContext
+> => {
+  const mutationKey = ["updateAiSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAiSettings>>,
+    { data: BodyType<UpdateAiSettingsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateAiSettings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAiSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAiSettings>>
+>;
+export type UpdateAiSettingsMutationBody = BodyType<UpdateAiSettingsBody>;
+export type UpdateAiSettingsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update AI settings for the store (owner/admin only)
+ */
+export const useUpdateAiSettings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAiSettings>>,
+    TError,
+    { data: BodyType<UpdateAiSettingsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAiSettings>>,
+  TError,
+  { data: BodyType<UpdateAiSettingsBody> },
+  TContext
+> => {
+  return useMutation(getUpdateAiSettingsMutationOptions(options));
 };

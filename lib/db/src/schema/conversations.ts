@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const conversationStatusEnum = pgEnum("conversation_status", ["open", "closed", "pending", "archived"]);
 export const channelEnum = pgEnum("channel", ["widget", "whatsapp", "instagram", "messenger"]);
 export const messageSenderEnum = pgEnum("message_sender", ["customer", "agent", "bot", "system"]);
+export const aiModeEnum = pgEnum("ai_mode", ["human", "ai_autopilot"]);
 
 export const conversationsTable = pgTable("conversations", {
   id: text("id").primaryKey(),
@@ -23,6 +24,7 @@ export const conversationsTable = pgTable("conversations", {
   lastMessage: text("last_message"),
   lastMessageAt: timestamp("last_message_at"),
   unreadCount: integer("unread_count").notNull().default(0),
+  aiMode: aiModeEnum("ai_mode").notNull().default("human"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

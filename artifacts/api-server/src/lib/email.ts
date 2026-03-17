@@ -1,5 +1,8 @@
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM = process.env.RESEND_FROM_EMAIL || "FlyChat COD <onboarding@resend.dev>";
+
+function getResendApiKey(): string {
+  return process.env.RESEND_API_KEY || "";
+}
 
 interface InviteEmailParams {
   to: string;
@@ -10,7 +13,8 @@ interface InviteEmailParams {
 }
 
 export async function sendInviteEmail(params: InviteEmailParams): Promise<boolean> {
-  if (!RESEND_API_KEY) {
+  const apiKey = getResendApiKey();
+  if (!apiKey) {
     console.warn("[Email] RESEND_API_KEY not set — invite email NOT sent to", params.to);
     console.log("[Email] Accept URL (for manual testing):", params.acceptUrl);
     return false;
@@ -62,7 +66,7 @@ export async function sendInviteEmail(params: InviteEmailParams): Promise<boolea
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

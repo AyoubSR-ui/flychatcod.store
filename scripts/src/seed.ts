@@ -99,6 +99,9 @@ async function seed() {
     shippingWilayas: ["Alger", "Oran", "Constantine", "Annaba", "Blida", "Tizi Ouzou", "Béjaïa", "Sétif", "Batna", "Sidi Bel Abbès"],
     hasWebsite: true,
     needsHostedPage: false,
+    aiEnabled: true,
+    aiSystemPrompt: "You are the sales assistant for AlgerShop Pro, an Algerian online store. Be helpful, answer in French or English based on customer language. Help with product info, pricing, and delivery questions. Never confirm orders directly.",
+    aiFallbackToHuman: true,
   }).onConflictDoNothing();
 
   // Update users with org/store
@@ -127,6 +130,7 @@ async function seed() {
   // ─── Subscription ─────────────────────────────────────────────────────────
   const now = new Date();
   const trialEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const resetAt = new Date(trialEnd.getTime());
   await db.insert(subscriptionsTable).values({
     id: generateId("sub"),
     organizationId: orgId,
@@ -135,6 +139,10 @@ async function seed() {
     currentPeriodStart: now,
     currentPeriodEnd: trialEnd,
     cancelAtPeriodEnd: false,
+    aiMonthlyCreditsIncluded: 50000,
+    aiExtraCreditsPurchased: 0,
+    aiCreditsUsedCurrentPeriod: 1250,
+    aiCreditsResetAt: resetAt,
   }).onConflictDoNothing();
 
   // ─── Team Members ─────────────────────────────────────────────────────────

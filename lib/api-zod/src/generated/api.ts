@@ -164,6 +164,7 @@ export const GetConversationsResponse = zod.object({
       tags: zod.array(zod.string()),
       lastMessage: zod.string().nullish(),
       unreadCount: zod.number(),
+      aiMode: zod.enum(["human", "ai_autopilot"]),
       createdAt: zod.date(),
       updatedAt: zod.date(),
     }),
@@ -203,6 +204,7 @@ export const GetConversationResponse = zod
     tags: zod.array(zod.string()),
     lastMessage: zod.string().nullish(),
     unreadCount: zod.number(),
+    aiMode: zod.enum(["human", "ai_autopilot"]),
     createdAt: zod.date(),
     updatedAt: zod.date(),
   })
@@ -273,6 +275,7 @@ export const UpdateConversationResponse = zod.object({
   tags: zod.array(zod.string()),
   lastMessage: zod.string().nullish(),
   unreadCount: zod.number(),
+  aiMode: zod.enum(["human", "ai_autopilot"]),
   createdAt: zod.date(),
   updatedAt: zod.date(),
 });
@@ -1161,4 +1164,84 @@ export const StartWidgetConversationBody = zod.object({
   customerPhone: zod.string().nullish(),
   initialMessage: zod.string(),
   language: zod.enum(["en", "fr"]).optional(),
+});
+
+/**
+ * @summary Update the AI mode for a conversation
+ */
+export const UpdateConversationAiModeParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const UpdateConversationAiModeBody = zod.object({
+  mode: zod.enum(["human", "ai_autopilot"]),
+});
+
+export const UpdateConversationAiModeResponse = zod.object({
+  id: zod.string(),
+  aiMode: zod.enum(["human", "ai_autopilot"]),
+});
+
+/**
+ * @summary Get AI credit status for the current store
+ */
+export const GetAiStatusResponse = zod.object({
+  eligible: zod.boolean(),
+  aiEnabled: zod.boolean(),
+  creditsIncluded: zod.number(),
+  creditsExtra: zod.number(),
+  creditsUsed: zod.number(),
+  creditsRemaining: zod.number(),
+  statusLabel: zod.enum([
+    "active",
+    "low_credits",
+    "paused",
+    "not_included",
+    "disabled",
+  ]),
+  resetAt: zod.date().nullish(),
+});
+
+/**
+ * @summary Get AI credit status (billing context)
+ */
+export const GetBillingAiStatusResponse = zod.object({
+  eligible: zod.boolean(),
+  aiEnabled: zod.boolean(),
+  creditsIncluded: zod.number(),
+  creditsExtra: zod.number(),
+  creditsUsed: zod.number(),
+  creditsRemaining: zod.number(),
+  statusLabel: zod.enum([
+    "active",
+    "low_credits",
+    "paused",
+    "not_included",
+    "disabled",
+  ]),
+  resetAt: zod.date().nullish(),
+});
+
+/**
+ * @summary Get AI settings for the store (owner/admin only)
+ */
+export const GetAiSettingsResponse = zod.object({
+  aiEnabled: zod.boolean(),
+  aiSystemPrompt: zod.string(),
+  aiFallbackToHuman: zod.boolean(),
+});
+
+/**
+ * @summary Update AI settings for the store (owner/admin only)
+ */
+export const UpdateAiSettingsBody = zod.object({
+  aiEnabled: zod.boolean().optional(),
+  aiSystemPrompt: zod.string().optional(),
+  aiFallbackToHuman: zod.boolean().optional(),
+});
+
+export const UpdateAiSettingsResponse = zod.object({
+  aiEnabled: zod.boolean(),
+  aiSystemPrompt: zod.string(),
+  aiFallbackToHuman: zod.boolean(),
 });

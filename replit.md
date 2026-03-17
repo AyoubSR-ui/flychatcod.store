@@ -33,6 +33,7 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - Super Admin panel (`/admin`) — visible only to superadmin role
 - JWT auth with Bearer token stored in localStorage; injected automatically on all API calls
 - Realistic Algerian demo data seeded (5 customers, 5 orders, 5 conversations, 4 products)
+- AI Autopilot Layer: per-conversation AI mode (Human/AI Autopilot), credit-gated AI replies via OpenAI gpt-4o-mini, AI usage tracking on Billing page with usage bar + top-up cards (coming soon), AI Reply automation action, AI settings endpoints, widget-triggered AI replies with deduplication guard
 
 **Embeddable Widget (Layer 1)**
 - Widget.js loader served at `/api/widget/widget.js` — vanilla JS, creates floating chat button + iframe

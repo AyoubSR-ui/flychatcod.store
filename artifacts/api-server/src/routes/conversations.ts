@@ -19,7 +19,8 @@ router.get("/", requireAuth, async (req, res) => {
 
     const conditions = [eq(conversationsTable.storeId, storeId)];
     if (status && ["open", "closed", "pending", "archived"].includes(status)) {
-      conditions.push(eq(conversationsTable.status, status as any));
+      const validStatus = status as "open" | "closed" | "pending" | "archived";
+      conditions.push(eq(conversationsTable.status, validStatus));
     }
     if (search) {
       conditions.push(ilike(conversationsTable.customerName, `%${search}%`));
@@ -56,7 +57,7 @@ router.post("/", requireAuth, async (req, res) => {
       storeId,
       customerName,
       customerPhone,
-      channel: channel as any,
+      channel: (channel || "widget") as "widget" | "whatsapp" | "instagram" | "messenger",
       lastMessage: initialMessage || null,
     }).returning();
 
@@ -216,6 +217,28 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to send message" });
+  }
+});
+
+router.patch("/:id/ai-mode", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { mode } = req.body;
+    if (!mode || !["human", "ai_autopilot"].includes(mode)) {
+      res.status(400).json({ error: "validation_error", message: "mode must be 'human' or 'ai_autopilot'" });
+      return;
+    }
+
+    const validMode = mode as "human" | "ai_autopilot";
+    const [updated] = await db.update(conversationsTable).set({ aiMode: validMode, updatedAt: new Date() })
+      .where(and(eq(conversationsTable.id, req.params.id), eq(conversationsTable.storeId, storeId!)))
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: "not_found", message: "Conversation not found" }); return; }
+    res.json({ id: updated.id, aiMode: updated.aiMode });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to update AI mode" });
   }
 });
 

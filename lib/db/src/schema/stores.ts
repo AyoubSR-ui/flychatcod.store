@@ -18,6 +18,9 @@ export const storesTable = pgTable("stores", {
   hasWebsite: boolean("has_website").notNull().default(false),
   needsHostedPage: boolean("needs_hosted_page").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
+  aiEnabled: boolean("ai_enabled").notNull().default(false),
+  aiSystemPrompt: text("ai_system_prompt"),
+  aiFallbackToHuman: boolean("ai_fallback_to_human").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -24,17 +24,34 @@ export default function Team() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ email: "", role: "agent" as "admin" | "agent" });
   const [inviting, setInviting] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<{ type: "success" | "warning" | "error"; text: string } | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const { t } = useI18n();
 
   const handleInvite = async () => {
     setInviting(true);
-    await inviteMember.mutateAsync({ data: form });
-    setInviting(false); setShowModal(false); setForm({ email: "", role: "agent" }); refetch();
+    setInviteMessage(null);
+    try {
+      const result = await inviteMember.mutateAsync({ data: form });
+      const inviteSent = result.inviteSent;
+      if (inviteSent) {
+        setInviteMessage({ type: "success", text: t("team.invite_sent") });
+      } else {
+        setInviteMessage({ type: "warning", text: t("team.invite_created_no_email") });
+      }
+      setShowModal(false);
+      setForm({ email: "", role: "agent" });
+      refetch();
+    } catch {
+      setInviteMessage({ type: "error", text: t("team.invite_failed") });
+    }
+    setInviting(false);
+    setTimeout(() => setInviteMessage(null), 5000);
   };
 
   const handleResendInvite = async (id: string) => {
     setResendingId(id);
+    setInviteMessage(null);
     try {
       const token = localStorage.getItem("flychat_token");
       const resp = await fetch(`/api/team/members/${id}/resend-invite`, {
@@ -43,14 +60,19 @@ export default function Team() {
       });
       const data = await resp.json();
       if (resp.ok) {
-        alert(data.inviteSent ? "Invitation email resent!" : "Invite created (email service not configured yet).");
+        if (data.inviteSent) {
+          setInviteMessage({ type: "success", text: t("team.resend_success") });
+        } else {
+          setInviteMessage({ type: "warning", text: t("team.resend_no_email") });
+        }
       } else {
-        alert(data.message || "Failed to resend invite.");
+        setInviteMessage({ type: "error", text: data.message || t("team.resend_failed") });
       }
     } catch {
-      alert("Network error. Please try again.");
+      setInviteMessage({ type: "error", text: t("team.network_error") });
     } finally {
       setResendingId(null);
+      setTimeout(() => setInviteMessage(null), 5000);
     }
   };
 
@@ -73,6 +95,16 @@ export default function Team() {
               <UserPlus className="w-4 h-4" /> Invite Member
             </button>
           </div>
+
+          {inviteMessage && (
+            <div className={`rounded-xl px-4 py-3 text-sm font-medium flex items-center gap-2 ${
+              inviteMessage.type === "success" ? "bg-green-50 text-green-800 border border-green-200" :
+              inviteMessage.type === "warning" ? "bg-yellow-50 text-yellow-800 border border-yellow-200" :
+              "bg-red-50 text-red-800 border border-red-200"
+            }`}>
+              {inviteMessage.text}
+            </div>
+          )}
 
           <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-border">
@@ -140,7 +172,7 @@ export default function Team() {
               </div>
               <div>
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Role</label>
-                <select value={form.role} onChange={e => setForm({...form, role: e.target.value as any})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
+                <select value={form.role} onChange={e => setForm({...form, role: e.target.value as "agent" | "admin"})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
                   <option value="agent">Agent — Can manage conversations and orders</option>
                   <option value="admin">Admin — Can manage everything except billing</option>
                 </select>

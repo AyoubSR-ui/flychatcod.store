@@ -6,7 +6,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { z } from "zod";
 import { getIO } from "../socket.js";
-import { fireTrigger, rescheduleInactivityChecks } from "../lib/automation-engine.js";
+import { fireTrigger, rescheduleInactivityChecks, handleAiReplyForMessage } from "../lib/automation-engine.js";
 
 const router = Router();
 
@@ -339,10 +339,12 @@ router.post("/public/conversations/:conversationId/messages", async (req, res) =
     res.status(201).json(msg);
 
     // Fire keyword/message automation + reschedule inactivity timers in background
-    fireTrigger({ storeId, conversationId, triggerType: "keyword", message: { content, sender: "customer" } })
+    fireTrigger({ storeId, conversationId, triggerType: "keyword", message: { content, sender: "customer", id: msgId } })
       .catch(err => console.error("[Widget] keyword automation error:", err));
     rescheduleInactivityChecks(storeId, conversationId)
       .catch(err => console.error("[Widget] inactivity schedule error:", err));
+    handleAiReplyForMessage(storeId, conversationId, { id: msgId, content, sender: "customer" })
+      .catch(err => console.error("[Widget] AI reply error:", err));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to send message" });

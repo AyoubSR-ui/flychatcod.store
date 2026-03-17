@@ -5,6 +5,7 @@
  * FlyChat COD API - Chat-to-Order SaaS for COD ecommerce sellers
  * OpenAPI spec version: 0.1.0
  */
+import type { ConversationAiMode } from "./conversationAiMode";
 import type { ConversationChannel } from "./conversationChannel";
 import type { ConversationStatus } from "./conversationStatus";
 
@@ -20,6 +21,7 @@ export interface Conversation {
   tags: string[];
   lastMessage?: string | null;
   unreadCount: number;
+  aiMode: ConversationAiMode;
   createdAt: Date;
   updatedAt: Date;
 }

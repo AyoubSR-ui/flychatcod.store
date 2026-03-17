@@ -767,7 +767,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TeamMember"
+                $ref: "#/components/schemas/InviteTeamMemberResponse"
 
   /team/members/{id}:
     patch:
@@ -961,6 +961,109 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WidgetConversationResponse"
+
+  /conversations/{id}/ai-mode:
+    patch:
+      operationId: updateConversationAiMode
+      tags: [conversations]
+      summary: Update the AI mode for a conversation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [human, ai_autopilot]
+              required: [mode]
+      responses:
+        "200":
+          description: AI mode updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiModeResponse"
+
+  /ai/status:
+    get:
+      operationId: getAiStatus
+      tags: [ai]
+      summary: Get AI credit status for the current store
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: AI status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+
+  /billing/ai-status:
+    get:
+      operationId: getBillingAiStatus
+      tags: [billing]
+      summary: Get AI credit status (billing context)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: AI status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+
+  /settings/ai:
+    get:
+      operationId: getAiSettings
+      tags: [settings]
+      summary: Get AI settings for the store (owner/admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: AI settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
+    patch:
+      operationId: updateAiSettings
+      tags: [settings]
+      summary: Update AI settings for the store (owner/admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                aiEnabled:
+                  type: boolean
+                aiSystemPrompt:
+                  type: string
+                aiFallbackToHuman:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated AI settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSettings"
 
 components:
   schemas:
@@ -1197,13 +1300,16 @@ components:
           nullable: true
         unreadCount:
           type: number
+        aiMode:
+          type: string
+          enum: [human, ai_autopilot]
         createdAt:
           type: string
           format: date-time
         updatedAt:
           type: string
           format: date-time
-      required: [id, storeId, customerName, status, channel, tags, unreadCount, createdAt, updatedAt]
+      required: [id, storeId, customerName, status, channel, tags, unreadCount, aiMode, createdAt, updatedAt]
 
     ConversationDetail:
       allOf:
@@ -2069,3 +2175,56 @@ components:
         limit:
           type: number
       required: [users, total, page, limit]
+
+    AiModeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        aiMode:
+          type: string
+          enum: [human, ai_autopilot]
+      required: [id, aiMode]
+
+    AiStatus:
+      type: object
+      properties:
+        eligible:
+          type: boolean
+        aiEnabled:
+          type: boolean
+        creditsIncluded:
+          type: number
+        creditsExtra:
+          type: number
+        creditsUsed:
+          type: number
+        creditsRemaining:
+          type: number
+        statusLabel:
+          type: string
+          enum: [active, low_credits, paused, not_included, disabled]
+        resetAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [eligible, aiEnabled, creditsIncluded, creditsExtra, creditsUsed, creditsRemaining, statusLabel]
+
+    AiSettings:
+      type: object
+      properties:
+        aiEnabled:
+          type: boolean
+        aiSystemPrompt:
+          type: string
+        aiFallbackToHuman:
+          type: boolean
+      required: [aiEnabled, aiSystemPrompt, aiFallbackToHuman]
+
+    InviteTeamMemberResponse:
+      allOf:
+        - $ref: "#/components/schemas/TeamMember"
+        - type: object
+          properties:
+            inviteSent:
+              type: boolean
