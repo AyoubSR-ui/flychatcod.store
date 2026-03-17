@@ -83,8 +83,8 @@ export async function sendInviteEmail(params: InviteEmailParams): Promise<boolea
       return false;
     }
 
-    const result = await resp.json();
-    console.log("[Email] Invite sent to", params.to, "— Resend ID:", (result as any).id);
+    const result = await resp.json() as { id?: string };
+    console.log("[Email] Invite sent to", params.to, "— Resend ID:", result.id);
     return true;
   } catch (err) {
     console.error("[Email] Failed to send invite:", err);

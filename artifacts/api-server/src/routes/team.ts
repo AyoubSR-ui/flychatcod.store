@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, Request } from "express";
 import { db, teamMembersTable, inviteTokensTable, storesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
@@ -8,7 +8,7 @@ import { randomBytes } from "crypto";
 
 const router = Router();
 
-function buildAcceptUrl(req: any, token: string): string {
+function buildAcceptUrl(req: Request, token: string): string {
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
   const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
   return `${proto}://${host}/accept-invite?token=${token}`;

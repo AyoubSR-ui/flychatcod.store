@@ -180,7 +180,7 @@ router.post("/accept-invite", async (req, res) => {
         email: invite.email.toLowerCase(),
         passwordHash,
         name,
-        role: invite.role === "admin" ? "admin" : "owner",
+        role: invite.role === "admin" ? "admin" : "agent",
         language: "fr",
         storeId: invite.storeId,
         organizationId: store?.organizationId || null,
