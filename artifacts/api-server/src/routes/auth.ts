@@ -119,12 +119,14 @@ router.get("/validate-invite", async (req, res) => {
     }
 
     const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
+    const [existingUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, invite.email.toLowerCase())).limit(1);
 
     res.json({
       valid: true,
       email: invite.email,
       role: invite.role,
       storeName: store?.name || "Store",
+      isExistingUser: !!existingUser,
     });
   } catch (err) {
     console.error("Validate invite error:", err);
@@ -135,12 +137,8 @@ router.get("/validate-invite", async (req, res) => {
 router.post("/accept-invite", async (req, res) => {
   try {
     const { token, name, password } = req.body;
-    if (!token || !name || !password) {
-      res.status(400).json({ error: "validation_error", message: "token, name, and password are required" });
-      return;
-    }
-    if (password.length < 8) {
-      res.status(400).json({ error: "validation_error", message: "Password must be at least 8 characters" });
+    if (!token || !name) {
+      res.status(400).json({ error: "validation_error", message: "token and name are required" });
       return;
     }
 
@@ -159,6 +157,11 @@ router.post("/accept-invite", async (req, res) => {
 
     let userId: string;
     const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.email, invite.email.toLowerCase())).limit(1);
+
+    if (!existingUser && (!password || password.length < 8)) {
+      res.status(400).json({ error: "validation_error", message: "Password must be at least 8 characters" });
+      return;
+    }
 
     if (existingUser) {
       userId = existingUser.id;

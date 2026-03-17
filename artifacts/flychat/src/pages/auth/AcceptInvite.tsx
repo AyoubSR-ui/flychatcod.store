@@ -10,7 +10,7 @@ export default function AcceptInvite() {
   const token = new URLSearchParams(search).get("token") || "";
 
   const [state, setState] = useState<"loading" | "form" | "error" | "expired">("loading");
-  const [invite, setInvite] = useState<{ email: string; role: string; storeName: string } | null>(null);
+  const [invite, setInvite] = useState<{ email: string; role: string; storeName: string; isExistingUser: boolean } | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   const [name, setName] = useState("");
@@ -48,7 +48,7 @@ export default function AcceptInvite() {
       const resp = await fetch("/api/auth/accept-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, name, password }),
+        body: JSON.stringify({ token, name, ...(invite?.isExistingUser ? {} : { password }) }),
       });
       const data = await resp.json();
 
@@ -129,17 +129,23 @@ export default function AcceptInvite() {
                 <input type="text" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Your full name"
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
               </div>
-              <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Password *</label>
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} placeholder="Min. 8 characters"
-                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
-              </div>
+              {invite.isExistingUser ? (
+                <p className="text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                  You already have a FlyChat account — your existing password will work to log in.
+                </p>
+              ) : (
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Password *</label>
+                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} placeholder="Min. 8 characters"
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                </div>
+              )}
 
               {submitError && (
                 <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{submitError}</p>
               )}
 
-              <button type="submit" disabled={submitting || !name || !password}
+              <button type="submit" disabled={submitting || !name || (!invite.isExistingUser && !password)}
                 className="w-full py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2">
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {submitting ? "Setting up your account..." : "Accept & Join"}
