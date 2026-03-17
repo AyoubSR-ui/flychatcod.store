@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { MessageSquare, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function AcceptInvite() {
   const [, navigate] = useLocation();
   const search = useSearch();
+  const { login } = useAuth();
   const token = new URLSearchParams(search).get("token") || "";
 
   const [state, setState] = useState<"loading" | "form" | "error" | "expired">("loading");
@@ -51,7 +53,7 @@ export default function AcceptInvite() {
       const data = await resp.json();
 
       if (resp.ok && data.token) {
-        localStorage.setItem("flychat_token", data.token);
+        login(data.token, false);
         navigate("/inbox");
       } else {
         setSubmitError(data.message || "Failed to accept invitation.");

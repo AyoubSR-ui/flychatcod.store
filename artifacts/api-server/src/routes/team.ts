@@ -1,4 +1,4 @@
-import { Router, Request } from "express";
+import { Router } from "express";
 import { db, teamMembersTable, inviteTokensTable, storesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
@@ -8,10 +8,11 @@ import { randomBytes } from "crypto";
 
 const router = Router();
 
-function buildAcceptUrl(req: Request, token: string): string {
-  const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
-  return `${proto}://${host}/accept-invite?token=${token}`;
+function buildAcceptUrl(token: string): string {
+  const configured = process.env.APP_BASE_URL
+    || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null);
+  const base = configured || "http://localhost:5173";
+  return `${base}/accept-invite?token=${token}`;
 }
 
 router.get("/members", requireAuth, async (req, res) => {
@@ -59,7 +60,7 @@ router.post("/members", requireAuth, async (req, res) => {
     const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
     const storeName = store?.name || "Your Store";
     const inviterName = req.user!.name || req.user!.email;
-    const acceptUrl = buildAcceptUrl(req, token);
+    const acceptUrl = buildAcceptUrl(token);
 
     const inviteSent = await sendInviteEmail({ to: email, storeName, inviterName, role: role as string, acceptUrl });
 
@@ -105,7 +106,7 @@ router.post("/members/:id/resend-invite", requireAuth, async (req, res) => {
     const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
     const storeName = store?.name || "Your Store";
     const inviterName = req.user!.name || req.user!.email;
-    const acceptUrl = buildAcceptUrl(req, token);
+    const acceptUrl = buildAcceptUrl(token);
 
     const inviteSent = await sendInviteEmail({ to: member.email, storeName, inviterName, role: member.role, acceptUrl });
 
