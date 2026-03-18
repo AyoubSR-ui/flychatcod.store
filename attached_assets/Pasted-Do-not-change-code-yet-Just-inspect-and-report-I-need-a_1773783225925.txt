@@ -1,0 +1,102 @@
+Do not change code yet. Just inspect and report.
+
+I need a precise execution trace for BOTH:
+1) Team invite email (Resend)
+2) AI Autopilot (why it is not replying)
+
+---------------------------------------
+PART 1 — INVITE EMAIL DEBUG
+---------------------------------------
+
+1. Show the full implementation of:
+   - artifacts/api-server/src/lib/email.ts
+
+2. Show the exact POST /api/team/members handler:
+   - artifacts/api-server/src/routes/team.ts
+
+3. Trigger one real team invite request and report:
+   - request payload used
+   - API response body returned by /api/team/members
+   - value of inviteSent (true/false)
+
+4. Show ALL server logs generated during that invite attempt
+
+5. Show the Resend HTTP request result:
+   - HTTP status code
+   - response body
+   - any error message returned by Resend
+
+6. Show current effective values:
+   - RESEND_API_KEY (just confirm present)
+   - RESEND_FROM_EMAIL (actual value used)
+   - APP_BASE_URL
+   - REPLIT_DEV_DOMAIN
+
+7. Show the exact invite link generated
+
+8. If email sending failed:
+   - give the exact failure reason (not generic)
+
+---------------------------------------
+PART 2 — AI AUTOPILOT DEBUG
+---------------------------------------
+
+The AI bot is NOT answering visitors even when enabled.
+
+Investigate end-to-end.
+
+1. Show the AI service implementation:
+   - ai-service.ts (or equivalent file)
+
+2. Show where AI is triggered in backend:
+   - automation engine handler
+   - message event handler
+   - any ai_reply action logic
+
+3. When a visitor sends a message:
+   - does any AI logic get triggered?
+   - which function is called?
+
+4. Trace one real conversation:
+   - visitor sends message
+   - what backend flow runs?
+   - where does it stop?
+
+5. Check ALL gating conditions:
+   - is store.aiEnabled = true?
+   - is conversation mode = ai_autopilot?
+   - are credits available?
+   - is AI blocked due to any condition?
+
+6. Show AI usage/credits state for this store:
+   - credits remaining
+   - credits used
+   - quota
+
+7. Check if AI is blocked silently:
+   - blocked_no_credits
+   - blocked_plan
+   - blocked_mode
+   - or missing configuration
+
+8. Check if OpenAI/AI provider is actually called:
+   - is API key present?
+   - is request being sent?
+   - is it failing?
+
+9. Show server logs during a visitor message where AI SHOULD respond
+
+10. Confirm:
+   - is AI reply saved as message?
+   - is Socket.IO emitting it?
+   - or nothing happens at all?
+
+---------------------------------------
+IMPORTANT
+---------------------------------------
+
+Do NOT fix anything yet.
+I only want a clear diagnosis with:
+- exact failure points
+- exact reason AI is not replying
+- exact reason email is not sending
