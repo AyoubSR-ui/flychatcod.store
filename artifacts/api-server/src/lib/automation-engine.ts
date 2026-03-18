@@ -494,10 +494,24 @@ export async function handleAiReplyForMessage(
 
 // ---------------------------------------------------------------------------
 // Order extraction flow — runs after AI reply, handles create + cancel
-// Normalize phone: strip everything except digits and leading +
 // ---------------------------------------------------------------------------
+// Normalize phone to pure digits only (strip everything except 0-9, including +)
 function normalizePhone(phone: string): string {
-  return phone.replace(/[^\d+]/g, "");
+  return phone.replace(/\D/g, "");
+}
+
+// Detect if the latest customer message signals a NEW order or cancellation cycle
+// Used to reset aiFlowState when a fresh cycle begins after a completed one.
+function isNewCycleSignal(text: string): boolean {
+  const lower = text.toLowerCase();
+  // Arabic new cancel intent
+  const arabicCancel = /بغيت.*(نكنسل|نلغي|ألغي)|نكنسل|نلغي/;
+  const arabicOrder  = /بغيت.*(نطلب|نأمر|نكومند)|نطلب|نأمر/;
+  if (arabicCancel.test(text) || arabicOrder.test(text)) return true;
+
+  // Latin-script new cycle signals (Darija + FR + EN)
+  const newCyclePattern = /\b(cancel|annul|annuler|ncanceli|nalgi|bghit ncanceli|bghit nalgi|i want to (order|buy|cancel)|je veux (commander|annuler|cancel)|nheb notlab|bghit notlab|nbghi notlab|ndir commande|new order|nouvelle commande|autre commande)\b/i;
+  return newCyclePattern.test(lower);
 }
 
 async function runOrderExtractionFlow(
@@ -513,10 +527,27 @@ async function runOrderExtractionFlow(
   aiFlowState: string | null,
 ): Promise<void> {
   // ── STATE-MACHINE GUARD ───────────────────────────────────────────────
-  // Skip extraction entirely when flow is already complete
   if (aiFlowState === "order_cancelled" || aiFlowState === "order_created") {
-    console.log(`[AI] conv=${conversationId} extraction skipped: flow state=${aiFlowState}`);
-    return;
+    // Check last customer message for a fresh cycle signal before skipping
+    const [lastMsg] = await db.select({ content: messagesTable.content })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.conversationId, conversationId),
+        eq(messagesTable.sender, "customer"),
+      ))
+      .orderBy(desc(messagesTable.createdAt))
+      .limit(1);
+
+    if (lastMsg && isNewCycleSignal(lastMsg.content)) {
+      // Customer is starting a fresh order/cancel cycle — reset state
+      console.log(`[AI] conv=${conversationId} new cycle signal detected, resetting aiFlowState from ${aiFlowState}`);
+      await db.update(conversationsTable).set({ aiFlowState: null })
+        .where(eq(conversationsTable.id, conversationId));
+      // Fall through to full extraction below
+    } else {
+      console.log(`[AI] conv=${conversationId} extraction skipped: flow state=${aiFlowState}`);
+      return;
+    }
   }
 
   // When waiting for the customer to choose which order to cancel,
@@ -577,48 +608,75 @@ async function handlePendingCancelChoice(
   conversationId: string,
   language: string | null,
 ): Promise<void> {
-  // Fetch the latest customer message
-  const [lastMsg] = await db.select({ content: messagesTable.content })
+  // Fetch the last 10 customer messages — we need both the phone (to re-validate)
+  // and the order number (from the latest message) to prevent cross-customer cancellation
+  const recentMsgs = await db.select({ content: messagesTable.content })
     .from(messagesTable)
     .where(and(
       eq(messagesTable.conversationId, conversationId),
       eq(messagesTable.sender, "customer"),
     ))
     .orderBy(desc(messagesTable.createdAt))
-    .limit(1);
+    .limit(10);
 
-  if (!lastMsg) return;
+  if (recentMsgs.length === 0) return;
 
-  // Look for an order number pattern in the message (#123 or just a 3-6 digit number)
-  const orderNumMatch = lastMsg.content.match(/#?(\d{3,6})/);
+  const latestContent = recentMsgs[0].content;
+
+  // Look for an order number pattern in the LATEST message (#123 or a 3-6 digit number)
+  const orderNumMatch = latestContent.match(/#?(\d{3,6})/);
   if (!orderNumMatch) {
     console.log(`[AI] conv=${conversationId} pending_cancel_choice: no order number found in last message`);
     return;
   }
+  const targetOrderNumber = orderNumMatch[1];
 
-  const orderNumber = orderNumMatch[1];
+  // Re-extract the customer phone from the last 10 messages (security: bind to original phone)
+  let customerNormalizedPhone: string | null = null;
+  // Algerian phone pattern: 0[5-7]\d{8} or +213[5-7]\d{8}
+  const phonePattern = /(?:\+?213|0)[5-7]\d{8}/g;
+  for (const msg of [...recentMsgs].reverse()) {
+    const phoneMatch = msg.content.match(phonePattern);
+    if (phoneMatch) {
+      customerNormalizedPhone = normalizePhone(phoneMatch[0]);
+      break;
+    }
+  }
 
-  // Find this order
-  const [order] = await db.select({
+  if (!customerNormalizedPhone) {
+    console.log(`[AI] conv=${conversationId} pending_cancel_choice: no phone found in recent messages`);
+    return;
+  }
+
+  // Fetch eligible cancellable orders for this store
+  const allCancellable = await db.select({
     id: ordersTable.id,
     orderNumber: ordersTable.orderNumber,
-    storeId: ordersTable.storeId,
     status: ordersTable.status,
+    customerPhone: ordersTable.customerPhone,
   })
     .from(ordersTable)
     .where(and(
       eq(ordersTable.storeId, storeId),
-      sql`${ordersTable.orderNumber} = ${orderNumber}`,
       inArray(ordersTable.status, ["new", "awaiting_confirmation", "confirmed"]),
     ))
-    .limit(1);
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(50);
+
+  // Filter by normalized phone (security: only allow cancellation of THIS customer's orders)
+  const phoneEligible = allCancellable.filter(o =>
+    o.customerPhone ? normalizePhone(o.customerPhone) === customerNormalizedPhone : false
+  );
+
+  // Find the specific order the customer chose — must be in the phone-bound eligible list
+  const order = phoneEligible.find(o => o.orderNumber === targetOrderNumber);
 
   if (!order) {
-    console.log(`[AI] conv=${conversationId} pending_cancel_choice: order #${orderNumber} not found or not cancellable`);
+    console.log(`[AI] conv=${conversationId} pending_cancel_choice: order #${targetOrderNumber} not found in phone-bound eligible orders for ${customerNormalizedPhone}`);
     return;
   }
 
-  // Cancel it
+  // Cancel it — scoped to both store and order id (double check)
   await db.update(ordersTable).set({
     status: "cancelled",
     cancelledBySource: "ai",
@@ -632,7 +690,7 @@ async function handlePendingCancelChoice(
   const msg = buildCancelConfirmMessage(order.orderNumber, language);
   await emitBotMessage(storeId, conversationId, msg, { aiGenerated: true, aiAction: "cancel" });
 
-  console.log(`[AI] conv=${conversationId} pending_cancel_choice: cancelled order #${order.orderNumber}`);
+  console.log(`[AI] conv=${conversationId} pending_cancel_choice: cancelled order #${order.orderNumber} for phone ${customerNormalizedPhone}`);
 }
 
 // ---------------------------------------------------------------------------
