@@ -1,0 +1,280 @@
+Fix the FlyChat COD AI autopilot language and repetition behavior permanently.
+
+IMPORTANT
+Do not rebuild the app.
+Do not change unrelated features.
+Work inside the existing monorepo and preserve the current architecture, widget, realtime inbox, automation engine, billing/AI credit logic, and bilingual EN/FR UI.
+
+GOAL
+Make the AI choose and keep the correct conversation language reliably, and stop repetitive/generic greeting loops.
+
+This must be a permanent backend fix, not a temporary patch.
+
+CURRENT PROBLEM
+The AI is still replying incorrectly because:
+1. old AI replies are poisoning the conversation context
+2. language selection is unstable
+3. the AI can still repeat generic greetings
+4. widgetLanguage is being treated too strongly
+5. the AI should use the customer's first message as the primary conversation language anchor, not keep re-deciding from scratch every time
+
+TARGET LANGUAGE BEHAVIOR
+The AI must determine the conversation language using this priority:
+
+1. If the conversation already has an established customer language, use it
+2. Otherwise, detect the language from the FIRST meaningful customer message in the conversation and persist it
+3. Only if no meaningful customer language can be detected, use widgetLanguage as a fallback hint
+4. Do NOT force bilingual replies
+5. Do NOT switch language randomly on later turns unless the customer clearly changes language and the system explicitly allows it
+
+IMPORTANT RULE
+The AI should not choose language based only on the latest message every time.
+The language should be anchored from the first meaningful customer message and remain stable for the conversation unless there is a clear intentional language switch.
+
+EXAMPLES OF CORRECT BEHAVIOR
+- First customer message: "hi" → conversation language = English
+- First customer message: "bonjour" → conversation language = French
+- First customer message: "سلام" or Darija/Arabic → conversation language = Arabic/Darija
+- First customer message mixed but mostly French → use French
+- If the conversation starts with no real message and only widget opens, no language is locked yet
+- Once the first meaningful customer message arrives, lock/store the language
+
+SCOPE OF THIS TASK
+Implement a permanent AI context and language fix with these parts:
+
+--------------------------------------------------
+PART 1 — CONVERSATION LANGUAGE ANCHOR
+--------------------------------------------------
+
+Add a conversation-level stored language anchor for AI behavior.
+
+Requirements:
+- determine the customer's conversation language from the first meaningful customer message
+- save/persist it on the conversation
+- reuse it for future AI replies
+- do not keep recalculating language from scratch on every message
+- widgetLanguage may be used only as fallback before a real customer message defines language
+
+If a suitable field already exists, reuse or extend it.
+If not, add a minimal schema change such as:
+- detectedCustomerLanguage
+or
+- aiConversationLanguage
+
+The field should be store-safe and conversation-specific.
+
+IMPLEMENTATION LOGIC
+- when customer sends a message:
+  - if conversation has no locked AI language yet:
+    - detect language from this first meaningful customer message
+    - persist it
+- for future AI replies:
+  - use the stored conversation language
+  - not the latest-message-only rule
+
+Define "meaningful customer message" reasonably:
+- non-empty
+- not just punctuation
+- not just one ambiguous character if avoidable
+- but simple greetings like "hi", "bonjour", "salem" should still count
+
+--------------------------------------------------
+PART 2 — FIX AI HISTORY POLLUTION
+--------------------------------------------------
+
+The AI currently learns bad behavior from previous bad AI replies in the conversation history.
+Fix the payload-building logic so the model is not poisoned by repetitive autopilot replies.
+
+Requirements:
+- exclude previous AI-generated autopilot replies from the AI context by default
+- exclude repetitive inactivity automation messages from the AI context
+- keep customer messages
+- keep human agent replies if useful
+- keep context compact and relevant
+
+Need a clean history filtering strategy before sending messages to OpenAI.
+
+For each candidate message in history, determine if it should be included in the AI payload.
+Suggested policy:
+INCLUDE:
+- customer messages
+- real human agent replies
+OPTIONALLY INCLUDE:
+- one recent useful system message if needed
+EXCLUDE:
+- previous AI autopilot replies
+- inactivity automation reminders
+- duplicate repeated bot greetings
+- noisy repetitive bot/system messages
+
+Use existing metadata if available, such as aiGenerated flags or automation markers.
+If metadata is not rich enough, improve it minimally and safely.
+
+--------------------------------------------------
+PART 3 — ANTI-REPETITION GUARD
+--------------------------------------------------
+
+Add a backend guard so the system does not save/send the same AI reply repeatedly.
+
+Requirements:
+- before saving an AI reply, compare it against the most recent AI-generated replies in the conversation
+- if the candidate reply is identical or nearly identical to a recent AI reply, block it
+- instead either:
+  - generate a safer fallback
+  - or ask a more specific next-step question
+  - or hand off to human if stuck
+
+At minimum, stop exact repeated greeting loops like:
+"Hello! How can I assist you today? / Bonjour! ..."
+being sent over and over.
+
+This guard should be deterministic and backend-enforced.
+
+--------------------------------------------------
+PART 4 — PROMPT / INSTRUCTION FIX
+--------------------------------------------------
+
+Update the AI prompt-building logic to match the new permanent rules.
+
+New prompt behavior must explicitly enforce:
+- use the conversation's stored language if available
+- use only one language unless the customer clearly uses multiple
+- never reply bilingually by default
+- never repeat the same greeting if the conversation already started
+- never ask for information already known
+- guide the customer toward product/order clarification naturally
+- if uncertain, ask one short clarifying question
+- if the user requests a human, stop and hand off
+
+IMPORTANT
+Do not rely on a contradictory prompt.
+Remove or replace any old instruction that can cause bilingual replies.
+Do not say both:
+- "respond in same language"
+and
+- "greet in both French and English"
+
+The new prompt must be internally consistent.
+
+--------------------------------------------------
+PART 5 — PRODUCTIVE SALES BEHAVIOR
+--------------------------------------------------
+
+While fixing the AI, also improve its behavior for ecommerce support.
+
+The AI should:
+- respond briefly and naturally
+- help with product questions
+- help with price / delivery / availability
+- move toward order intent when appropriate
+- avoid restarting the conversation every turn
+
+If customer says:
+- "hi" → reply with a short greeting in the anchored language only
+- "i want to order" → continue toward order flow, not generic greeting
+- product question → answer using product context if available
+- asks about existing order and phone is known → use recent order context if available
+
+--------------------------------------------------
+PART 6 — KEEP LANGUAGE STABLE
+--------------------------------------------------
+
+Define explicit language handling behavior.
+
+Required:
+- first meaningful customer message sets the AI conversation language
+- later short messages like "ok", "yes", "hi again" should not reset language
+- widgetLanguage is fallback only before customer language is known
+- if customer clearly switches language later, do NOT auto-switch yet unless this is already supported cleanly
+- for now, keep language stable for the conversation once locked
+
+This is intentional and must be enforced in code.
+
+--------------------------------------------------
+PART 7 — DIAGNOSTIC LOGGING
+--------------------------------------------------
+
+Add temporary useful logs (not noisy spam) so we can verify the fix.
+
+For AI reply generation, log:
+- conversationId
+- detected/locked conversation language
+- whether language came from first customer message or fallback
+- how many history messages were included
+- how many were excluded
+- whether an anti-repeat guard blocked the reply
+
+Keep logs concise and developer-focused.
+
+--------------------------------------------------
+PART 8 — DATA / SCHEMA
+--------------------------------------------------
+
+If schema changes are needed, make the minimal safe changes.
+Possible fields:
+- conversations.aiConversationLanguage
+- messages metadata enhancements for aiGenerated / automationType if needed
+
+If schema changes are made:
+- update Drizzle schema
+- add migration
+- keep seed/demo data working
+
+--------------------------------------------------
+PART 9 — TEST CASES TO VERIFY
+--------------------------------------------------
+
+After implementation, test these scenarios and report results:
+
+1. Brand-new conversation, first message = "hi"
+Expected:
+- language anchored as English
+- AI replies in English only
+- no bilingual greeting
+
+2. Brand-new conversation, first message = "bonjour"
+Expected:
+- language anchored as French
+- AI replies in French only
+
+3. Brand-new conversation, first message = "سلام"
+Expected:
+- language anchored as Arabic/Darija
+- AI replies in Arabic/Darija only
+
+4. Existing poisoned conversation with old bilingual AI replies
+Expected:
+- new AI payload filters out prior bad AI autopilot replies
+- AI stops repeating bilingual generic greetings
+
+5. Customer says "i want to order"
+Expected:
+- AI does not greet generically
+- AI moves into order-guidance behavior
+
+6. Repeated short customer messages like "hi", "hi", "hi"
+Expected:
+- AI does not send the exact same greeting repeatedly
+
+--------------------------------------------------
+PART 10 — OUTPUT SUMMARY
+--------------------------------------------------
+
+After implementing the fix, provide a complete summary:
+1. what language-anchor logic was added
+2. where the language is stored
+3. how AI history filtering now works
+4. how repeated AI replies are prevented
+5. what prompt/instruction changes were made
+6. what schema changes were made
+7. how each test scenario behaved
+8. any known limitations still remaining
+
+QUALITY BAR
+- permanent backend fix
+- not a cosmetic workaround
+- no fake AI behavior
+- preserve existing features
+- do not break realtime messaging
+- do not break AI credit tracking
+- do not break automation engine
