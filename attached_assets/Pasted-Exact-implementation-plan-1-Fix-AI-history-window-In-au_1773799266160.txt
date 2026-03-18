@@ -1,0 +1,252 @@
+Exact implementation plan
+1. Fix AI history window
+
+In automation-engine.ts, change the history query to fetch the most recent messages.
+
+Replace this pattern
+.orderBy(messagesTable.createdAt)
+.limit(20)
+With this
+import { desc, and, eq, gt } from "drizzle-orm";
+
+const recentMessages = await db
+  .select({
+    id: messagesTable.id,
+    sender: messagesTable.sender,
+    content: messagesTable.content,
+    createdAt: messagesTable.createdAt,
+    senderName: messagesTable.senderName,
+    metadata: messagesTable.metadata,
+  })
+  .from(messagesTable)
+  .where(eq(messagesTable.conversationId, conversationId))
+  .orderBy(desc(messagesTable.createdAt))
+  .limit(20);
+
+// restore chronological order before sending to AI
+recentMessages.reverse();
+2. Always include the trigger message
+
+Even if the DB query already includes it, protect against edge cases.
+
+Add this before calling generateAiReply(...)
+const alreadyIncludesTrigger = recentMessages.some((m) => m.id === triggerMessage.id);
+
+const historyForAi = alreadyIncludesTrigger
+  ? recentMessages
+  : [
+      ...recentMessages,
+      {
+        id: triggerMessage.id,
+        sender: "customer",
+        content: triggerMessage.content,
+        createdAt: new Date(),
+        senderName: null,
+        metadata: null,
+      },
+    ];
+
+Use historyForAi for the AI payload, not recentMessages.
+
+3. Remove the duplicate AI entry path
+
+Right now AI is structurally called twice:
+
+fireTrigger(keyword)
+
+direct handleAiReplyForMessage(...)
+
+Keep only one real AI path.
+
+Recommended
+
+Keep the direct path for now and remove AI responsibility from the keyword path.
+
+So after a visitor message:
+
+keyword automations continue for normal rules
+
+AI reply remains handled only by handleAiReplyForMessage(...)
+
+That removes fragile dedup dependence.
+
+4. Add product context
+
+Fetch active products in handleAiReplyForMessage(...) after fetching the store.
+
+Add this query
+const activeProducts = await db
+  .select({
+    name: productsTable.name,
+    description: productsTable.description,
+    price: productsTable.price,
+    stock: productsTable.stock,
+    variants: productsTable.variants,
+  })
+  .from(productsTable)
+  .where(
+    and(
+      eq(productsTable.storeId, storeId),
+      eq(productsTable.isActive, true)
+    )
+  )
+  .orderBy(productsTable.name)
+  .limit(20);
+Format them for prompt context
+const productContext = activeProducts.length
+  ? activeProducts
+      .map((p) => {
+        const variants = Array.isArray(p.variants) && p.variants.length
+          ? ` | Variants: ${p.variants.join(", ")}`
+          : "";
+        const stock =
+          p.stock === null || p.stock === undefined
+            ? ""
+            : ` | Stock: ${p.stock}`;
+        const description = p.description ? ` | ${p.description}` : "";
+        return `- ${p.name} | Price: ${p.price} DZD${stock}${variants}${description}`;
+      })
+      .join("\n")
+  : "No product catalog available.";
+5. Add recent order lookup by phone within 48h
+
+First fetch more conversation data.
+
+Change conversation select
+const [conv] = await db
+  .select({
+    aiMode: conversationsTable.aiMode,
+    customerName: conversationsTable.customerName,
+    customerPhone: conversationsTable.customerPhone,
+    customerId: conversationsTable.customerId,
+    widgetLanguage: conversationsTable.widgetLanguage,
+  })
+  .from(conversationsTable)
+  .where(eq(conversationsTable.id, conversationId))
+  .limit(1);
+Helper for phone normalization
+
+Use a simple safe normalization first.
+
+function normalizePhone(phone?: string | null): string | null {
+  if (!phone) return null;
+  const normalized = phone.replace(/[^\d+]/g, "").trim();
+  return normalized || null;
+}
+Normalize before lookup
+const normalizedPhone = normalizePhone(conv?.customerPhone);
+Query recent orders
+const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+const recentOrders = normalizedPhone
+  ? await db
+      .select({
+        id: ordersTable.id,
+        orderNumber: ordersTable.orderNumber,
+        status: ordersTable.status,
+        total: ordersTable.total,
+        wilaya: ordersTable.wilaya,
+        createdAt: ordersTable.createdAt,
+      })
+      .from(ordersTable)
+      .where(
+        and(
+          eq(ordersTable.storeId, storeId),
+          eq(ordersTable.customerPhone, normalizedPhone),
+          gt(ordersTable.createdAt, fortyEightHoursAgo)
+        )
+      )
+      .orderBy(desc(ordersTable.createdAt))
+      .limit(3)
+  : [];
+Format for prompt
+const recentOrdersContext = recentOrders.length
+  ? recentOrders
+      .map(
+        (o) =>
+          `- Order ${o.orderNumber}: ${o.status}, ${o.total} DZD, Wilaya: ${o.wilaya}, Created: ${new Date(o.createdAt).toISOString()}`
+      )
+      .join("\n")
+  : "No recent order found in the last 48 hours.";
+6. Fix language behavior
+
+Your current prompt contradicts itself. Remove the bilingual greeting rule completely.
+
+Replace the default prompt with this
+const DEFAULT_STORE_PROMPT = `
+You are a helpful COD (Cash on Delivery) sales assistant for an Algerian e-commerce store.
+
+Your responsibilities:
+- Answer customer questions about products, pricing, delivery, availability, and order status.
+- Use the same language and style as the customer's latest message.
+- If the customer writes in French, reply in French.
+- If the customer writes in Arabic or Darija, reply in Arabic/Darija naturally.
+- If the customer mixes languages, reply naturally in the same style.
+- Never greet repeatedly if the conversation has already started.
+- Never ask for information the customer already provided.
+- When the customer wants to order, guide them step by step by collecting only missing information.
+- If a recent order exists for the same phone number in the last 48 hours, first clarify whether they are asking about that existing order or placing a new one.
+`.trim();
+7. Build a stronger AI system prompt
+
+In ai-service.ts, inject product context and recent order context.
+
+Replace prompt builder with this
+const systemPrompt = [
+  SAFETY_PROMPT,
+  storeInstructions,
+  `Store name: ${params.storeName}`,
+  `Customer name: ${params.customerName || "Unknown"}`,
+  `Widget language: ${params.widgetLanguage || "unknown"}`,
+  `Available products:\n${params.productContext || "No product catalog available."}`,
+  `Recent orders in last 48 hours for this customer phone:\n${params.recentOrdersContext || "No recent orders found."}`,
+  `Behavior rules:
+- Reply in the same language as the customer's latest message.
+- Do not answer in two languages unless the customer does.
+- Do not repeat the same greeting or question.
+- Use conversation history before asking follow-up questions.
+- If the customer wants to place an order, collect only missing details.
+- Do not finalize or confirm orders yourself.
+- If unsure, ask a short clarifying question or suggest a human agent.`,
+].join("\n\n");
+8. Use better message mapping for the model
+
+When converting DB messages to OpenAI messages, keep roles clean.
+
+Example
+const aiMessages = [
+  { role: "system", content: systemPrompt },
+  ...historyForAi
+    .filter((m) => m.content && m.content.trim().length > 0)
+    .map((m) => ({
+      role:
+        m.sender === "customer"
+          ? "user"
+          : "assistant",
+      content: m.content,
+    })),
+];
+
+That ensures:
+
+customer → user
+
+agent/bot/AI → assistant
+
+9. Stop inactivity spam
+
+You already confirmed multiple inactivity rules fire at the same timestamp.
+
+Immediate fix
+
+Before sending inactivity messages, deduplicate by:
+
+same conversation
+
+same trigger type
+
+same delay
+
+same time window
+
+At minimum, enforce only one active inactivity rule per delay in seed/demo data.
