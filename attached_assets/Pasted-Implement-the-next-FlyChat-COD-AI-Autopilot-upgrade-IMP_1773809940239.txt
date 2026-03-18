@@ -1,0 +1,378 @@
+Implement the next FlyChat COD AI Autopilot upgrade.
+
+IMPORTANT
+Do not rebuild the app.
+Do not change unrelated features.
+Work inside the existing monorepo and preserve the current architecture, widget, realtime inbox, automation engine, AI credit logic, order system, bilingual UI, and current AI autopilot flow.
+
+GOAL
+The AI autopilot is now performing well in collecting order details. The next upgrade must do 3 things reliably:
+
+1. Fix language behavior so the AI replies in the visitor’s language, especially:
+   - French
+   - Algerian Darija / Arabic
+   - English
+2. If the visitor has provided all required order information and confirms the details are correct, the AI should create the order automatically
+3. Add clear AI-created / AI-cancelled tags so the team can distinguish AI-created orders from manual ones
+
+CURRENT DESIRED BUSINESS FLOW
+The AI is already doing well at collecting:
+- product
+- size / variant
+- quantity
+- name
+- phone number
+- wilaya
+- address
+
+The AI is also already double-checking with the client that all data is correct.
+
+Now we want this final behavior:
+- when all required information is available
+- and the visitor confirms it is correct
+- and the customer intent is clearly to place the order
+
+THEN:
+- create the order automatically
+- set order status to awaiting_confirmation
+- mark the order as created by AI
+- send a confirmation message to the visitor that the order has been placed
+- tell the visitor that if they want to cancel, they can contact back
+
+If the visitor comes back later and asks to cancel:
+- identify the order using the phone number
+- refer to the latest relevant order by phone
+- cancel it safely if appropriate
+- mark it as cancelled by AI
+- show a small visible AI tag in status/context so the team knows it was handled by AI
+
+--------------------------------------------------
+PART 1 — LANGUAGE FIX
+--------------------------------------------------
+
+The AI must respond based on the visitor’s message language, not default to English.
+
+REQUIRED LANGUAGE BEHAVIOR
+- If visitor writes in French → reply in French
+- If visitor writes in Algerian Darija / Arabic → reply in Arabic/Darija
+- If visitor writes in English → reply in English
+- Do not default to English when the user is clearly speaking French or Darija
+- Do not reply bilingually by default
+- Only use one language unless the customer clearly mixes languages
+
+LANGUAGE SOURCE RULES
+Use this priority:
+1. locked conversation language if already established
+2. otherwise detect from the first meaningful customer message
+3. later messages may continue that language
+4. if the visitor clearly switches language, the AI may reply in that new language only if the switch is obvious and intentional
+5. widgetLanguage is fallback only, not the main decision source
+
+IMPORTANT
+Improve French and Darija detection so short phrases like:
+- "tu parle france ?"
+- "bonjour"
+- "salam"
+- "wach"
+- "oui"
+- "nheb"
+- "can i make order pls"
+are handled naturally
+
+The AI should not keep using English just because the first implementation was English-heavy.
+
+--------------------------------------------------
+PART 2 — AI AUTO ORDER CREATION
+--------------------------------------------------
+
+Implement automatic order creation by AI when all required information is present and the customer confirms.
+
+REQUIRED FIELDS BEFORE AUTO-CREATE
+At minimum:
+- product / productName
+- quantity
+- customer name
+- phone number
+- wilaya
+- address
+
+Optional if already supported:
+- variant / size / color
+
+VALIDATION
+Do not create order unless:
+- intent to order is clear
+- required fields are present
+- customer has confirmed the summary/details are correct
+
+Examples of confirmation:
+- "yes"
+- "oui"
+- "correct"
+- "sah"
+- "تمام"
+- "confirm"
+or equivalent clear confirmation in supported languages
+
+AI must not create an order just because some fields exist.
+There must be a real order intent + confirmation step.
+
+ON SUCCESS
+Create the order automatically using the existing orders flow.
+Requirements:
+- create order in DB
+- status = awaiting_confirmation
+- link to customer and conversation if possible
+- if customer already exists, reuse same customer by phone/store
+- preserve multitenancy/store isolation
+- order must appear in normal Orders UI
+
+After creating the order, the AI must send a final message to the visitor such as:
+- order created successfully
+- it is now awaiting confirmation
+- if you want to cancel, contact us here and we will help you
+
+IMPORTANT
+Do not say "your order is fully finalized" if the internal status is awaiting_confirmation.
+Use wording consistent with the business flow.
+
+--------------------------------------------------
+PART 3 — AI ORDER / CANCELLATION TAGGING
+--------------------------------------------------
+
+Add a small clear marker so the team knows which orders were created manually vs by AI.
+
+REQUIREMENTS
+When AI creates an order:
+- mark the order as AI-created
+- show a small visible tag/badge in the Orders UI and/or status area
+Example labels:
+- AI Created
+- Created by AI
+
+When AI cancels an order:
+- mark the order as AI-cancelled
+- show a small visible tag/badge in Orders UI and/or status/history
+Example labels:
+- AI Cancelled
+- Cancelled by AI
+
+This must be visible enough so the team can distinguish:
+- manual human-created orders
+- AI-created orders
+- AI-cancelled orders
+
+IMPLEMENTATION OPTIONS
+Use the cleanest real data model, for example:
+- orders.createdByType = human | ai
+- orders.cancelledByType = human | ai
+- or metadata field if already used consistently
+
+Do not fake it only in frontend state.
+Persist it in DB.
+
+--------------------------------------------------
+PART 4 — AI ORDER CANCELLATION FLOW
+--------------------------------------------------
+
+Implement safe AI-assisted cancellation when the visitor comes back and wants to cancel.
+
+REQUIRED BEHAVIOR
+If customer asks to cancel:
+- identify the relevant order by phone number within the same store
+- prefer recent open/pending orders
+- if multiple orders exist, ask a clarifying question
+- if one clear matching order exists, cancel it safely
+- mark it as AI-cancelled
+- send a message confirming cancellation
+
+IMPORTANT
+The AI must refer to the order using phone number and same-store lookup.
+Do not cancel random orders.
+Do not cancel orders from another store.
+Do not cancel already delivered orders unless business logic already allows this.
+At minimum, safe cancellation should target recent non-finalized orders such as:
+- new
+- awaiting_confirmation
+- maybe confirmed if current business rules allow it
+
+If the phone number is missing, the AI should ask for the phone number first.
+
+--------------------------------------------------
+PART 5 — AI STATE / EXTRACTION / ORDER READINESS
+--------------------------------------------------
+
+The AI already collects data well. Now formalize order readiness.
+
+Add a clean internal order-readiness evaluation:
+- hasRequiredFields: boolean
+- hasConfirmedSummary: boolean
+- canAutoCreateOrder: boolean
+
+If useful, add a structured extracted-state object per conversation or AI run:
+- productName
+- variant
+- quantity
+- customerName
+- phone
+- wilaya
+- address
+- confirmed
+
+This should help the AI decide whether to:
+- ask next question
+- summarize details
+- auto-create order
+- handle cancellation
+
+Keep implementation practical and minimal.
+
+--------------------------------------------------
+PART 6 — AUTOMATION / AI FLOW INTEGRATION
+--------------------------------------------------
+
+Integrate this carefully into the current AI autopilot flow.
+
+REQUIRED RULE
+The AI must NOT create duplicate orders.
+Before auto-creating:
+- check whether this conversation already created an AI order recently
+- or whether an order already exists for this same conversation/phone in the current active flow
+- block duplicate auto-creation
+
+Also:
+- do not repeatedly ask for the same missing field
+- once all fields are present, move to confirmation
+- once confirmed, create order once
+
+If the order is already created:
+- do not create another one unless the customer clearly starts a new order
+
+--------------------------------------------------
+PART 7 — PROMPT / BEHAVIOR UPDATE
+--------------------------------------------------
+
+Update the AI prompt/instructions so the AI behaves like a true COD sales assistant.
+
+New behavior requirements:
+- respond in the customer’s language
+- collect missing order fields naturally
+- once all required data is available, summarize briefly
+- ask for confirmation
+- after confirmation, create order automatically
+- tell the customer the order is awaiting confirmation
+- if customer asks to cancel later, use phone-based recent order lookup
+
+VERY IMPORTANT RULES
+- Do not confirm/finalize payment
+- Do not invent missing data
+- Do not create order before confirmation
+- Do not create duplicate orders
+- Do not cancel an order unless the phone match and eligible status are clear
+- If ambiguous, ask a clarifying question or hand off to a human
+
+--------------------------------------------------
+PART 8 — BACKEND / DATA MODEL
+--------------------------------------------------
+
+Make minimal real schema changes if needed.
+
+Possible schema additions:
+- orders.createdByType or createdBySource
+- orders.cancelledByType or cancelledBySource
+- order metadata field for aiCreated / aiCancelled
+- conversation/order linkage improvements if useful
+
+If schema changes are needed:
+- update Drizzle schema
+- add migration
+- keep existing seed/demo data working
+
+--------------------------------------------------
+PART 9 — UI REQUIREMENTS
+--------------------------------------------------
+
+Update Orders UI so AI-created / AI-cancelled orders are clearly visible.
+
+Requirements:
+- small badge/tag on order rows and/or order detail page
+- visually clear but not overwhelming
+- keep current design consistent
+- bilingual labels if needed (EN/FR support)
+
+Optional but useful:
+- show linked conversation source if order was created from AI autopilot
+
+--------------------------------------------------
+PART 10 — TEST SCENARIOS
+--------------------------------------------------
+
+After implementation, test and report these scenarios:
+
+1. English order flow
+- customer wants to order
+- gives all fields
+- confirms
+Expected:
+- AI creates order
+- status = awaiting_confirmation
+- order marked AI-created
+
+2. French order flow
+Example:
+- "je veux commander"
+- French details
+- confirmation in French
+Expected:
+- AI replies in French
+- order created after confirmation
+- no English fallback
+
+3. Darija/Arabic order flow
+Expected:
+- AI replies in Darija/Arabic
+- order created after confirmation
+
+4. Cancellation flow
+- customer returns with phone number
+- asks to cancel
+Expected:
+- AI finds the correct eligible order by phone
+- cancels it safely
+- marks AI-cancelled
+- confirms cancellation to customer
+
+5. Duplicate prevention
+- customer confirms twice
+Expected:
+- only one order created
+
+6. Incomplete order
+- some fields missing
+Expected:
+- AI asks only for missing fields
+- no order created yet
+
+--------------------------------------------------
+PART 11 — OUTPUT SUMMARY
+--------------------------------------------------
+
+After implementation, provide a complete summary:
+1. how language handling was fixed
+2. how order readiness is determined
+3. how AI auto-creates orders
+4. how cancellation by phone works
+5. how AI-created / AI-cancelled tags were implemented
+6. what schema changes were made
+7. what UI changes were made
+8. how each test scenario behaved
+9. any known edge cases remaining
+
+QUALITY BAR
+- do not rebuild the app
+- preserve existing features
+- keep realtime chat working
+- keep AI credits logic working
+- keep automation engine stable
+- do not create fake frontend-only tags
+- make this a real backend-integrated feature
