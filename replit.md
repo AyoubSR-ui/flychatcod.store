@@ -51,6 +51,7 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - Public API endpoints under `/api/widget/public/` for session, conversation, and message management
 - All Zod schemas enforce `max(2048)` on URL fields; send endpoint blocks writes to closed conversations
 - Visitor sessions tracked in `widget_sessions` table; conversations linked via `visitorId` column
+- `conversations.aiConversationLanguage` (text, nullable) stores the locked AI reply language detected from the first meaningful customer message ("en", "fr", "ar"); used by the AI autopilot to keep language stable for the entire conversation
 - Real-time via Socket.IO (Layer 2): agent replies appear instantly in the widget; visitor messages appear instantly in the Inbox
 - Embed snippet (absolute URL generated from request host): `<script>window.FLYCHAT_CONFIG={storeId:"..."};</script><script src="https://<host>/api/widget/widget.js"></script>`
 - `test-widget.html` pre-filled with demo store ID for zero-config local testing

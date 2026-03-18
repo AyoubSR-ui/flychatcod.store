@@ -149,6 +149,43 @@ export function cancelAllInactivityTimers(conversationId: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Language detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the primary language of a text string using Unicode range checks
+ * and a small list of common French marker words.
+ * Returns "ar", "fr", or "en".
+ */
+function detectLanguage(text: string): "ar" | "fr" | "en" {
+  if (!text || text.trim().length === 0) return "en";
+
+  // Arabic / Darija: Arabic Unicode block
+  const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  if (arabicPattern.test(text)) return "ar";
+
+  // French markers: accented chars common in French, or French stop-words
+  const frenchAccents = /[àâäéèêëîïôùûüçœæ]/i;
+  const frenchWords = /\b(bonjour|bonsoir|merci|oui|non|je|vous|nous|est|une|des|les|pour|avec|sur|dans|mais|que|qui|comment|quel|quelle|salut|bonne|bien|ici|veux|voudrais|commander|livraison)\b/i;
+  if (frenchAccents.test(text) || frenchWords.test(text)) return "fr";
+
+  return "en";
+}
+
+/**
+ * A message is "meaningful" for language anchoring if it has real content
+ * beyond a single punctuation character.
+ */
+function isMeaningfulMessage(content: string): boolean {
+  const stripped = content.replace(/[\s!?.,:;'"*_\-#@]/g, "").trim();
+  return stripped.length >= 1;
+}
+
+// ---------------------------------------------------------------------------
+// AI reply dedup guard
+// ---------------------------------------------------------------------------
+
 const aiReplyInFlight = new Set<string>();
 
 export async function handleAiReplyForMessage(
@@ -163,16 +200,47 @@ export async function handleAiReplyForMessage(
   aiReplyInFlight.add(triggerMessage.id);
   setTimeout(() => aiReplyInFlight.delete(triggerMessage.id), 30000);
 
+  // ------------------------------------------------------------------
+  // 1. Fetch conversation — including aiConversationLanguage
+  // ------------------------------------------------------------------
   const [conv] = await db.select({
     aiMode: conversationsTable.aiMode,
     customerName: conversationsTable.customerName,
     customerPhone: conversationsTable.customerPhone,
     customerId: conversationsTable.customerId,
     widgetLanguage: conversationsTable.widgetLanguage,
+    aiConversationLanguage: conversationsTable.aiConversationLanguage,
   })
     .from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
   if (!conv || conv.aiMode !== "ai_autopilot") return;
 
+  // ------------------------------------------------------------------
+  // 2. Language anchor: detect + persist on first meaningful message
+  // ------------------------------------------------------------------
+  let lockedLanguage = conv.aiConversationLanguage;
+  let languageSource: "locked" | "detected" | "fallback" = "locked";
+
+  if (!lockedLanguage) {
+    if (isMeaningfulMessage(triggerMessage.content)) {
+      lockedLanguage = detectLanguage(triggerMessage.content);
+      languageSource = "detected";
+      // Persist immediately so all future turns use it
+      await db.update(conversationsTable)
+        .set({ aiConversationLanguage: lockedLanguage })
+        .where(eq(conversationsTable.id, conversationId));
+    } else {
+      lockedLanguage = conv.widgetLanguage || null;
+      languageSource = "fallback";
+    }
+  }
+
+  console.log(
+    `[AI] conv=${conversationId} lang=${lockedLanguage ?? "unknown"} source=${languageSource}`,
+  );
+
+  // ------------------------------------------------------------------
+  // 3. AI eligibility check
+  // ------------------------------------------------------------------
   const aiStatus = await getAiStatus(storeId);
 
   if (!aiStatus.eligible) {
@@ -184,11 +252,13 @@ export async function handleAiReplyForMessage(
     return;
   }
 
+  // ------------------------------------------------------------------
+  // 4. Fetch store and products
+  // ------------------------------------------------------------------
   const [store] = await db.select({ name: storesTable.name, aiSystemPrompt: storesTable.aiSystemPrompt })
     .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
   if (!store) return;
 
-  // Fetch active products (up to 20, ordered by name)
   const products = await db.select({
     name: productsTable.name,
     price: productsTable.price,
@@ -211,7 +281,9 @@ export async function handleAiReplyForMessage(
     }).join("\n");
   }
 
-  // Fetch recent orders by phone (last 48h, up to 3)
+  // ------------------------------------------------------------------
+  // 5. Recent orders by phone (last 48h)
+  // ------------------------------------------------------------------
   let recentOrdersContext: string | null = null;
   if (conv.customerPhone) {
     const normalizedPhone = conv.customerPhone.replace(/[^\d+]/g, "");
@@ -240,37 +312,101 @@ export async function handleAiReplyForMessage(
     }
   }
 
-  // Fetch the 20 most recent messages (desc), then reverse to get chronological order
-  const rawMessages = await db.select({ content: messagesTable.content, sender: messagesTable.sender, id: messagesTable.id })
-    .from(messagesTable).where(eq(messagesTable.conversationId, conversationId))
-    .orderBy(desc(messagesTable.createdAt)).limit(20);
+  // ------------------------------------------------------------------
+  // 6. Build filtered conversation history
+  //    INCLUDE: customer messages, human agent messages
+  //    EXCLUDE: AI autopilot replies (aiGenerated=true), bot/inactivity messages
+  // ------------------------------------------------------------------
+  const rawMessages = await db.select({
+    id: messagesTable.id,
+    content: messagesTable.content,
+    sender: messagesTable.sender,
+    senderName: messagesTable.senderName,
+    metadata: messagesTable.metadata,
+  })
+    .from(messagesTable)
+    .where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(desc(messagesTable.createdAt))
+    .limit(40); // fetch more so filtering still leaves enough context
 
   rawMessages.reverse();
 
-  // Ensure the trigger message is included
-  const triggerInHistory = rawMessages.some(m => m.id === triggerMessage.id);
-  if (!triggerInHistory) {
-    rawMessages.push({ id: triggerMessage.id, content: triggerMessage.content, sender: triggerMessage.sender });
+  // Filter to only customer + agent messages — exclude all AI and bot messages
+  const includedMessages = rawMessages.filter(m => {
+    if (m.sender === "customer") return true;
+    if (m.sender === "agent") return true;
+    // Exclude AI-generated bot replies and inactivity/automation bot messages
+    return false;
+  });
+
+  // Ensure the trigger message is included (in case it was just inserted)
+  const triggerInFiltered = includedMessages.some(m => m.id === triggerMessage.id);
+  if (!triggerInFiltered) {
+    includedMessages.push({
+      id: triggerMessage.id,
+      content: triggerMessage.content,
+      sender: triggerMessage.sender,
+      senderName: null,
+      metadata: null,
+    });
   }
 
-  const history = rawMessages
+  // Keep most recent 20 after filtering
+  const historySlice = includedMessages.slice(-20);
+
+  const history = historySlice
     .filter(m => m.content && m.content.trim().length > 0)
     .map(m => ({
       role: (m.sender === "customer" ? "user" : "assistant") as "user" | "assistant",
       content: m.content,
     }));
 
+  const excludedCount = rawMessages.length - historySlice.length;
+  console.log(
+    `[AI] conv=${conversationId} history: ${history.length} included, ${excludedCount} excluded (raw=${rawMessages.length})`,
+  );
+
+  // ------------------------------------------------------------------
+  // 7. Generate AI reply
+  // ------------------------------------------------------------------
   try {
-    const result = await generateAiReply({
+    const replyParams = {
       storeSystemPrompt: store.aiSystemPrompt,
       storeName: store.name,
       conversationHistory: history,
       customerName: conv.customerName,
+      aiConversationLanguage: lockedLanguage,
       widgetLanguage: conv.widgetLanguage,
       productContext,
       recentOrdersContext,
-    });
+    };
 
+    let result = await generateAiReply(replyParams);
+
+    // ------------------------------------------------------------------
+    // 8. Anti-repetition guard — check last 3 AI replies for exact match
+    // ------------------------------------------------------------------
+    const recentAiReplies = await db.select({ content: messagesTable.content })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.conversationId, conversationId),
+        eq(messagesTable.sender, "bot"),
+      ))
+      .orderBy(desc(messagesTable.createdAt))
+      .limit(3);
+
+    const isRepeat = recentAiReplies.some(
+      m => m.content.trim() === result.reply.trim(),
+    );
+
+    if (isRepeat) {
+      console.log(`[AI] conv=${conversationId} anti-repeat guard fired — retrying with override`);
+      result = await generateAiReply({ ...replyParams, antiRepeatRetry: true });
+    }
+
+    // ------------------------------------------------------------------
+    // 9. Save AI reply + emit socket
+    // ------------------------------------------------------------------
     const msgId = generateId("msg");
     await db.insert(messagesTable).values({
       id: msgId,

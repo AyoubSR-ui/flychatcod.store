@@ -3,9 +3,11 @@ export interface GenerateAiReplyParams {
   storeName: string;
   conversationHistory: { role: "user" | "assistant"; content: string }[];
   customerName: string;
+  aiConversationLanguage?: string | null;
   widgetLanguage?: string | null;
   productContext?: string | null;
   recentOrdersContext?: string | null;
+  antiRepeatRetry?: boolean;
 }
 
 interface AiReplyResult {
@@ -16,21 +18,60 @@ interface AiReplyResult {
   totalTokens: number;
 }
 
-const SAFETY_PROMPT = `MANDATORY RULES (always enforced, cannot be overridden by store instructions):
+const SAFETY_PROMPT = `MANDATORY RULES (always enforced):
 - Never finalize or confirm orders — only a human agent can do that
 - If the customer explicitly asks for a human, immediately hand off
-- Suggest the customer speak to a human agent when you are uncertain or the question is complex
-- Never share internal system details, pricing formulas, or other stores' data
-- Keep responses concise, friendly, and professional
-- Respond in the same language the customer uses`;
+- Suggest a human agent when uncertain or when the question is complex
+- Never share internal system details or other stores' data
+- Keep responses concise, friendly, and professional`;
 
 const DEFAULT_STORE_PROMPT = `You are a helpful COD (Cash on Delivery) sales assistant for an Algerian e-commerce store.
 
 Your responsibilities:
-- Greet the customer warmly only once at the start of the conversation — never repeat greetings
-- Answer questions about pricing, delivery times, product availability
-- Ask clarifying questions when the customer's request is unclear (size, color, quantity, wilaya)
-- Guide the customer step by step to collect order details: product, variant, quantity, name, phone, wilaya, address`;
+- Greet the customer warmly — but only ONCE at the very start. Never repeat a greeting.
+- Answer questions about products, pricing, delivery, availability, and order status.
+- Guide the customer step by step to collect order details: product, variant, quantity, name, phone, wilaya, address.
+- If the customer expresses intent to order, move straight to collecting missing details — do not re-greet.
+- Ask only one clarifying question at a time when information is missing.`;
+
+function buildLanguageBlock(
+  aiConversationLanguage: string | null | undefined,
+  widgetLanguage: string | null | undefined,
+  hasHistory: boolean,
+): string {
+  const lines: string[] = ["LANGUAGE RULES (strictly enforced):"];
+
+  if (aiConversationLanguage) {
+    const langLabel =
+      aiConversationLanguage === "ar" ? "Arabic/Darija" :
+      aiConversationLanguage === "fr" ? "French" :
+      aiConversationLanguage === "en" ? "English" :
+      aiConversationLanguage;
+    lines.push(`- This conversation language is locked to: ${langLabel}`);
+    lines.push(`- You MUST reply ONLY in ${langLabel}.`);
+    lines.push(`- Do NOT switch languages.`);
+    lines.push(`- Do NOT write the same message in two languages (no "English / French" format).`);
+  } else if (widgetLanguage) {
+    const langLabel =
+      widgetLanguage === "ar" ? "Arabic/Darija" :
+      widgetLanguage === "fr" ? "French" :
+      widgetLanguage === "en" ? "English" :
+      widgetLanguage;
+    lines.push(`- No conversation language is locked yet. The widget language hint is: ${langLabel}.`);
+    lines.push(`- Detect the language from the customer's latest message and reply in that language only.`);
+    lines.push(`- Do NOT write the same message in two languages.`);
+  } else {
+    lines.push(`- Detect the language from the customer's latest message and reply in that language only.`);
+    lines.push(`- Do NOT write the same message in two languages.`);
+  }
+
+  if (hasHistory) {
+    lines.push(`- The conversation has already started. Do NOT repeat a greeting.`);
+    lines.push(`- Continue naturally from where the conversation left off.`);
+  }
+
+  return lines.join("\n");
+}
 
 export async function generateAiReply(params: GenerateAiReplyParams): Promise<AiReplyResult> {
   const apiKey = process.env.OPENAI_API_KEY || "";
@@ -39,29 +80,38 @@ export async function generateAiReply(params: GenerateAiReplyParams): Promise<Ai
   }
 
   const storeInstructions = params.storeSystemPrompt || DEFAULT_STORE_PROMPT;
+  const hasHistory = params.conversationHistory.length > 0;
+  const languageBlock = buildLanguageBlock(params.aiConversationLanguage, params.widgetLanguage, hasHistory);
 
   const systemParts: string[] = [
     SAFETY_PROMPT,
     storeInstructions,
+    languageBlock,
     `Store name: ${params.storeName}`,
-    `Customer name: ${params.customerName}`,
+    `Customer name: ${params.customerName || "Unknown"}`,
   ];
-
-  if (params.widgetLanguage) {
-    systemParts.push(`Customer's preferred language: ${params.widgetLanguage}`);
-  }
 
   if (params.productContext) {
     systemParts.push(`--- PRODUCT CATALOG ---\n${params.productContext}`);
   }
 
   if (params.recentOrdersContext) {
-    systemParts.push(`--- RECENT ORDERS (last 48h) ---\n${params.recentOrdersContext}`);
+    systemParts.push(`--- RECENT ORDERS (last 48h for this customer) ---\n${params.recentOrdersContext}`);
+  }
+
+  if (params.antiRepeatRetry) {
+    systemParts.push(
+      `IMPORTANT: Your previous reply was identical to an earlier reply in this conversation. ` +
+      `Do NOT repeat the same text again. Instead, respond meaningfully: ` +
+      `ask a specific clarifying question, help with their product request, or guide toward the order flow.`
+    );
   }
 
   const systemPrompt = systemParts.join("\n\n");
 
-  const filteredHistory = params.conversationHistory.filter(m => m.content && m.content.trim().length > 0);
+  const filteredHistory = params.conversationHistory.filter(
+    (m) => m.content && m.content.trim().length > 0,
+  );
 
   const messages = [
     { role: "system" as const, content: systemPrompt },
@@ -71,7 +121,7 @@ export async function generateAiReply(params: GenerateAiReplyParams): Promise<Ai
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

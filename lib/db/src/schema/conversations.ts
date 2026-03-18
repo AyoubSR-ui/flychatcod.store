@@ -17,6 +17,7 @@ export const conversationsTable = pgTable("conversations", {
   sourcePageUrl: text("source_page_url"),
   referrer: text("referrer"),
   widgetLanguage: text("widget_language"),
+  aiConversationLanguage: text("ai_conversation_language"),
   status: conversationStatusEnum("status").notNull().default("open"),
   channel: channelEnum("channel").notNull().default("widget"),
   assignedToId: text("assigned_to_id"),
