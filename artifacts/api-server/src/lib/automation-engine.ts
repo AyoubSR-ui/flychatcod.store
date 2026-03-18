@@ -526,8 +526,13 @@ async function runOrderExtractionFlow(
   lockedLanguage: string | null,
   aiFlowState: string | null,
 ): Promise<void> {
+  // ── Re-read aiFlowState from DB to avoid stale state from concurrent messages ──
+  const [freshConv] = await db.select({ aiFlowState: conversationsTable.aiFlowState })
+    .from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
+  const currentFlowState = freshConv?.aiFlowState ?? aiFlowState;
+
   // ── STATE-MACHINE GUARD ───────────────────────────────────────────────
-  if (aiFlowState === "order_cancelled" || aiFlowState === "order_created") {
+  if (currentFlowState === "order_cancelled" || currentFlowState === "order_created") {
     // Check last customer message for a fresh cycle signal before skipping
     const [lastMsg] = await db.select({ content: messagesTable.content })
       .from(messagesTable)
@@ -552,7 +557,7 @@ async function runOrderExtractionFlow(
 
   // When waiting for the customer to choose which order to cancel,
   // only check for an order number in the latest message
-  if (aiFlowState === "pending_cancel_choice") {
+  if (currentFlowState === "pending_cancel_choice") {
     await handlePendingCancelChoice(storeId, conversationId, lockedLanguage);
     return;
   }
@@ -623,13 +628,29 @@ async function handlePendingCancelChoice(
 
   const latestContent = recentMsgs[0].content;
 
-  // Look for an order number pattern in the LATEST message (#123 or a 3-6 digit number)
-  const orderNumMatch = latestContent.match(/#?(\d{3,6})/);
-  if (!orderNumMatch) {
+  // Extract the target order from the latest message.
+  // Order number format is FLY-YYMMDD-#### (e.g. FLY-260318-0042).
+  // Customers may type the full number, the #FLY-... form, or just the 4-digit suffix.
+  let targetOrderNumber: string | null = null;
+
+  // 1. Try to match a full FLY-YYMMDD-#### order number (case-insensitive)
+  const fullMatch = latestContent.match(/\bFLY-\d{6}-\d{4}\b/i);
+  if (fullMatch) {
+    targetOrderNumber = fullMatch[0].toUpperCase();
+  }
+
+  // 2. Fall back to 4-digit numeric suffix (customer types "1234" or "#1234")
+  if (!targetOrderNumber) {
+    const suffixMatch = latestContent.match(/\b(\d{4})\b/);
+    if (suffixMatch) {
+      targetOrderNumber = suffixMatch[1]; // will be matched as suffix below
+    }
+  }
+
+  if (!targetOrderNumber) {
     console.log(`[AI] conv=${conversationId} pending_cancel_choice: no order number found in last message`);
     return;
   }
-  const targetOrderNumber = orderNumMatch[1];
 
   // Re-extract the customer phone from the last 10 messages (security: bind to original phone)
   let customerNormalizedPhone: string | null = null;
@@ -668,8 +689,16 @@ async function handlePendingCancelChoice(
     o.customerPhone ? normalizePhone(o.customerPhone) === customerNormalizedPhone : false
   );
 
-  // Find the specific order the customer chose — must be in the phone-bound eligible list
-  const order = phoneEligible.find(o => o.orderNumber === targetOrderNumber);
+  // Find the specific order the customer chose — must be in the phone-bound eligible list.
+  // Match by full order number OR by the 4-digit suffix (e.g. customer types "1234" → "FLY-260318-1234")
+  const order = phoneEligible.find(o => {
+    if (!targetOrderNumber) return false;
+    // Full match (e.g. "FLY-260318-1234")
+    if (o.orderNumber === targetOrderNumber) return true;
+    // Suffix match: targetOrderNumber is 4 digits, order number ends with "-XXXX"
+    if (/^\d{4}$/.test(targetOrderNumber) && o.orderNumber.endsWith(`-${targetOrderNumber}`)) return true;
+    return false;
+  });
 
   if (!order) {
     console.log(`[AI] conv=${conversationId} pending_cancel_choice: order #${targetOrderNumber} not found in phone-bound eligible orders for ${customerNormalizedPhone}`);
