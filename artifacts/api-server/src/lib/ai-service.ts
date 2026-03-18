@@ -8,6 +8,7 @@ export interface GenerateAiReplyParams {
   productContext?: string | null;
   recentOrdersContext?: string | null;
   antiRepeatRetry?: boolean;
+  conversationFlowState?: string | null;
 }
 
 export interface OrderExtractionResult {
@@ -108,6 +109,75 @@ STRICT FORMATTING RULES:
 - Keep the exact same field order every time
 - Use the appropriate language template based on the conversation language`;
 
+const DARIJA_FEWSHOT_PROMPT = `DARIJA (Algerian Arabic dialect) UNDERSTANDING RULES:
+You MUST understand and correctly respond to Algerian Darija. Below are vocabulary hints and conversation examples.
+
+DARIJA VOCABULARY HINTS:
+- "wach rak / wach rakom" = how are you / how are you (pl.)
+- "labas / labas 3lik" = fine / I'm fine
+- "nheb / bghit / nbghi" = I want / I would like
+- "notlab / ndir commande" = to order / to place an order
+- "baskat / waslat" = received / arrived (for deliveries)
+- "mn 3andkom / 3andkum" = from you / from your store
+- "sah / sahit / saha" = correct / that's right / thank you (after a service)
+- "يعطيك الصحة / yatik saha" = thank you (lit. "God give you health") — polite appreciation after help
+- "tamam / mzyan / waxha" = okay / good / alright
+- "bghit ncanceli / bghit nalgi" = I want to cancel
+- "rah mazal dispo / mazal kayn" = still available / still in stock
+- "la3ziz / sidi / madame" = dear (polite address)
+- "chhal / b'chhal / bchhal" = how much / at what price
+- "3andi / 3ndi" = I have
+- "ma3ndi / manich" = I don't have / I am not
+- "kifach / kifa3 / kifah" = how / what way
+- "diri / dir" = do / make (imperative)
+- "raki / rak" = you are (f/m)
+- "ntuma / nta / nti" = you (pl/m/f)
+
+FEW-SHOT EXAMPLES (Darija → how you should respond):
+
+Example 1 — Greeting in Darija:
+Customer: "salam, wach rak?"
+Assistant (Darija/AR): "وعليكم السلام! أنا بخير، شكراً. كيفاش نقدر نعاونك اليوم؟"
+
+Example 2 — Order intent in Darija:
+Customer: "nheb notlab pair de chaussures"
+Assistant (Darija/AR): "بالتوفيق! أي مقاس تبغي؟ وكيفاش اسمك ورقم تيليفونك باش نكملو الطلب؟"
+
+Example 3 — Order intent in French:
+Customer: "je veux commander des chaussures taille 42"
+Assistant (FR): "Parfait ! Pouvez-vous me donner votre nom, numéro de téléphone et wilaya de livraison ?"
+
+Example 4 — Order intent in English:
+Customer: "i want to order shoes size 41"
+Assistant (EN): "Great! Could you share your name, phone number, and wilaya for delivery?"
+
+Example 5 — Cancellation intent in Darija:
+Customer: "bghit ncanceli commande dyali"
+Assistant (Darija/AR): "واخا، راح نعاونك. عطيني رقم التيليفون اللي سجلتيه في الطلب باش نلقاه."
+
+Example 6 — Post-cancellation thank you (CRITICAL — do NOT restart cancellation flow):
+Customer: "يعطيك الصحة"
+Assistant (Darija/AR): "وفيك البركة! إذا حتجت أي حاجة أخرى، أنا هنا."
+
+Example 7 — Asking about availability in Darija:
+Customer: "wach rah mazal dispo pointure 43?"
+Assistant (Darija/AR): "ايه، المقاس 43 مازال متوفر! واش تبغي تطلب؟"
+
+Example 8 — Price inquiry in Darija:
+Customer: "bchhal les chaussures mn 3andkom?"
+Assistant (Darija/AR): "السعر هو [السعر] دج مع التوصيل. واش تبغي تطلب؟"
+
+Example 9 — Confirmation "sah" / "tamam":
+Customer: "sah, kolchi mzyan"
+[Note: This is order confirmation — mark canAutoCreate=true if all fields collected]
+Assistant (Darija/AR): "مزيان! الطلب تسجل. فريقنا راح يتصل بيك قريباً لتأكيد."
+
+Example 10 — Received delivery / feedback:
+Customer: "baskat la commande, saha"
+Assistant (Darija/AR): "الحمد لله وصلت بخير! يسعدنا خدمتك. إذا عندك أي سؤال، راسلنا."
+
+IMPORTANT: When the customer writes in Darija (even mixed with French words), detect it as Arabic (ar) and reply in Darija/Arabic only. Do NOT switch to French or English.`;
+
 const DEFAULT_STORE_PROMPT = `You are a helpful COD (Cash on Delivery) sales assistant for an Algerian e-commerce store.
 
 Your responsibilities:
@@ -119,6 +189,33 @@ Your responsibilities:
 - After the customer confirms, tell them their order has been placed and is awaiting confirmation.
 - If the customer asks to cancel, ask for their phone number to look up the order, then confirm cancellation.
 - Ask only one clarifying question at a time when information is missing.`;
+
+function buildFlowStateBlock(flowState: string | null | undefined): string | null {
+  if (!flowState) return null;
+  if (flowState === "order_created") {
+    return `CURRENT CONVERSATION STATE (IMPORTANT):
+- An order was just created successfully for this customer.
+- The order flow is COMPLETE. Do NOT ask for order details again.
+- If the customer sends a thank-you message (e.g. "يعطيك الصحة", "merci", "thank you", "saha"), reply warmly and briefly.
+- Do NOT restart the order creation flow or ask about products/phone/address again.
+- Handle any follow-up questions naturally (e.g. delivery time, order number queries).`;
+  }
+  if (flowState === "order_cancelled") {
+    return `CURRENT CONVERSATION STATE (IMPORTANT):
+- An order was just cancelled successfully for this customer.
+- The cancellation flow is COMPLETE. Do NOT re-ask about cancellation.
+- If the customer sends a thank-you message (e.g. "يعطيك الصحة", "merci", "saha"), reply warmly and briefly in Darija/French/English matching their language.
+- Example Darija reply: "وفيك البركة! إذا حتجت أي حاجة أخرى، أنا هنا."
+- Do NOT restart the cancellation flow.`;
+  }
+  if (flowState === "pending_cancel_choice") {
+    return `CURRENT CONVERSATION STATE (IMPORTANT):
+- Multiple cancellable orders were found for this customer and they need to specify which one to cancel.
+- Ask the customer to confirm which order number they want to cancel (show the order numbers if you have them).
+- Do NOT ask for their phone number again — it was already provided.`;
+  }
+  return null;
+}
 
 function buildLanguageBlock(
   aiConversationLanguage: string | null | undefined,
@@ -168,15 +265,21 @@ export async function generateAiReply(params: GenerateAiReplyParams): Promise<Ai
   const storeInstructions = params.storeSystemPrompt || DEFAULT_STORE_PROMPT;
   const hasHistory = params.conversationHistory.length > 0;
   const languageBlock = buildLanguageBlock(params.aiConversationLanguage, params.widgetLanguage, hasHistory);
+  const flowStateBlock = buildFlowStateBlock(params.conversationFlowState);
 
   const systemParts: string[] = [
     SAFETY_PROMPT,
     ORDER_SUMMARY_FORMAT_PROMPT,
+    DARIJA_FEWSHOT_PROMPT,
     storeInstructions,
     languageBlock,
     `Store name: ${params.storeName}`,
     `Customer name: ${params.customerName || "Unknown"}`,
   ];
+
+  if (flowStateBlock) {
+    systemParts.push(flowStateBlock);
+  }
 
   if (params.productContext) {
     systemParts.push(`--- PRODUCT CATALOG ---\n${params.productContext}`);
@@ -300,11 +403,19 @@ Rules:
   6. The customer has clearly confirmed the order (said yes/oui/sah/tamam/confirm/correct or equivalent)
   7. There is clear intent to place an order (not just browsing)
 - canAutoCreate = false if ANY required field is missing or customer has NOT confirmed
-- cancelIntent = true if customer is clearly asking to cancel a recent order
+- cancelIntent = true ONLY if the MOST RECENT customer messages clearly show cancellation intent for a NEW request
+  - Do NOT set cancelIntent=true based on older messages if the conversation has moved on
+  - If the last few customer messages are thank-you phrases ("يعطيك الصحة", "saha", "merci", "thank you"), cancelIntent=false
 - cancelPhone = phone number to use for cancellation lookup (may differ from order phone)
 - Extract phone numbers in any format the customer wrote
 - Extract wilaya from Arabic, French, or Algerian dialect names
-- If address is not given, set it to null (not required to block creation)`;
+- If address is not given, set it to null (not required to block creation)
+
+DARIJA NOTES:
+- "bghit ncanceli / bghit nalgi" = cancel intent
+- "sah / tamam / waxha / mzyan" after order summary = confirmation (canAutoCreate may be true)
+- "يعطيك الصحة / yatik saha / saha" = thank-you phrase (NOT cancel intent, NOT order intent)
+- "baskat / waslat" = received delivery (NOT cancel intent)`;
 
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {

@@ -170,7 +170,7 @@ function detectLanguage(text: string): "ar" | "fr" | "en" {
   const lower = text.toLowerCase().trim();
 
   // Darija (Algerian/Moroccan dialect in Latin script) markers — detect before French
-  const darijaWords = /\b(salam|salem|wach|wech|wesh|labas|la bas|bghit|nheb|nbi|nabi|yah|yeh|yah|wla|wala|ana|hna|rani|daba|deja|kifach|kifesh|kayen|makaynch|mezyan|wakha|wakha|rah|rahi|raha|bach|kima|bzzaf|zwina|zwin|fra|fran|hadchi|hadchi|chno|chnou|fin|feen|fash|fech|kter|aktar|derja|darija|mazel|mazal|haja|had|li|dyal|dyali|ntuma|nta|nti|hia|hna|houma)\b/i;
+  const darijaWords = /\b(salam|salem|wach|wech|wesh|labas|la bas|bghit|nheb|nbi|nabi|yah|yeh|wla|wala|ana|hna|rani|daba|deja|kifach|kifesh|kayen|makaynch|mezyan|mzyan|wakha|waxha|rah|rahi|raha|bach|kima|bzzaf|zwina|zwin|hadchi|chno|chnou|fin|feen|fash|fech|kter|aktar|derja|darija|mazel|mazal|haja|had|li|dyal|dyali|ntuma|nta|nti|hia|hna|houma|tamam|baskat|waslat|ncanceli|nalgi|notlab|3andi|ma3ndi|manich|chhal|bchhal|la3ziz|saha|sahit|yatik|mn 3andkom|mn 3andkum|3andkum|3andkom|nbghi|ndir commande|dispo|mazal dispo|mazal kayn)\b/i;
   if (darijaWords.test(lower)) return "ar";
 
   // Explicit French-intent phrases (e.g. "tu parle france", "parle francais")
@@ -233,6 +233,7 @@ export async function handleAiReplyForMessage(
     customerId: conversationsTable.customerId,
     widgetLanguage: conversationsTable.widgetLanguage,
     aiConversationLanguage: conversationsTable.aiConversationLanguage,
+    aiFlowState: conversationsTable.aiFlowState,
   })
     .from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
   if (!conv || conv.aiMode !== "ai_autopilot") return;
@@ -402,6 +403,7 @@ export async function handleAiReplyForMessage(
       widgetLanguage: conv.widgetLanguage,
       productContext,
       recentOrdersContext,
+      conversationFlowState: conv.aiFlowState,
     };
 
     let result = await generateAiReply(replyParams);
@@ -466,7 +468,7 @@ export async function handleAiReplyForMessage(
     // ------------------------------------------------------------------
     // Run extraction asynchronously so it doesn't delay the reply to the customer
     setImmediate(() => {
-      runOrderExtractionFlow(storeId, conversationId, conv, store.name, lockedLanguage).catch(err => {
+      runOrderExtractionFlow(storeId, conversationId, conv, store.name, lockedLanguage, conv.aiFlowState).catch(err => {
         console.error("[AI] Order extraction flow error:", err);
       });
     });
@@ -492,7 +494,11 @@ export async function handleAiReplyForMessage(
 
 // ---------------------------------------------------------------------------
 // Order extraction flow — runs after AI reply, handles create + cancel
+// Normalize phone: strip everything except digits and leading +
 // ---------------------------------------------------------------------------
+function normalizePhone(phone: string): string {
+  return phone.replace(/[^\d+]/g, "");
+}
 
 async function runOrderExtractionFlow(
   storeId: string,
@@ -504,7 +510,22 @@ async function runOrderExtractionFlow(
   },
   storeName: string,
   lockedLanguage: string | null,
+  aiFlowState: string | null,
 ): Promise<void> {
+  // ── STATE-MACHINE GUARD ───────────────────────────────────────────────
+  // Skip extraction entirely when flow is already complete
+  if (aiFlowState === "order_cancelled" || aiFlowState === "order_created") {
+    console.log(`[AI] conv=${conversationId} extraction skipped: flow state=${aiFlowState}`);
+    return;
+  }
+
+  // When waiting for the customer to choose which order to cancel,
+  // only check for an order number in the latest message
+  if (aiFlowState === "pending_cancel_choice") {
+    await handlePendingCancelChoice(storeId, conversationId, lockedLanguage);
+    return;
+  }
+
   // Fetch all customer-only messages in this conversation for extraction
   const customerMessages = await db.select({ content: messagesTable.content })
     .from(messagesTable)
@@ -527,8 +548,8 @@ async function runOrderExtractionFlow(
     consumeCredits(
       storeId,
       conversationId,
-      null,          // no trigger message — extraction is a background analysis step
-      null,          // no response message
+      null,
+      null,
       "gpt-4o-mini",
       inputTokens,
       outputTokens,
@@ -549,6 +570,72 @@ async function runOrderExtractionFlow(
 }
 
 // ---------------------------------------------------------------------------
+// Handle pending_cancel_choice: customer selects which order to cancel
+// ---------------------------------------------------------------------------
+async function handlePendingCancelChoice(
+  storeId: string,
+  conversationId: string,
+  language: string | null,
+): Promise<void> {
+  // Fetch the latest customer message
+  const [lastMsg] = await db.select({ content: messagesTable.content })
+    .from(messagesTable)
+    .where(and(
+      eq(messagesTable.conversationId, conversationId),
+      eq(messagesTable.sender, "customer"),
+    ))
+    .orderBy(desc(messagesTable.createdAt))
+    .limit(1);
+
+  if (!lastMsg) return;
+
+  // Look for an order number pattern in the message (#123 or just a 3-6 digit number)
+  const orderNumMatch = lastMsg.content.match(/#?(\d{3,6})/);
+  if (!orderNumMatch) {
+    console.log(`[AI] conv=${conversationId} pending_cancel_choice: no order number found in last message`);
+    return;
+  }
+
+  const orderNumber = orderNumMatch[1];
+
+  // Find this order
+  const [order] = await db.select({
+    id: ordersTable.id,
+    orderNumber: ordersTable.orderNumber,
+    storeId: ordersTable.storeId,
+    status: ordersTable.status,
+  })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.storeId, storeId),
+      sql`${ordersTable.orderNumber} = ${orderNumber}`,
+      inArray(ordersTable.status, ["new", "awaiting_confirmation", "confirmed"]),
+    ))
+    .limit(1);
+
+  if (!order) {
+    console.log(`[AI] conv=${conversationId} pending_cancel_choice: order #${orderNumber} not found or not cancellable`);
+    return;
+  }
+
+  // Cancel it
+  await db.update(ordersTable).set({
+    status: "cancelled",
+    cancelledBySource: "ai",
+    updatedAt: new Date(),
+  }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.storeId, storeId)));
+
+  // Update flow state
+  await db.update(conversationsTable).set({ aiFlowState: "order_cancelled" })
+    .where(eq(conversationsTable.id, conversationId));
+
+  const msg = buildCancelConfirmMessage(order.orderNumber, language);
+  await emitBotMessage(storeId, conversationId, msg, { aiGenerated: true, aiAction: "cancel" });
+
+  console.log(`[AI] conv=${conversationId} pending_cancel_choice: cancelled order #${order.orderNumber}`);
+}
+
+// ---------------------------------------------------------------------------
 // AI-assisted order cancellation
 // ---------------------------------------------------------------------------
 
@@ -564,15 +651,16 @@ async function handleAiCancellation(
     return;
   }
 
-  const normalizedPhone = cancelPhone.replace(/[^\d+]/g, "");
+  const normalizedPhone = normalizePhone(cancelPhone);
   if (!normalizedPhone || normalizedPhone.length < 8) {
     console.log(`[AI] conv=${conversationId} cancel: phone too short, skip`);
     return;
   }
 
   // Look up recent non-finalized orders by phone + store
+  // Use normalized phone comparison to handle different formatting
   const eligibleStatuses = ["new", "awaiting_confirmation", "confirmed"] as const;
-  const eligibleOrders = await db.select({
+  const allCancellable = await db.select({
     id: ordersTable.id,
     orderNumber: ordersTable.orderNumber,
     status: ordersTable.status,
@@ -581,11 +669,16 @@ async function handleAiCancellation(
     .from(ordersTable)
     .where(and(
       eq(ordersTable.storeId, storeId),
-      eq(ordersTable.customerPhone, normalizedPhone),
       inArray(ordersTable.status, [...eligibleStatuses]),
     ))
     .orderBy(desc(ordersTable.createdAt))
-    .limit(3);
+    .limit(50);
+
+  // Filter by normalized phone comparison
+  const eligibleOrders = allCancellable.filter(o => {
+    if (!o.customerPhone) return false;
+    return normalizePhone(o.customerPhone) === normalizedPhone;
+  }).slice(0, 3);
 
   let confirmationMessage: string;
 
@@ -593,6 +686,7 @@ async function handleAiCancellation(
     // No cancellable order found
     confirmationMessage = buildNoOrderMessage(language);
     console.log(`[AI] conv=${conversationId} cancel: no eligible orders for phone ${normalizedPhone}`);
+    // No flow state change — let customer retry with correct phone
   } else if (eligibleOrders.length === 1) {
     // Exactly one — cancel it
     const order = eligibleOrders[0];
@@ -602,12 +696,21 @@ async function handleAiCancellation(
       updatedAt: new Date(),
     }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.storeId, storeId)));
 
+    // Persist flow state: cancellation complete
+    await db.update(conversationsTable).set({ aiFlowState: "order_cancelled" })
+      .where(eq(conversationsTable.id, conversationId));
+
     confirmationMessage = buildCancelConfirmMessage(order.orderNumber, language);
     console.log(`[AI] conv=${conversationId} cancelled order #${order.orderNumber} (AI-cancelled)`);
   } else {
     // Multiple orders — ask clarification
     const orderList = eligibleOrders.map(o => `#${o.orderNumber}`).join(", ");
     confirmationMessage = buildAmbiguousOrderMessage(orderList, language);
+
+    // Persist flow state: waiting for customer to pick order
+    await db.update(conversationsTable).set({ aiFlowState: "pending_cancel_choice" })
+      .where(eq(conversationsTable.id, conversationId));
+
     console.log(`[AI] conv=${conversationId} cancel: multiple eligible orders, asking clarification`);
   }
 
@@ -678,7 +781,7 @@ async function handleAiOrderCreation(
     return;
   }
 
-  const customerPhone = orderData.phone.replace(/[^\d+]/g, "");
+  const customerPhone = normalizePhone(orderData.phone);
   const customerName = orderData.customerName;
   const wilaya = orderData.wilaya;
   const address = orderData.address || null;
@@ -779,6 +882,10 @@ async function handleAiOrderCreation(
 
   console.log(`[AI] conv=${conversationId} auto-created order #${orderNumber} (AI, awaiting_confirmation)`);
 
+  // Persist flow state: order creation complete — suppress future extraction
+  await db.update(conversationsTable).set({ aiFlowState: "order_created" })
+    .where(eq(conversationsTable.id, conversationId));
+
   // Send confirmation message to the visitor
   const confirmMsg = buildOrderConfirmMessage(orderNumber, orderData.productName || "", qty, language);
   await emitBotMessage(storeId, conversationId, confirmMsg, { aiGenerated: true, aiAction: "order_created", orderId, orderNumber });
@@ -814,6 +921,24 @@ async function emitBotMessage(
   content: string,
   metadata: Record<string, unknown>,
 ): Promise<void> {
+  // ── Near-duplicate guard: suppress if identical to the most recent bot message ──
+  const [lastBotMsg] = await db.select({ content: messagesTable.content })
+    .from(messagesTable)
+    .where(and(
+      eq(messagesTable.conversationId, conversationId),
+      eq(messagesTable.sender, "bot"),
+    ))
+    .orderBy(desc(messagesTable.createdAt))
+    .limit(1);
+
+  if (lastBotMsg) {
+    const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+    if (normalize(lastBotMsg.content) === normalize(content)) {
+      console.log(`[AI] conv=${conversationId} emitBotMessage: suppressed near-duplicate bot message`);
+      return;
+    }
+  }
+
   const msgId = generateId("msg");
   await db.insert(messagesTable).values({
     id: msgId,

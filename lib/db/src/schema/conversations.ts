@@ -26,6 +26,7 @@ export const conversationsTable = pgTable("conversations", {
   lastMessageAt: timestamp("last_message_at"),
   unreadCount: integer("unread_count").notNull().default(0),
   aiMode: aiModeEnum("ai_mode").notNull().default("human"),
+  aiFlowState: text("ai_flow_state"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
