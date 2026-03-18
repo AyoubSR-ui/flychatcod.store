@@ -31,8 +31,10 @@ import {
   messagesTable,
   teamMembersTable,
   storesTable,
+  productsTable,
+  ordersTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, gte, asc } from "drizzle-orm";
 import { generateId } from "./id.js";
 import { getIO } from "../socket.js";
 import { generateAiReply } from "./ai-service.js";
@@ -92,6 +94,9 @@ export async function fireTrigger(ctx: AutomationTriggerContext): Promise<void> 
           });
           if (!matched) continue;
         }
+
+        // Skip ai_reply action here — the direct handleAiReplyForMessage call is the sole AI path
+        if ((rule.action as string) === "ai_reply") continue;
       }
 
       await executeAction(rule, ctx).catch((err) => {
@@ -128,7 +133,7 @@ export async function rescheduleInactivityChecks(
 
     const timer = setTimeout(async () => {
       inactivityTimers.delete(key);
-      await fireInactivityRule(storeId, conversationId, rule);
+      await fireInactivityRule(storeId, conversationId, rule, delayMinutes);
     }, delayMs);
 
     inactivityTimers.set(key, timer);
@@ -158,7 +163,13 @@ export async function handleAiReplyForMessage(
   aiReplyInFlight.add(triggerMessage.id);
   setTimeout(() => aiReplyInFlight.delete(triggerMessage.id), 30000);
 
-  const [conv] = await db.select({ aiMode: conversationsTable.aiMode, customerName: conversationsTable.customerName })
+  const [conv] = await db.select({
+    aiMode: conversationsTable.aiMode,
+    customerName: conversationsTable.customerName,
+    customerPhone: conversationsTable.customerPhone,
+    customerId: conversationsTable.customerId,
+    widgetLanguage: conversationsTable.widgetLanguage,
+  })
     .from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
   if (!conv || conv.aiMode !== "ai_autopilot") return;
 
@@ -177,14 +188,77 @@ export async function handleAiReplyForMessage(
     .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
   if (!store) return;
 
-  const recentMessages = await db.select({ content: messagesTable.content, sender: messagesTable.sender })
-    .from(messagesTable).where(eq(messagesTable.conversationId, conversationId))
-    .orderBy(messagesTable.createdAt).limit(20);
+  // Fetch active products (up to 20, ordered by name)
+  const products = await db.select({
+    name: productsTable.name,
+    price: productsTable.price,
+    stock: productsTable.stock,
+    variants: productsTable.variants,
+  })
+    .from(productsTable)
+    .where(and(eq(productsTable.storeId, storeId), eq(productsTable.isActive, true)))
+    .orderBy(asc(productsTable.name))
+    .limit(20);
 
-  const history = recentMessages.map(m => ({
-    role: (m.sender === "customer" ? "user" : "assistant") as "user" | "assistant",
-    content: m.content,
-  }));
+  let productContext: string | null = null;
+  if (products.length > 0) {
+    productContext = products.map(p => {
+      const variantsStr = Array.isArray(p.variants) && p.variants.length > 0
+        ? p.variants.join(", ")
+        : "N/A";
+      const stockStr = p.stock != null ? String(p.stock) : "N/A";
+      return `${p.name} | ${p.price} DZD | stock: ${stockStr} | variants: ${variantsStr}`;
+    }).join("\n");
+  }
+
+  // Fetch recent orders by phone (last 48h, up to 3)
+  let recentOrdersContext: string | null = null;
+  if (conv.customerPhone) {
+    const normalizedPhone = conv.customerPhone.replace(/[^\d+]/g, "");
+    if (normalizedPhone) {
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      const recentOrders = await db.select({
+        orderNumber: ordersTable.orderNumber,
+        status: ordersTable.status,
+        total: ordersTable.total,
+        createdAt: ordersTable.createdAt,
+      })
+        .from(ordersTable)
+        .where(and(
+          eq(ordersTable.storeId, storeId),
+          eq(ordersTable.customerPhone, normalizedPhone),
+          gte(ordersTable.createdAt, cutoff),
+        ))
+        .orderBy(desc(ordersTable.createdAt))
+        .limit(3);
+
+      if (recentOrders.length > 0) {
+        recentOrdersContext = recentOrders.map(o =>
+          `Order #${o.orderNumber} | Status: ${o.status} | Total: ${o.total} DZD | Placed: ${o.createdAt.toISOString()}`
+        ).join("\n");
+      }
+    }
+  }
+
+  // Fetch the 20 most recent messages (desc), then reverse to get chronological order
+  const rawMessages = await db.select({ content: messagesTable.content, sender: messagesTable.sender, id: messagesTable.id })
+    .from(messagesTable).where(eq(messagesTable.conversationId, conversationId))
+    .orderBy(desc(messagesTable.createdAt)).limit(20);
+
+  rawMessages.reverse();
+
+  // Ensure the trigger message is included
+  const triggerInHistory = rawMessages.some(m => m.id === triggerMessage.id);
+  if (!triggerInHistory) {
+    rawMessages.push({ id: triggerMessage.id, content: triggerMessage.content, sender: triggerMessage.sender });
+  }
+
+  const history = rawMessages
+    .filter(m => m.content && m.content.trim().length > 0)
+    .map(m => ({
+      role: (m.sender === "customer" ? "user" : "assistant") as "user" | "assistant",
+      content: m.content,
+    }));
 
   try {
     const result = await generateAiReply({
@@ -192,6 +266,9 @@ export async function handleAiReplyForMessage(
       storeName: store.name,
       conversationHistory: history,
       customerName: conv.customerName,
+      widgetLanguage: conv.widgetLanguage,
+      productContext,
+      recentOrdersContext,
     });
 
     const msgId = generateId("msg");
@@ -419,6 +496,7 @@ async function fireInactivityRule(
   storeId: string,
   conversationId: string,
   rule: typeof automationRulesTable.$inferSelect,
+  delayMinutes: number,
 ): Promise<void> {
   try {
     const [conv] = await db
@@ -428,6 +506,23 @@ async function fireInactivityRule(
       .limit(1);
 
     if (!conv || conv.status !== "open") return;
+
+    // Deduplication: check if a bot message already exists within the delay window
+    const windowStart = new Date(Date.now() - delayMinutes * 60 * 1000);
+    const recentBotMessages = await db
+      .select({ id: messagesTable.id })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.conversationId, conversationId),
+        eq(messagesTable.sender, "bot"),
+        gte(messagesTable.createdAt, windowStart),
+      ))
+      .limit(1);
+
+    if (recentBotMessages.length > 0) {
+      console.log(`[AutoEngine] Inactivity rule ${rule.id} skipped — bot message already sent within delay window`);
+      return;
+    }
 
     await executeAction(rule, {
       storeId,
