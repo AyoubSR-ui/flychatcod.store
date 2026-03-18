@@ -38,6 +38,11 @@ SaaS web app for COD ecommerce sellers in Algeria / North Africa.
 - i18n completeness: all Billing, Team, Inbox, and AI strings fully bilingual EN/FR via use-i18n.tsx; no hardcoded display text remaining in dashboard pages
 - Demo AI credits seeded: all pro subscriptions updated with 50k aiMonthlyCreditsIncluded + aiEnabled=true on all stores
 
+**E2E Verification Results (Task #10 — 2026-03-18)**
+- Secrets confirmed loaded: `OPENAI_API_KEY`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL` all present in `process.env`
+- AI Autopilot E2E: VERIFIED WORKING — POST visitor message to `ai_autopilot` conv → AI reply saved to DB (sender=bot, aiGenerated=true) within ~2s; `ai_runs` row created with status=success, model=gpt-4o-mini-2024-07-18, 584 total tokens; subscription `aiCreditsUsedCurrentPeriod` updated from 0→584
+- Invite Email E2E: CREDENTIAL ISSUE — `RESEND_API_KEY` secret in Replit returns HTTP 401 "API key is invalid" from Resend API; invite token and `acceptUrl` (valid `https://REPLIT_DEV_DOMAIN/accept-invite?token=...`) created correctly in DB; code is correct, only the API key value needs replacing in Replit Secrets
+
 **Embeddable Widget (Layer 1)**
 - Widget.js loader served at `/api/widget/widget.js` — vanilla JS, creates floating chat button + iframe
 - Loader passes parent page URL as `&pageUrl=` query param to the iframe for accurate `sourcePageUrl` tracking
