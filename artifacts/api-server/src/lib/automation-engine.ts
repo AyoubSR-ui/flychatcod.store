@@ -34,7 +34,7 @@ import {
   productsTable,
   ordersTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, asc } from "drizzle-orm";
+import { eq, and, desc, gte, asc, sql } from "drizzle-orm";
 import { generateId } from "./id.js";
 import { getIO } from "../socket.js";
 import { generateAiReply } from "./ai-service.js";
@@ -179,7 +179,7 @@ function detectLanguage(text: string): "ar" | "fr" | "en" {
  */
 function isMeaningfulMessage(content: string): boolean {
   const stripped = content.replace(/[\s!?.,:;'"*_\-#@]/g, "").trim();
-  return stripped.length >= 1;
+  return stripped.length > 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +391,7 @@ export async function handleAiReplyForMessage(
       .where(and(
         eq(messagesTable.conversationId, conversationId),
         eq(messagesTable.sender, "bot"),
+        sql`${messagesTable.metadata}::text LIKE '%"aiGenerated":true%'`,
       ))
       .orderBy(desc(messagesTable.createdAt))
       .limit(3);
