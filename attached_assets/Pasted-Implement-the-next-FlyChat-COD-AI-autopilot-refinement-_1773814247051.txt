@@ -1,0 +1,329 @@
+Implement the next FlyChat COD AI autopilot refinement layer.
+
+IMPORTANT
+Do not rebuild the app.
+Do not change unrelated features.
+Work inside the existing monorepo and preserve the current architecture, widget, realtime inbox, automation engine, AI credit logic, order creation/cancellation flow, orders UI, and bilingual EN/FR support.
+
+GOAL
+The AI autopilot is working about 70% well, but it still has important behavior issues.
+This update must improve:
+1. anti-repetition behavior
+2. Darija understanding and replies
+3. better post-cancellation behavior
+4. correct order status updates
+5. stronger few-shot examples / samples so the AI understands common ecommerce scenarios better
+
+CURRENT PROBLEMS TO FIX
+From real usage/screens:
+- the AI keeps repeating:
+  "I found multiple eligible orders (...). Which one would you like to cancel?"
+- after cancellation, when the user says something like "يعطيك الصحة", the AI sometimes ignores the real meaning and answers badly
+- cancellation flow must always update the actual order status correctly, e.g. awaiting_confirmation -> cancelled
+- the AI must use the correct order statuses depending on the case
+- the AI must better understand simple Algerian Darija phrases and reply naturally
+- the AI needs stronger examples for order creation, confirmation, cancellation, thanks, greetings, and order support
+
+THIS TASK MUST IMPROVE BOTH:
+A. backend state/flow logic
+B. AI prompt + examples + behavior rules
+
+--------------------------------------------------
+PART 1 — STRONG ANTI-REPETITION / STATE-AWARE REPLY FIX
+--------------------------------------------------
+
+Fix repeated cancellation prompts and repeated state messages.
+
+CURRENT ISSUE
+The AI can continue repeating:
+"I found multiple eligible orders..."
+even after:
+- the customer already selected one
+- the cancellation was already completed
+- the conversation state clearly moved forward
+
+REQUIRED FIX
+The AI must become state-aware and not repeat outdated prompts.
+
+Requirements:
+- if a cancellation choice has already been made, do not ask again which order to cancel
+- if an order was already cancelled, do not keep asking cancellation questions
+- if the last system action completed the cancellation successfully, the next AI reply must continue from the new state
+- once a flow step is completed, the AI must not go backward in the workflow
+
+Add a clean conversation action state / operation state if needed.
+Examples:
+- pending_cancel_choice
+- cancellation_confirmed
+- order_cancelled
+- awaiting_order_confirmation
+- order_created
+
+Use a practical minimal implementation.
+This should not be just prompt-based; it should be backed by real state or reliable metadata.
+
+Also add a response de-duplication guard:
+- if the candidate AI reply is identical or near-identical to a recent AI reply in the same conversation, block it
+- if blocked, produce a safer context-aware alternative or suppress duplicate response
+
+--------------------------------------------------
+PART 2 — CORRECT ORDER STATUS UPDATES
+--------------------------------------------------
+
+The AI cancellation flow must update actual order status correctly in the database.
+
+REQUIRED BEHAVIOR
+When the AI cancels an order:
+- update the real order status in DB
+- if current status is awaiting_confirmation, change it to cancelled
+- if current status is eligible for cancellation according to business logic, move it to cancelled
+- do not leave the order in awaiting_confirmation after telling the user it was cancelled
+
+Also:
+- if order was AI-created and then AI-cancelled, keep both histories clear
+- preserve AI-created / AI-cancelled markers
+- Orders UI must show the final real status, not just a message in chat
+
+IMPORTANT
+All status changes must be real backend updates, not frontend-only.
+
+--------------------------------------------------
+PART 3 — BETTER POST-CANCELLATION BEHAVIOR
+--------------------------------------------------
+
+After successful cancellation, the AI should respond appropriately to follow-up thanks or casual messages.
+
+Example:
+Customer says:
+- يعطيك الصحة
+- merci
+- thanks
+- بارك الله فيك
+- شكرا
+- sahit
+
+Expected behavior:
+- reply naturally and briefly
+- do NOT restart cancellation flow
+- do NOT repeat "Which order do you want to cancel?"
+- do NOT reopen old workflow state
+
+Examples of acceptable replies:
+Darija:
+- الله يسلمك، إذا احتجت أي حاجة أخرى راني هنا.
+- بصحتك، إذا حبيت أي مساعدة أخرى قولي.
+French:
+- Avec plaisir. Si vous avez besoin d'autre chose, je suis là.
+English:
+- You're welcome. If you need anything else, I'm here to help.
+
+--------------------------------------------------
+PART 4 — DARIJA UNDERSTANDING UPGRADE
+--------------------------------------------------
+
+Improve support for simple Algerian Darija, especially in Latin transliteration and common ecommerce slang.
+
+The AI must understand phrases like:
+- wach rak
+- cv labass
+- la3ziz
+- hab / nheb / notlab
+- baskat
+- mn 3andkom
+- يعطيك الصحة
+- saha / sahit
+- rakom / andkom
+- chhal / prix / dispo
+- wesh kayen livraison
+- nheb ncommandi
+- bghit ncanceli
+- rah mazal dispo?
+- kayn taille 41?
+- ougrla / oran / alger written inconsistently
+
+REQUIRED BEHAVIOR
+- detect these as Darija/Algerian mixed input
+- reply naturally in Darija or simple Arabic/Darija style
+- do not default to English when the phrase is clearly Darija
+- keep the reply short and human, not textbook Arabic unless needed
+
+Do not overcomplicate full dialect NLP.
+Just make the AI much better with common commerce phrases and casual thanks/greetings.
+
+--------------------------------------------------
+PART 5 — ADD STRONG FEW-SHOT EXAMPLES / SAMPLES
+--------------------------------------------------
+
+Strengthen the AI instructions with practical examples so it understands common FlyChat COD use cases better.
+
+Add examples for at least these categories:
+
+1. Greeting in English
+Customer: "hi"
+Assistant: short English reply only
+
+2. Greeting in French
+Customer: "bonjour"
+Assistant: short French reply only
+
+3. Greeting in Darija
+Customer: "wach rak labass"
+Assistant: short Darija reply only
+
+4. Order intent in English
+Customer: "can i make order pls"
+Assistant: asks product/variant briefly
+
+5. Order intent in French
+Customer: "je veux commander"
+Assistant: asks for product or missing info in French
+
+6. Order intent in Darija
+Customer: "nheb notlab baskat mn 3andkom"
+Assistant: asks product/size in Darija
+
+7. Summary formatting example
+Use the structured multiline format for order review:
+- Product
+- Size
+- Quantity
+- Name
+- Phone
+- Wilaya
+- Address
+
+8. Confirmation example
+Customer: "yes" / "oui" / "sah"
+Assistant: creates order if all required fields exist and says order is awaiting confirmation
+
+9. Cancellation by phone example
+Customer provides phone and asks to cancel
+Assistant identifies the right order and cancels it safely
+
+10. Post-cancellation thanks example
+Customer: "يعطيك الصحة"
+Assistant: short polite Darija thank-you reply, no workflow reset
+
+IMPORTANT
+These examples should guide behavior strongly, but must not make the AI overly rigid.
+They should be part of the system/store prompt or the model context in a clean, maintainable way.
+
+--------------------------------------------------
+PART 6 — IMPROVE LANGUAGE DECISION LOGIC
+--------------------------------------------------
+
+The AI must continue improving language choice.
+
+Requirements:
+- use the visitor's conversation language correctly
+- recognize Darija better even when written in Latin characters
+- after cancellation/order completion, continue replying in the same established language
+- if customer says "tu parle france ?" the AI should switch or answer in French naturally
+- if the user is clearly using Darija, do not answer in English
+
+If useful, add a lightweight helper function to classify customer language into:
+- en
+- fr
+- darija_ar
+
+This does not need to be perfect NLP.
+It just needs to handle common FlyChat COD conversation patterns better.
+
+--------------------------------------------------
+PART 7 — ORDER / CANCELLATION FLOW STATE CONSISTENCY
+--------------------------------------------------
+
+The AI should use all available statuses and flow state correctly.
+
+Examples:
+- if order is already cancelled, say it is cancelled
+- if order is awaiting confirmation, say it is awaiting confirmation
+- if order was created successfully, do not say it is fully delivered
+- if cancellation was completed, do not continue with pre-cancellation prompts
+
+Use actual backend state as source of truth whenever possible.
+
+--------------------------------------------------
+PART 8 — UI / ORDER TAGS
+--------------------------------------------------
+
+Keep AI-created / AI-cancelled tags working and ensure status display is consistent with backend changes.
+
+If useful, improve the order detail/order list UI slightly so the team can clearly see:
+- current status
+- AI-created marker
+- AI-cancelled marker
+
+Do not overbuild the UI; keep it practical and consistent.
+
+--------------------------------------------------
+PART 9 — TEST SCENARIOS
+--------------------------------------------------
+
+After implementation, test and report these:
+
+1. Darija greeting
+Input: "wach rak cv labass"
+Expected:
+- Darija reply
+- no English fallback
+
+2. Darija order intent
+Input: "la3ziz hab notlab baskat mn 3andkom"
+Expected:
+- understands order intent
+- asks product/size naturally in Darija
+
+3. Order creation flow
+Complete all required fields + confirm
+Expected:
+- order created once
+- status = awaiting_confirmation
+- AI-created tag visible
+
+4. Cancellation flow
+Customer gives phone + chooses order
+Expected:
+- one order cancelled
+- status updated in DB to cancelled
+- AI-cancelled tag visible
+
+5. Post-cancellation thanks
+Customer: "يعطيك الصحة"
+Expected:
+- short polite Darija reply
+- no repeated cancellation prompt
+
+6. Anti-repetition
+AI must not repeat:
+- same cancellation question
+- same greeting
+- same stale workflow prompt
+
+7. French continuation
+Customer asks in French after previous English or mixed flow
+Expected:
+- AI handles it naturally and does not default incorrectly
+
+--------------------------------------------------
+PART 10 — OUTPUT SUMMARY
+--------------------------------------------------
+
+After implementation, provide a complete summary:
+1. what anti-repetition logic was added
+2. how cancellation state is tracked now
+3. how real order status updates are handled
+4. how Darija handling was improved
+5. what new examples/samples were added to the AI prompt/context
+6. what schema or backend changes were made
+7. what UI/status/tag changes were made
+8. results of each test scenario
+9. any known remaining edge cases
+
+QUALITY BAR
+- preserve current working features
+- do not break realtime chat
+- do not break AI credits
+- do not create fake frontend-only status changes
+- use real backend state
+- prefer practical, stable improvements over overly complex redesign
