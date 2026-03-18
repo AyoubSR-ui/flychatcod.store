@@ -412,10 +412,11 @@ Rules:
 - If address is not given, set it to null (not required to block creation)
 
 DARIJA NOTES:
-- "bghit ncanceli / bghit nalgi" = cancel intent
+- "bghit ncanceli / bghit nalgi / bghit nshri / nheb ncanceli" = cancel intent
 - "sah / tamam / waxha / mzyan" after order summary = confirmation (canAutoCreate may be true)
-- "يعطيك الصحة / yatik saha / saha" = thank-you phrase (NOT cancel intent, NOT order intent)
-- "baskat / waslat" = received delivery (NOT cancel intent)`;
+- "يعطيك الصحة / yatik saha / saha / sahit / wafik el baraka / بارك الله فيك / شكرا" = thank-you phrase (NOT cancel intent, NOT order intent)
+- "baskat / waslat / waslet" = received delivery (NOT cancel intent, NOT order intent)
+- If the conversation has aiFlowState=order_created or order_cancelled and the last messages are only thanks/acknowledgements, set cancelIntent=false and canAutoCreate=false`;
 
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {

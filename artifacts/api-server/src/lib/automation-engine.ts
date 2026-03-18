@@ -310,7 +310,7 @@ export async function handleAiReplyForMessage(
   // ------------------------------------------------------------------
   let recentOrdersContext: string | null = null;
   if (conv.customerPhone) {
-    const normalizedPhone = conv.customerPhone.replace(/[^\d+]/g, "");
+    const normalizedPhone = normalizePhone(conv.customerPhone);
     if (normalizedPhone) {
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
       const recentOrders = await db.select({
@@ -495,9 +495,18 @@ export async function handleAiReplyForMessage(
 // ---------------------------------------------------------------------------
 // Order extraction flow — runs after AI reply, handles create + cancel
 // ---------------------------------------------------------------------------
-// Normalize phone to pure digits only (strip everything except 0-9, including +)
+// Normalize phone to a consistent 10-digit Algerian format (0XXXXXXXXX).
+// Handles: +213XXXXXXXXX, 00213XXXXXXXXX, 213XXXXXXXXX (12-digit), 0XXXXXXXXX (10-digit)
+// Strips all non-digit characters first, then normalizes the country-code prefix.
 function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, "");
+  let digits = phone.replace(/\D/g, "");
+  // +213XXXXXXXXX or 00213XXXXXXXXX → 0XXXXXXXXX
+  if (digits.length === 14 && digits.startsWith("00213")) {
+    digits = "0" + digits.slice(5);
+  } else if (digits.length === 12 && digits.startsWith("213")) {
+    digits = "0" + digits.slice(3);
+  }
+  return digits;
 }
 
 // Detect if the latest customer message signals a NEW order or cancellation cycle
@@ -510,7 +519,7 @@ function isNewCycleSignal(text: string): boolean {
   if (arabicCancel.test(text) || arabicOrder.test(text)) return true;
 
   // Latin-script new cycle signals (Darija + FR + EN)
-  const newCyclePattern = /\b(cancel|annul|annuler|ncanceli|nalgi|bghit ncanceli|bghit nalgi|i want to (order|buy|cancel)|je veux (commander|annuler|cancel)|nheb notlab|bghit notlab|nbghi notlab|ndir commande|new order|nouvelle commande|autre commande)\b/i;
+  const newCyclePattern = /\b(cancel|annul|annuler|ncanceli|nalgi|bghit ncanceli|bghit nalgi|bghit nshri|nheb nshri|i want to (order|buy|cancel)|je veux (commander|annuler|cancel)|nheb notlab|bghit notlab|nbghi notlab|nheb ncommande|bghit ncommande|ndir commande|new order|nouvelle commande|autre commande)\b/i;
   return newCyclePattern.test(lower);
 }
 
