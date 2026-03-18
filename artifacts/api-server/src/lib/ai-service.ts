@@ -177,21 +177,29 @@ export async function generateAiReply(params: GenerateAiReplyParams): Promise<Ai
   };
 }
 
+export interface ExtractionWithUsage {
+  result: OrderExtractionResult;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 /**
  * Runs a fast JSON-mode extraction call to determine order readiness and cancellation intent.
  * Uses the full customer-only message history to extract structured state.
- * This is a separate lightweight call — fast and cheap (max 250 tokens output).
+ * This is a separate lightweight call — max 200 tokens output.
+ * Returns both the extraction result and token usage for credit accounting.
  */
 export async function extractOrderState(
   customerMessages: string[],
   storeName: string,
-): Promise<OrderExtractionResult> {
+): Promise<ExtractionWithUsage> {
   const apiKey = process.env.OPENAI_API_KEY || "";
   if (!apiKey) {
-    return emptyExtraction();
+    return { result: emptyExtraction(), inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   }
 
-  if (customerMessages.length === 0) return emptyExtraction();
+  if (customerMessages.length === 0) return { result: emptyExtraction(), inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
   const historyText = customerMessages.map((m, i) => `[${i + 1}] ${m}`).join("\n");
 
@@ -243,24 +251,29 @@ Rules:
           { role: "system", content: systemPrompt },
           { role: "user", content: `Customer messages:\n${historyText}` },
         ],
-        max_tokens: 250,
+        max_tokens: 200,
         temperature: 0,
         response_format: { type: "json_object" },
       }),
     });
 
-    if (!resp.ok) return emptyExtraction();
+    if (!resp.ok) return { result: emptyExtraction(), inputTokens: 0, outputTokens: 0, totalTokens: 0 };
 
     interface OpenAIChatCompletion {
       choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     }
 
     const data = await resp.json() as OpenAIChatCompletion;
     const raw = data.choices?.[0]?.message?.content;
-    if (!raw) return emptyExtraction();
+    if (!raw) return { result: emptyExtraction(), inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+    const inputTokens = data.usage?.prompt_tokens || 0;
+    const outputTokens = data.usage?.completion_tokens || 0;
+    const totalTokens = data.usage?.total_tokens || (inputTokens + outputTokens);
 
     const parsed = JSON.parse(raw) as Partial<OrderExtractionResult>;
-    return {
+    const result: OrderExtractionResult = {
       canAutoCreate: Boolean(parsed.canAutoCreate),
       cancelIntent: Boolean(parsed.cancelIntent),
       cancelPhone: typeof parsed.cancelPhone === "string" ? parsed.cancelPhone : null,
@@ -274,8 +287,9 @@ Rules:
         address: parsed.orderData?.address ?? null,
       },
     };
+    return { result, inputTokens, outputTokens, totalTokens };
   } catch {
-    return emptyExtraction();
+    return { result: emptyExtraction(), inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   }
 }
 

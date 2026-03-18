@@ -173,16 +173,20 @@ function detectLanguage(text: string): "ar" | "fr" | "en" {
   const darijaWords = /\b(salam|salem|wach|wech|wesh|labas|la bas|bghit|nheb|nbi|nabi|yah|yeh|yah|wla|wala|ana|hna|rani|daba|deja|kifach|kifesh|kayen|makaynch|mezyan|wakha|wakha|rah|rahi|raha|bach|kima|bzzaf|zwina|zwin|fra|fran|hadchi|hadchi|chno|chnou|fin|feen|fash|fech|kter|aktar|derja|darija|mazel|mazal|haja|had|li|dyal|dyali|ntuma|nta|nti|hia|hna|houma)\b/i;
   if (darijaWords.test(lower)) return "ar";
 
-  // Common short French signals before full word list
-  const frenchShort = /\b(oui|non|ok|tf|merci|svp|stp|allô|allo)\b/i;
+  // Explicit French-intent phrases (e.g. "tu parle france", "parle francais")
+  const frenchPhrases = /tu\s+parle[sz]?\s+(fran[cç]ai[sz]?|france)|parle[sz]?\s+fran[cç]ai[sz]?/i;
+  if (frenchPhrases.test(lower)) return "fr";
+
+  // Common short French signals before full word list (including weak signals pls/plz which lean French in context)
+  const frenchShort = /\b(oui|non|ok|tf|merci|svp|stp|allô|allo|pls|plz)\b/i;
   if (frenchShort.test(lower)) return "fr";
 
   // French accented characters
   const frenchAccents = /[àâäéèêëîïôùûüçœæ]/i;
   if (frenchAccents.test(text)) return "fr";
 
-  // French stop-words and common phrases (including "tu parle france" style)
-  const frenchWords = /\b(bonjour|bonsoir|salut|merci|je|vous|nous|est|une|des|les|pour|avec|sur|dans|mais|que|qui|comment|quel|quelle|bonne|bien|ici|veux|voudrais|commander|livraison|parle|parlez|france|francais|français|aussi|encore|toujours|jamais|beaucoup|votre|notre|mon|ma|mes|vos|leur|leurs|cette|cet|cette|avoir|être|faire|aller|venir|voir|savoir|pouvoir|vouloir|devoir)\b/i;
+  // French stop-words and common phrases
+  const frenchWords = /\b(bonjour|bonsoir|salut|merci|je|vous|nous|est|une|des|les|pour|avec|sur|dans|mais|que|qui|comment|quel|quelle|bonne|bien|ici|veux|voudrais|commander|livraison|parle|parlez|france|francais|français|aussi|encore|toujours|jamais|beaucoup|votre|notre|mon|ma|mes|vos|leur|leurs|cette|cet|avoir|être|faire|aller|venir|voir|savoir|pouvoir|vouloir|devoir)\b/i;
   if (frenchWords.test(lower)) return "fr";
 
   return "en";
@@ -514,9 +518,23 @@ async function runOrderExtractionFlow(
   if (customerMessages.length === 0) return;
 
   const texts = customerMessages.map(m => m.content);
-  const extraction = await extractOrderState(texts, storeName);
+  const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
 
-  console.log(`[AI] conv=${conversationId} extraction: canCreate=${extraction.canAutoCreate} cancelIntent=${extraction.cancelIntent}`);
+  console.log(`[AI] conv=${conversationId} extraction: canCreate=${extraction.canAutoCreate} cancelIntent=${extraction.cancelIntent} tokens=${totalTokens}`);
+
+  // ── Record extraction token usage via credit accounting (non-blocking) ──
+  if (totalTokens > 0) {
+    consumeCredits(
+      storeId,
+      conversationId,
+      null,          // no trigger message — extraction is a background analysis step
+      null,          // no response message
+      "gpt-4o-mini",
+      inputTokens,
+      outputTokens,
+      totalTokens,
+    ).catch(err => console.error("[AI] extraction credit accounting error:", err));
+  }
 
   // ── CANCELLATION FLOW ──────────────────────────────────────────────────
   if (extraction.cancelIntent) {
@@ -669,16 +687,16 @@ async function handleAiOrderCreation(
   let customerId: string | null = conv.customerId;
 
   if (!customerId && customerPhone) {
-    const [existing] = await db.select({ id: customersTable.id })
+    const [existing] = await db.select({ id: customersTable.id, name: customersTable.name })
       .from(customersTable)
       .where(and(eq(customersTable.storeId, storeId), eq(customersTable.phone, customerPhone)))
       .limit(1);
 
     if (existing) {
       customerId = existing.id;
-      // Update customer name/wilaya if we have better data
+      // Update customer name/wilaya if we have better data (never overwrite with blanks)
       await db.update(customersTable).set({
-        name: customerName || existing.id,
+        name: customerName || existing.name,
         ...(wilaya ? { wilaya } : {}),
         updatedAt: new Date(),
       }).where(eq(customersTable.id, existing.id));

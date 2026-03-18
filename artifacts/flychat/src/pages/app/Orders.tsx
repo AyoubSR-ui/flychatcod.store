@@ -6,6 +6,7 @@ import { useGetOrders, useCreateOrder, getGetOrdersQueryKey } from "@workspace/a
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { Badge } from "@/components/ui/badge";
 
 const WILAYAS = [
   "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
@@ -380,15 +381,15 @@ export default function Orders() {
                           <span className={`inline-flex border items-center px-2.5 py-1 rounded-full text-xs font-bold ${getStatusColor(order.status)}`}>
                             {t(`status.${order.status}`)}
                           </span>
-                          {(order as any).createdBySource === 'ai' && (order as any).cancelledBySource !== 'ai' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 border border-violet-200 w-fit">
+                          {order.createdBySource === 'ai' && order.cancelledBySource !== 'ai' && (
+                            <Badge className="bg-violet-100 text-violet-700 border-violet-200 gap-1 w-fit">
                               <span className="text-[9px] leading-none">✦</span> AI Created
-                            </span>
+                            </Badge>
                           )}
-                          {(order as any).cancelledBySource === 'ai' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200 w-fit">
+                          {order.cancelledBySource === 'ai' && (
+                            <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1 w-fit">
                               <span className="text-[9px] leading-none">✦</span> AI Cancelled
-                            </span>
+                            </Badge>
                           )}
                         </div>
                       </td>

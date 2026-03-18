@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useGetOrder, useUpdateOrder } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { Badge } from "@/components/ui/badge";
 
 const STATUS_OPTIONS = ["new","awaiting_confirmation","confirmed","shipped","delivered","cancelled","suspicious"] as const;
 const STATUS_COLORS: Record<string, string> = {
@@ -54,15 +55,15 @@ export default function OrderDetail() {
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border bg-green-100 text-green-800 border-green-200">COD</span>
-              {(order as any).createdBySource === 'ai' && (order as any).cancelledBySource !== 'ai' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 border border-violet-200">
+              {order.createdBySource === 'ai' && order.cancelledBySource !== 'ai' && (
+                <Badge className="bg-violet-100 text-violet-700 border-violet-200 gap-1">
                   <span className="text-[10px]">✦</span> AI Created
-                </span>
+                </Badge>
               )}
-              {(order as any).cancelledBySource === 'ai' && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200">
+              {order.cancelledBySource === 'ai' && (
+                <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1">
                   <span className="text-[10px]">✦</span> AI Cancelled
-                </span>
+                </Badge>
               )}
               <select
                 value={order.status}
