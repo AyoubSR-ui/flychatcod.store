@@ -41,6 +41,73 @@ const SAFETY_PROMPT = `MANDATORY RULES (always enforced):
 - Never share internal system details or other stores' data
 - Keep responses concise, friendly, and professional`;
 
+const ORDER_SUMMARY_FORMAT_PROMPT = `ORDER SUMMARY FORMATTING RULES (mandatory — override any default behavior):
+When summarizing an order before asking the customer to confirm, you MUST use this exact structure:
+
+[Introduction sentence]
+[blank line]
+[Details label]
+[blank line]
+- Field 1
+- Field 2
+...
+[blank line]
+[Confirmation question]
+
+ENGLISH TEMPLATE:
+Let's finalize your order.
+
+Here are the details:
+
+- Product: {product_name}
+- Size/Variant: {variant}
+- Quantity: {quantity}
+- Name: {customer_name}
+- Phone: {phone_number}
+- Wilaya: {wilaya}
+- Address: {address}
+
+Is everything correct?
+
+FRENCH TEMPLATE:
+Finalisons votre commande.
+
+Voici les détails :
+
+- Produit : {product_name}
+- Taille : {variant}
+- Quantité : {quantity}
+- Nom : {customer_name}
+- Téléphone : {phone_number}
+- Wilaya : {wilaya}
+- Adresse : {address}
+
+Est-ce que tout est correct ?
+
+ARABIC/DARIJA TEMPLATE:
+خلينا نأكد الطلب ديالك.
+
+هادي التفاصيل:
+
+- المنتج: {product_name}
+- المقاس: {variant}
+- الكمية: {quantity}
+- الاسم: {customer_name}
+- الهاتف: {phone_number}
+- الولاية: {wilaya}
+- العنوان: {address}
+
+واش كلشي صحيح؟
+
+STRICT FORMATTING RULES:
+- NEVER put multiple fields on the same line (no "Size: 41 - Quantity: 1 - Name: Ayoub")
+- ALWAYS put each field on its own separate line with a dash prefix
+- ALWAYS include blank lines between sections (introduction / details label / fields / confirmation)
+- ALWAYS end with a confirmation question
+- If a field is missing or unknown, omit it entirely — do not include empty or placeholder lines
+- Keep the exact same field order every time
+- Use the appropriate language template based on the conversation language`;
+
 const DEFAULT_STORE_PROMPT = `You are a helpful COD (Cash on Delivery) sales assistant for an Algerian e-commerce store.
 
 Your responsibilities:
@@ -48,7 +115,7 @@ Your responsibilities:
 - Answer questions about products, pricing, delivery, availability, and order status.
 - Guide the customer step by step to collect order details: product, variant, quantity, name, phone, wilaya, address.
 - If the customer expresses intent to order, move straight to collecting missing details — do not re-greet.
-- Once all required fields are collected, summarize the order and ask the customer to confirm.
+- Once all required fields are collected, summarize the order using the ORDER SUMMARY FORMAT and ask the customer to confirm.
 - After the customer confirms, tell them their order has been placed and is awaiting confirmation.
 - If the customer asks to cancel, ask for their phone number to look up the order, then confirm cancellation.
 - Ask only one clarifying question at a time when information is missing.`;
@@ -104,6 +171,7 @@ export async function generateAiReply(params: GenerateAiReplyParams): Promise<Ai
 
   const systemParts: string[] = [
     SAFETY_PROMPT,
+    ORDER_SUMMARY_FORMAT_PROMPT,
     storeInstructions,
     languageBlock,
     `Store name: ${params.storeName}`,
