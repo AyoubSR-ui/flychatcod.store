@@ -71,6 +71,8 @@ export * from "./onboardingRequestLanguage";
 export * from "./onboardingRequestWidgetLanguage";
 export * from "./onboardingResponse";
 export * from "./order";
+export * from "./orderCancelledBySource";
+export * from "./orderCreatedBySource";
 export * from "./orderDetail";
 export * from "./orderItem";
 export * from "./orderListResponse";

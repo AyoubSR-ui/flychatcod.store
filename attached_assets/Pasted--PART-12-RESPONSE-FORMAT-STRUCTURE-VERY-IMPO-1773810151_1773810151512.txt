@@ -1,0 +1,96 @@
+--------------------------------------------------
+PART 12 — RESPONSE FORMAT & STRUCTURE (VERY IMPORTANT)
+--------------------------------------------------
+
+Improve how the AI formats messages when summarizing order details.
+
+CURRENT PROBLEM
+The AI sometimes sends all information in one long paragraph or poorly structured text, which looks unprofessional and hard to read.
+
+GOAL
+All order summaries MUST be clean, structured, and easy to read using proper line breaks and formatting.
+
+REQUIRED FORMAT RULES
+
+1. Always use a clear introduction sentence
+2. Add a blank line after the introduction
+3. Each field must be on its own line
+4. Use consistent labels
+5. Keep spacing clean and readable
+6. End with a confirmation question
+
+MANDATORY FORMAT TEMPLATE
+
+Use this exact structure (adapt language dynamically):
+
+Let's finalize your order.
+
+Here are the details:
+
+- Product: {product_name}
+- Size: {size}
+- Quantity: {quantity}
+- Name: {customer_name}
+- Phone: {phone_number}
+- Wilaya: {wilaya}
+- Address: {address}
+
+Is everything correct?
+
+LANGUAGE ADAPTATION
+
+The structure stays the same, but language changes:
+
+FRENCH EXAMPLE:
+
+Finalisons votre commande.
+
+Voici les détails :
+
+- Produit : Nike Air Max 2024
+- Taille : 41
+- Quantité : 1
+- Nom : Ayoub
+- Téléphone : 97430198547
+- Wilaya : Ourgla
+- Adresse : City Al Fatah Block 188 N 08
+
+Est-ce que tout est correct ?
+
+ARABIC / DARIJA EXAMPLE:
+
+خلينا نأكد الطلب ديالك.
+
+هادي التفاصيل:
+
+- المنتج: Nike Air Max 2024
+- المقاس: 41
+- الكمية: 1
+- الاسم: Ayoub
+- الهاتف: 97430198547
+- الولاية: Ourgla
+- العنوان: City Al Fatah Block 188 N 08
+
+واش كلشي صحيح؟
+
+IMPORTANT FORMATTING RULES
+
+- NEVER put multiple fields in the same line
+- NEVER compress fields like:
+  "Size: 41 - Quantity: 1 - Name: Ayoub"
+- ALWAYS use one field per line
+- ALWAYS include line breaks between sections
+- ALWAYS keep the same order of fields
+- ALWAYS end with a confirmation question
+
+OPTIONAL IMPROVEMENTS
+
+- If a field is missing → do NOT include it in summary
+- Keep tone simple and human (not robotic)
+- Do not repeat unnecessary sentences
+- Avoid long paragraphs
+
+FINAL RULE
+
+This formatting rule is mandatory and overrides any default model formatting behavior.
+All order summaries must follow this structure strictly.

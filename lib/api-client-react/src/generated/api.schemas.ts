@@ -289,6 +289,24 @@ export const OrderStatus = {
   suspicious: "suspicious",
 } as const;
 
+export type OrderCreatedBySource =
+  | (typeof OrderCreatedBySource)[keyof typeof OrderCreatedBySource]
+  | null;
+
+export const OrderCreatedBySource = {
+  human: "human",
+  ai: "ai",
+} as const;
+
+export type OrderCancelledBySource =
+  | (typeof OrderCancelledBySource)[keyof typeof OrderCancelledBySource]
+  | null;
+
+export const OrderCancelledBySource = {
+  human: "human",
+  ai: "ai",
+} as const;
+
 export interface OrderItem {
   id: string;
   productId?: string | null;
@@ -312,6 +330,8 @@ export interface Order {
   isCod: boolean;
   total: number;
   sellerNote?: string | null;
+  createdBySource?: OrderCreatedBySource;
+  cancelledBySource?: OrderCancelledBySource;
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;

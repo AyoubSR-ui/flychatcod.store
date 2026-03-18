@@ -5,6 +5,8 @@
  * FlyChat COD API - Chat-to-Order SaaS for COD ecommerce sellers
  * OpenAPI spec version: 0.1.0
  */
+import type { OrderCancelledBySource } from "./orderCancelledBySource";
+import type { OrderCreatedBySource } from "./orderCreatedBySource";
 import type { OrderItem } from "./orderItem";
 import type { OrderStatus } from "./orderStatus";
 
@@ -22,6 +24,8 @@ export interface Order {
   isCod: boolean;
   total: number;
   sellerNote?: string | null;
+  createdBySource?: OrderCreatedBySource;
+  cancelledBySource?: OrderCancelledBySource;
   items: OrderItem[];
   createdAt: Date;
   updatedAt: Date;

@@ -1456,6 +1456,14 @@ components:
         sellerNote:
           type: string
           nullable: true
+        createdBySource:
+          type: string
+          nullable: true
+          enum: [human, ai]
+        cancelledBySource:
+          type: string
+          nullable: true
+          enum: [human, ai]
         items:
           type: array
           items:

@@ -52,8 +52,18 @@ export default function OrderDetail() {
               <h1 className="text-2xl font-display font-bold text-foreground">{order.orderNumber}</h1>
               <p className="text-sm text-muted-foreground">{format(new Date(order.createdAt), 'MMMM dd, yyyy · HH:mm')}</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border bg-green-100 text-green-800 border-green-200">COD</span>
+              {(order as any).createdBySource === 'ai' && (order as any).cancelledBySource !== 'ai' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 border border-violet-200">
+                  <span className="text-[10px]">✦</span> AI Created
+                </span>
+              )}
+              {(order as any).cancelledBySource === 'ai' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200">
+                  <span className="text-[10px]">✦</span> AI Cancelled
+                </span>
+              )}
               <select
                 value={order.status}
                 onChange={e => handleStatusChange(e.target.value)}

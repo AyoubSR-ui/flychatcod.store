@@ -27,6 +27,8 @@ export const ordersTable = pgTable("orders", {
   isCod: boolean("is_cod").notNull().default(true),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),
   sellerNote: text("seller_note"),
+  createdBySource: text("created_by_source"),
+  cancelledBySource: text("cancelled_by_source"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

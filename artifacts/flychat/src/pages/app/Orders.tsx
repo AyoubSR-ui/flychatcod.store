@@ -376,9 +376,21 @@ export default function Orders() {
                       <td className="px-6 py-4 text-muted-foreground">{order.wilaya}</td>
                       <td className="px-6 py-4 font-bold text-foreground">DZD {Number(order.total).toLocaleString()}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex border items-center px-2.5 py-1 rounded-full text-xs font-bold ${getStatusColor(order.status)}`}>
-                          {t(`status.${order.status}`)}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex border items-center px-2.5 py-1 rounded-full text-xs font-bold ${getStatusColor(order.status)}`}>
+                            {t(`status.${order.status}`)}
+                          </span>
+                          {(order as any).createdBySource === 'ai' && (order as any).cancelledBySource !== 'ai' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700 border border-violet-200 w-fit">
+                              <span className="text-[9px] leading-none">✦</span> AI Created
+                            </span>
+                          )}
+                          {(order as any).cancelledBySource === 'ai' && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200 w-fit">
+                              <span className="text-[9px] leading-none">✦</span> AI Cancelled
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">{format(new Date(order.createdAt), 'MMM dd, yyyy')}</td>
                       <td className="px-6 py-4 text-right">

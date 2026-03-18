@@ -361,6 +361,8 @@ export const GetOrdersResponse = zod.object({
       isCod: zod.boolean(),
       total: zod.number(),
       sellerNote: zod.string().nullish(),
+      createdBySource: zod.enum(["human", "ai"]).nullish(),
+      cancelledBySource: zod.enum(["human", "ai"]).nullish(),
       items: zod.array(
         zod.object({
           id: zod.string(),
@@ -433,6 +435,8 @@ export const GetOrderResponse = zod
     isCod: zod.boolean(),
     total: zod.number(),
     sellerNote: zod.string().nullish(),
+    createdBySource: zod.enum(["human", "ai"]).nullish(),
+    cancelledBySource: zod.enum(["human", "ai"]).nullish(),
     items: zod.array(
       zod.object({
         id: zod.string(),
@@ -520,6 +524,8 @@ export const UpdateOrderResponse = zod.object({
   isCod: zod.boolean(),
   total: zod.number(),
   sellerNote: zod.string().nullish(),
+  createdBySource: zod.enum(["human", "ai"]).nullish(),
+  cancelledBySource: zod.enum(["human", "ai"]).nullish(),
   items: zod.array(
     zod.object({
       id: zod.string(),

@@ -33,11 +33,13 @@ import {
   storesTable,
   productsTable,
   ordersTable,
+  orderItemsTable,
+  customersTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, asc, sql } from "drizzle-orm";
-import { generateId } from "./id.js";
+import { eq, and, desc, gte, asc, sql, inArray } from "drizzle-orm";
+import { generateId, generateOrderNumber } from "./id.js";
 import { getIO } from "../socket.js";
-import { generateAiReply } from "./ai-service.js";
+import { generateAiReply, extractOrderState } from "./ai-service.js";
 import { getAiStatus, consumeCredits, recordBlockedRun } from "./ai-credits.js";
 
 export type TriggerType = "new_conversation" | "keyword" | "order_created" | "inactivity";
@@ -155,7 +157,7 @@ export function cancelAllInactivityTimers(conversationId: string): void {
 
 /**
  * Detect the primary language of a text string using Unicode range checks
- * and a small list of common French marker words.
+ * and a list of common French and Darija marker words.
  * Returns "ar", "fr", or "en".
  */
 function detectLanguage(text: string): "ar" | "fr" | "en" {
@@ -165,19 +167,36 @@ function detectLanguage(text: string): "ar" | "fr" | "en" {
   const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
   if (arabicPattern.test(text)) return "ar";
 
-  // French markers: accented chars common in French, or French stop-words
+  const lower = text.toLowerCase().trim();
+
+  // Darija (Algerian/Moroccan dialect in Latin script) markers — detect before French
+  const darijaWords = /\b(salam|salem|wach|wech|wesh|labas|la bas|bghit|nheb|nbi|nabi|yah|yeh|yah|wla|wala|ana|hna|rani|daba|deja|kifach|kifesh|kayen|makaynch|mezyan|wakha|wakha|rah|rahi|raha|bach|kima|bzzaf|zwina|zwin|fra|fran|hadchi|hadchi|chno|chnou|fin|feen|fash|fech|kter|aktar|derja|darija|mazel|mazal|haja|had|li|dyal|dyali|ntuma|nta|nti|hia|hna|houma)\b/i;
+  if (darijaWords.test(lower)) return "ar";
+
+  // Common short French signals before full word list
+  const frenchShort = /\b(oui|non|ok|tf|merci|svp|stp|allô|allo)\b/i;
+  if (frenchShort.test(lower)) return "fr";
+
+  // French accented characters
   const frenchAccents = /[àâäéèêëîïôùûüçœæ]/i;
-  const frenchWords = /\b(bonjour|bonsoir|merci|oui|non|je|vous|nous|est|une|des|les|pour|avec|sur|dans|mais|que|qui|comment|quel|quelle|salut|bonne|bien|ici|veux|voudrais|commander|livraison)\b/i;
-  if (frenchAccents.test(text) || frenchWords.test(text)) return "fr";
+  if (frenchAccents.test(text)) return "fr";
+
+  // French stop-words and common phrases (including "tu parle france" style)
+  const frenchWords = /\b(bonjour|bonsoir|salut|merci|je|vous|nous|est|une|des|les|pour|avec|sur|dans|mais|que|qui|comment|quel|quelle|bonne|bien|ici|veux|voudrais|commander|livraison|parle|parlez|france|francais|français|aussi|encore|toujours|jamais|beaucoup|votre|notre|mon|ma|mes|vos|leur|leurs|cette|cet|cette|avoir|être|faire|aller|venir|voir|savoir|pouvoir|vouloir|devoir)\b/i;
+  if (frenchWords.test(lower)) return "fr";
 
   return "en";
 }
 
 /**
  * A message is "meaningful" for language anchoring if it has real content
- * beyond a single punctuation character.
+ * beyond punctuation/whitespace only. Single Arabic words (e.g. "سلام") count as meaningful.
  */
 function isMeaningfulMessage(content: string): boolean {
+  // Arabic Unicode content counts regardless of length
+  const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+  if (arabicPattern.test(content)) return true;
+
   const stripped = content.replace(/[\s!?.,:;'"*_\-#@]/g, "").trim();
   return stripped.length > 1;
 }
@@ -282,7 +301,7 @@ export async function handleAiReplyForMessage(
   }
 
   // ------------------------------------------------------------------
-  // 5. Recent orders by phone (last 48h)
+  // 5. Recent orders by phone (last 48h) for context
   // ------------------------------------------------------------------
   let recentOrdersContext: string | null = null;
   if (conv.customerPhone) {
@@ -437,6 +456,17 @@ export async function handleAiReplyForMessage(
 
     await consumeCredits(storeId, conversationId, triggerMessage.id, msgId, result.modelName, result.inputTokens, result.outputTokens, result.totalTokens);
 
+    // ------------------------------------------------------------------
+    // 10. Structured extraction — run after reply is sent (non-blocking on reply)
+    //     Handles: auto order creation + AI cancellation
+    // ------------------------------------------------------------------
+    // Run extraction asynchronously so it doesn't delay the reply to the customer
+    setImmediate(() => {
+      runOrderExtractionFlow(storeId, conversationId, conv, store.name, lockedLanguage).catch(err => {
+        console.error("[AI] Order extraction flow error:", err);
+      });
+    });
+
   } catch (err) {
     console.error("[AutoEngine] AI reply generation failed:", err);
     await db.insert((await import("@workspace/db")).aiRunsTable).values({
@@ -454,6 +484,344 @@ export async function handleAiReplyForMessage(
       errorReason: (err as Error).message,
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Order extraction flow — runs after AI reply, handles create + cancel
+// ---------------------------------------------------------------------------
+
+async function runOrderExtractionFlow(
+  storeId: string,
+  conversationId: string,
+  conv: {
+    customerName: string;
+    customerPhone: string | null;
+    customerId: string | null;
+  },
+  storeName: string,
+  lockedLanguage: string | null,
+): Promise<void> {
+  // Fetch all customer-only messages in this conversation for extraction
+  const customerMessages = await db.select({ content: messagesTable.content })
+    .from(messagesTable)
+    .where(and(
+      eq(messagesTable.conversationId, conversationId),
+      eq(messagesTable.sender, "customer"),
+    ))
+    .orderBy(asc(messagesTable.createdAt))
+    .limit(40);
+
+  if (customerMessages.length === 0) return;
+
+  const texts = customerMessages.map(m => m.content);
+  const extraction = await extractOrderState(texts, storeName);
+
+  console.log(`[AI] conv=${conversationId} extraction: canCreate=${extraction.canAutoCreate} cancelIntent=${extraction.cancelIntent}`);
+
+  // ── CANCELLATION FLOW ──────────────────────────────────────────────────
+  if (extraction.cancelIntent) {
+    await handleAiCancellation(storeId, conversationId, extraction.cancelPhone, lockedLanguage);
+    return;
+  }
+
+  // ── AUTO ORDER CREATION ────────────────────────────────────────────────
+  if (extraction.canAutoCreate) {
+    await handleAiOrderCreation(storeId, conversationId, conv, extraction.orderData, lockedLanguage);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI-assisted order cancellation
+// ---------------------------------------------------------------------------
+
+async function handleAiCancellation(
+  storeId: string,
+  conversationId: string,
+  cancelPhone: string | null,
+  language: string | null,
+): Promise<void> {
+  if (!cancelPhone) {
+    // Phone number missing — the AI's conversational reply should have asked for it
+    console.log(`[AI] conv=${conversationId} cancel intent but no phone — waiting for customer reply`);
+    return;
+  }
+
+  const normalizedPhone = cancelPhone.replace(/[^\d+]/g, "");
+  if (!normalizedPhone || normalizedPhone.length < 8) {
+    console.log(`[AI] conv=${conversationId} cancel: phone too short, skip`);
+    return;
+  }
+
+  // Look up recent non-finalized orders by phone + store
+  const eligibleStatuses = ["new", "awaiting_confirmation", "confirmed"] as const;
+  const eligibleOrders = await db.select({
+    id: ordersTable.id,
+    orderNumber: ordersTable.orderNumber,
+    status: ordersTable.status,
+    customerPhone: ordersTable.customerPhone,
+  })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.storeId, storeId),
+      eq(ordersTable.customerPhone, normalizedPhone),
+      inArray(ordersTable.status, [...eligibleStatuses]),
+    ))
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(3);
+
+  let confirmationMessage: string;
+
+  if (eligibleOrders.length === 0) {
+    // No cancellable order found
+    confirmationMessage = buildNoOrderMessage(language);
+    console.log(`[AI] conv=${conversationId} cancel: no eligible orders for phone ${normalizedPhone}`);
+  } else if (eligibleOrders.length === 1) {
+    // Exactly one — cancel it
+    const order = eligibleOrders[0];
+    await db.update(ordersTable).set({
+      status: "cancelled",
+      cancelledBySource: "ai",
+      updatedAt: new Date(),
+    }).where(and(eq(ordersTable.id, order.id), eq(ordersTable.storeId, storeId)));
+
+    confirmationMessage = buildCancelConfirmMessage(order.orderNumber, language);
+    console.log(`[AI] conv=${conversationId} cancelled order #${order.orderNumber} (AI-cancelled)`);
+  } else {
+    // Multiple orders — ask clarification
+    const orderList = eligibleOrders.map(o => `#${o.orderNumber}`).join(", ");
+    confirmationMessage = buildAmbiguousOrderMessage(orderList, language);
+    console.log(`[AI] conv=${conversationId} cancel: multiple eligible orders, asking clarification`);
+  }
+
+  await emitBotMessage(storeId, conversationId, confirmationMessage, { aiGenerated: true, aiAction: "cancel" });
+}
+
+function buildNoOrderMessage(language: string | null): string {
+  if (language === "ar") return "ما لقيت حتى طلب ممكن يتألغى بهاد الرقم. تقدر تعطيني رقم الطلب؟";
+  if (language === "fr") return "Je n'ai trouvé aucune commande annulable avec ce numéro. Pouvez-vous vérifier votre numéro de téléphone ou me donner le numéro de commande ?";
+  return "I couldn't find any cancellable order with that phone number. Please double-check your number or share the order number.";
+}
+
+function buildCancelConfirmMessage(orderNumber: string, language: string | null): string {
+  if (language === "ar") return `تمام، الطلب #${orderNumber} تألغى بنجاح. إذا عندك أي سؤال راسلنا هنا.`;
+  if (language === "fr") return `Votre commande #${orderNumber} a bien été annulée. N'hésitez pas à nous contacter si vous avez des questions.`;
+  return `Your order #${orderNumber} has been cancelled successfully. Feel free to reach out if you need anything.`;
+}
+
+function buildAmbiguousOrderMessage(orderList: string, language: string | null): string {
+  if (language === "ar") return `لقيت أكثر من طلب (${orderList}). أنهم الطلب تبغي تلغي؟`;
+  if (language === "fr") return `J'ai trouvé plusieurs commandes éligibles (${orderList}). Laquelle souhaitez-vous annuler ?`;
+  return `I found multiple eligible orders (${orderList}). Which one would you like to cancel?`;
+}
+
+// ---------------------------------------------------------------------------
+// AI-assisted order creation
+// ---------------------------------------------------------------------------
+
+async function handleAiOrderCreation(
+  storeId: string,
+  conversationId: string,
+  conv: { customerName: string; customerPhone: string | null; customerId: string | null },
+  orderData: {
+    productName: string | null;
+    variant: string | null;
+    quantity: number | null;
+    customerName: string | null;
+    phone: string | null;
+    wilaya: string | null;
+    address: string | null;
+  },
+  language: string | null,
+): Promise<void> {
+  // Validate all required fields are present
+  if (
+    !orderData.productName ||
+    !orderData.quantity ||
+    orderData.quantity < 1 ||
+    !orderData.customerName ||
+    !orderData.phone ||
+    !orderData.wilaya
+  ) {
+    console.log(`[AI] conv=${conversationId} auto-create blocked: missing required fields`);
+    return;
+  }
+
+  // Duplicate prevention: check if this conversation already has an AI-created order
+  const [existingAiOrder] = await db.select({ id: ordersTable.id })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.conversationId, conversationId),
+      eq(ordersTable.createdBySource, "ai"),
+    ))
+    .limit(1);
+
+  if (existingAiOrder) {
+    console.log(`[AI] conv=${conversationId} auto-create skipped: AI order already exists (${existingAiOrder.id})`);
+    return;
+  }
+
+  const customerPhone = orderData.phone.replace(/[^\d+]/g, "");
+  const customerName = orderData.customerName;
+  const wilaya = orderData.wilaya;
+  const address = orderData.address || null;
+
+  // Look up or create customer, scoped to this store
+  let customerId: string | null = conv.customerId;
+
+  if (!customerId && customerPhone) {
+    const [existing] = await db.select({ id: customersTable.id })
+      .from(customersTable)
+      .where(and(eq(customersTable.storeId, storeId), eq(customersTable.phone, customerPhone)))
+      .limit(1);
+
+    if (existing) {
+      customerId = existing.id;
+      // Update customer name/wilaya if we have better data
+      await db.update(customersTable).set({
+        name: customerName || existing.id,
+        ...(wilaya ? { wilaya } : {}),
+        updatedAt: new Date(),
+      }).where(eq(customersTable.id, existing.id));
+    } else {
+      const newCustId = generateId("cust");
+      await db.insert(customersTable).values({
+        id: newCustId,
+        storeId,
+        name: customerName,
+        phone: customerPhone,
+        wilaya: wilaya || null,
+      });
+      customerId = newCustId;
+    }
+  }
+
+  // Find product price if we can match it
+  const [matchedProduct] = await db.select({ price: productsTable.price, id: productsTable.id })
+    .from(productsTable)
+    .where(and(
+      eq(productsTable.storeId, storeId),
+      eq(productsTable.isActive, true),
+      sql`lower(${productsTable.name}) LIKE lower(${"%" + (orderData.productName || "") + "%"})`,
+    ))
+    .limit(1);
+
+  const unitPrice = matchedProduct ? Number(matchedProduct.price) : 0;
+  const qty = orderData.quantity;
+  const total = unitPrice * qty;
+
+  const orderId = generateId("ord");
+  const orderNumber = generateOrderNumber();
+
+  await db.insert(ordersTable).values({
+    id: orderId,
+    orderNumber,
+    storeId,
+    customerId: customerId || null,
+    conversationId,
+    customerName,
+    customerPhone,
+    wilaya,
+    address,
+    status: "awaiting_confirmation",
+    isCod: true,
+    total: total.toString(),
+    createdBySource: "ai",
+  });
+
+  await db.insert(orderItemsTable).values({
+    id: generateId("oi"),
+    orderId,
+    productId: matchedProduct?.id || null,
+    productName: orderData.productName,
+    variant: orderData.variant || null,
+    quantity: qty,
+    price: unitPrice.toString(),
+  });
+
+  // Update conversation with real customer info if it was anonymous
+  await db.update(conversationsTable).set({
+    customerId: customerId || undefined,
+    customerPhone: customerPhone || undefined,
+    customerName: customerName || undefined,
+    updatedAt: new Date(),
+  }).where(eq(conversationsTable.id, conversationId));
+
+  // Update customer order stats
+  if (customerId) {
+    const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)` })
+      .from(ordersTable)
+      .where(and(eq(ordersTable.customerId, customerId), eq(ordersTable.storeId, storeId)));
+    const totalOrders = Number(cnt);
+    await db.update(customersTable).set({
+      totalOrders,
+      isRepeat: totalOrders > 1,
+      updatedAt: new Date(),
+    }).where(eq(customersTable.id, customerId));
+  }
+
+  console.log(`[AI] conv=${conversationId} auto-created order #${orderNumber} (AI, awaiting_confirmation)`);
+
+  // Send confirmation message to the visitor
+  const confirmMsg = buildOrderConfirmMessage(orderNumber, orderData.productName || "", qty, language);
+  await emitBotMessage(storeId, conversationId, confirmMsg, { aiGenerated: true, aiAction: "order_created", orderId, orderNumber });
+
+  // Fire order_created automation
+  fireTrigger({
+    storeId,
+    conversationId,
+    triggerType: "order_created",
+    orderId,
+    orderNumber,
+    customerName,
+  }).catch(err => console.error("[AI] order_created automation error:", err));
+}
+
+function buildOrderConfirmMessage(orderNumber: string, productName: string, qty: number, language: string | null): string {
+  if (language === "ar") {
+    return `تمام! طلبك تسجل بنجاح 🎉\n\nرقم الطلب: #${orderNumber}\nالمنتج: ${productName} × ${qty}\nالحالة: في انتظار التأكيد\n\nفريقنا راح يتصل بيك لتأكيد الطلب قريباً. إذا بغيت تلغي، راسلنا هنا وراح نعاونك.`;
+  }
+  if (language === "fr") {
+    return `Parfait ! Votre commande a bien été enregistrée 🎉\n\nNuméro de commande : #${orderNumber}\nProduit : ${productName} × ${qty}\nStatut : En attente de confirmation\n\nNotre équipe va vous contacter prochainement pour confirmer. Si vous souhaitez annuler, revenez ici et nous vous aiderons.`;
+  }
+  return `Great news! Your order has been placed successfully 🎉\n\nOrder #${orderNumber}\nProduct: ${productName} × ${qty}\nStatus: Awaiting confirmation\n\nOur team will contact you shortly to confirm. If you wish to cancel, just message us here and we'll help you.`;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper: save bot message and emit socket
+// ---------------------------------------------------------------------------
+
+async function emitBotMessage(
+  storeId: string,
+  conversationId: string,
+  content: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const msgId = generateId("msg");
+  await db.insert(messagesTable).values({
+    id: msgId,
+    conversationId,
+    content,
+    sender: "bot",
+    senderName: "AI Assistant",
+    isInternal: 0,
+    metadata,
+  });
+
+  await db.update(conversationsTable).set({ lastMessage: content, updatedAt: new Date() })
+    .where(eq(conversationsTable.id, conversationId));
+
+  try {
+    const io = getIO();
+    const [savedMsg] = await db.select({
+      id: messagesTable.id, content: messagesTable.content, sender: messagesTable.sender,
+      senderName: messagesTable.senderName, metadata: messagesTable.metadata, createdAt: messagesTable.createdAt,
+    }).from(messagesTable).where(eq(messagesTable.id, msgId));
+
+    if (savedMsg) {
+      io.to(`conv:${conversationId}`).emit("new_message", { conversationId, message: savedMsg });
+      io.to(`store:${storeId}`).emit("new_message", { conversationId, message: savedMsg });
+    }
+  } catch {}
 }
 
 async function executeAction(
