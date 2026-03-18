@@ -206,6 +206,63 @@ function isMeaningfulMessage(content: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Dominant intent classifier — fast regex, no AI call.
+// Used BEFORE generating the AI reply and BEFORE extraction flow.
+// Ensures only ONE primary flow executes per customer message.
+// ---------------------------------------------------------------------------
+
+type DominantIntent =
+  | "cancel"           // explicit cancel request
+  | "new_order"        // explicit new order / buy intent
+  | "order_confirm"    // confirming an order summary
+  | "thanks_closing"   // thank-you / closing / positive acknowledgement
+  | "product_inquiry"  // asking about products / availability
+  | "other";           // everything else — AI handles conversationally
+
+function classifyDominantIntent(recentCustomerMessages: string[]): DominantIntent {
+  if (recentCustomerMessages.length === 0) return "other";
+
+  const latest = recentCustomerMessages[recentCustomerMessages.length - 1] || "";
+  const latLow = latest.toLowerCase();
+
+  // ── Arabic / Darija script checks ─────────────────────────────────────────
+  // Cancel intent
+  const arabicCancelPat = /بغيت.*(نكنسل|نلغي|ألغي|نكانسل)|حاب.*(نكنسل|نلغي|ألغي|نكانسل)|أبغي.*(نلغي|نكنسل)|نكنسل|نلغي|ألغي|نكانسل/;
+  if (arabicCancelPat.test(latest)) return "cancel";
+
+  // New order intent (broad: covers طلب، نشري، نكومند، حاب طلب، راني حاب)
+  const arabicOrderPat = /بغيت.*(نطلب|نأمر|نكومند|نشري|طلب)|راني\s*(حاب|بغي).*(طلب|نشري|نكومند|نطلب)|حاب.*(نطلب|طلب|نكومند|نشري|نأمر)|ممكن\s*نطلب|بغيت\s*طلب|نطلب|نشري\s*منكم|نشري\s*من\s*عندكم|أبغي\s*أطلب/;
+  if (arabicOrderPat.test(latest)) return "new_order";
+
+  // Thanks / closing in Arabic/Darija script
+  const arabicThanksPat = /يعطيك.*(الصحة|صحة)|وفيك.*(البركة|بركة)|بارك\s*الله|شكرا|الحمد\s*لله|مشكور|بوركت/;
+  if (arabicThanksPat.test(latest)) return "thanks_closing";
+
+  // Product inquiry in Arabic/Darija script
+  const arabicProductPat = /ممكن\s*(نعرف|نشوف|شوف)|عندكم\s*(منتجات|بضاعة|منتوج|أحذية|ملابس)|واش\s*(عندكم|كاين|دispo)|أش\s*عندكم|شنو\s*عندكم|علاش\s*المنتوج/;
+  if (arabicProductPat.test(latest)) return "product_inquiry";
+
+  // ── Latin script (Darija/FR/EN) ─────────────────────────────────────────
+  // Cancel
+  const latinCancel = /\b(cancel|annul|annuler|ncanceli|nalgi|bghit\s+ncanceli|bghit\s+nalgi|nheb\s+ncanceli|je\s+veux\s+(annuler|cancel|l.annuler)|i\s+want\s+to\s+cancel|can\s+i\s+cancel)\b/i;
+  if (latinCancel.test(latLow)) return "cancel";
+
+  // New order (Darija + FR + EN)
+  const latinOrder = /\b(nheb\s+n(otlab|ommande|shri|commande)|bghit\s+n(otlab|ommande|shri|commande)|nbghi\s+notlab|ndir\s+commande|can\s+i\s+(order|make\s+a?\s*order|place\s+a?\s*order)|i\s+want\s+to\s+(order|buy)|je\s+veux\s+(commander|acheter|passer)|new\s+order|nouvelle\s+commande|passer\s+(une\s+)?commande|faire\s+(une\s+)?commande|bghit\s+nshri|nheb\s+ncommande|bghit\s+ncommande)\b/i;
+  if (latinOrder.test(latLow)) return "new_order";
+
+  // Thanks / closing
+  const latinThanks = /\b(yatik\s+saha|wafik\s+(el\s+)?baraka|merci(\s+beaucoup)?|thank(\s+you)?|thanks|saha(\s+bzaf)?|sahit|barak\s+allah|7amdullah)\b/i;
+  if (latinThanks.test(latLow)) return "thanks_closing";
+
+  // Product inquiry
+  const latinProduct = /\b(produits?|catalogue|what\s+(products?|do\s+you\s+have|items?)|quel(s)?\s+produits?|vos\s+produits?|wach\s+dispo|mazal\s+dispo|wach\s+kayn|les\s+produits?|show\s+me|what\s+do\s+you\s+sell)\b/i;
+  if (latinProduct.test(latLow)) return "product_inquiry";
+
+  return "other";
+}
+
+// ---------------------------------------------------------------------------
 // AI reply dedup guard
 // ---------------------------------------------------------------------------
 
@@ -463,12 +520,19 @@ export async function handleAiReplyForMessage(
     await consumeCredits(storeId, conversationId, triggerMessage.id, msgId, result.modelName, result.inputTokens, result.outputTokens, result.totalTokens);
 
     // ------------------------------------------------------------------
-    // 10. Structured extraction — run after reply is sent (non-blocking on reply)
-    //     Handles: auto order creation + AI cancellation
+    // 10. Classify dominant intent + structured extraction
+    //     Intent is determined before extraction so each message drives
+    //     exactly ONE flow (cancel OR new_order OR AI-conversational).
     // ------------------------------------------------------------------
-    // Run extraction asynchronously so it doesn't delay the reply to the customer
+    const recentCustomerTexts = rawMessages
+      .filter(m => m.sender === "customer")
+      .slice(-3)
+      .map(m => m.content);
+    const dominantIntent = classifyDominantIntent(recentCustomerTexts);
+    console.log(`[AI] conv=${conversationId} dominantIntent=${dominantIntent}`);
+
     setImmediate(() => {
-      runOrderExtractionFlow(storeId, conversationId, conv, store.name, lockedLanguage, conv.aiFlowState).catch(err => {
+      runOrderExtractionFlow(storeId, conversationId, conv, store.name, lockedLanguage, conv.aiFlowState, dominantIntent).catch(err => {
         console.error("[AI] Order extraction flow error:", err);
       });
     });
@@ -509,6 +573,20 @@ function normalizePhone(phone: string): string {
   return digits;
 }
 
+// Compare two phones robustly:
+// 1. Exact normalized match (primary)
+// 2. Last-9-digits suffix match (fallback for legacy 9-digit stored phones)
+function phonesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const na = normalizePhone(a);
+  const nb = normalizePhone(b);
+  if (na === nb) return true;
+  if (na.length >= 9 && nb.length >= 9) {
+    return na.slice(-9) === nb.slice(-9);
+  }
+  return false;
+}
+
 // Detect if the latest customer message signals a NEW order or cancellation cycle
 // Used to reset aiFlowState when a fresh cycle begins after a completed one.
 function isNewCycleSignal(text: string): boolean {
@@ -534,15 +612,86 @@ async function runOrderExtractionFlow(
   storeName: string,
   lockedLanguage: string | null,
   aiFlowState: string | null,
+  dominantIntent: DominantIntent,
 ): Promise<void> {
-  // ── Re-read aiFlowState from DB to avoid stale state from concurrent messages ──
+
+  // ── INTENT ARBITRATION ────────────────────────────────────────────────
+  // Skip extraction entirely for intents the AI reply already handled.
+  // This prevents "product inquiry → cancellation lookup" and "thanks → cancel" bugs.
+  if (dominantIntent === "thanks_closing" || dominantIntent === "product_inquiry") {
+    console.log(`[AI] conv=${conversationId} extraction skipped: intent=${dominantIntent}`);
+    return;
+  }
+
+  // ── Re-read aiFlowState from DB to avoid stale state ─────────────────
   const [freshConv] = await db.select({ aiFlowState: conversationsTable.aiFlowState })
     .from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
   const currentFlowState = freshConv?.aiFlowState ?? aiFlowState;
 
-  // ── STATE-MACHINE GUARD ───────────────────────────────────────────────
+  // ── NEW ORDER intent: clear stale cancel state, run order path only ───
+  if (dominantIntent === "new_order") {
+    if (currentFlowState === "order_cancelled" || currentFlowState === "pending_cancel_choice") {
+      console.log(`[AI] conv=${conversationId} new_order intent: clearing stale cancel state (${currentFlowState})`);
+      await db.update(conversationsTable).set({ aiFlowState: null })
+        .where(eq(conversationsTable.id, conversationId));
+    }
+    // Only run order creation path — cancellation is off-limits for this intent
+    const customerMessages = await db.select({ content: messagesTable.content })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.conversationId, conversationId),
+        eq(messagesTable.sender, "customer"),
+      ))
+      .orderBy(asc(messagesTable.createdAt))
+      .limit(40);
+    if (customerMessages.length === 0) return;
+
+    const texts = customerMessages.map(m => m.content);
+    const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
+    console.log(`[AI] conv=${conversationId} new_order extraction: canCreate=${extraction.canAutoCreate} tokens=${totalTokens}`);
+    if (totalTokens > 0) {
+      consumeCredits(storeId, conversationId, null, null, "gpt-4o-mini", inputTokens, outputTokens, totalTokens)
+        .catch(err => console.error("[AI] extraction credit error:", err));
+    }
+    if (extraction.canAutoCreate) {
+      await handleAiOrderCreation(storeId, conversationId, conv, extraction.orderData, lockedLanguage);
+    }
+    return;
+  }
+
+  // ── CANCEL intent: bypass extraction, run cancellation path directly ──
+  if (dominantIntent === "cancel") {
+    // If already waiting for order selection, delegate to pending choice handler
+    if (currentFlowState === "pending_cancel_choice") {
+      await handlePendingCancelChoice(storeId, conversationId, lockedLanguage);
+      return;
+    }
+    // Extract cancel phone from customer history
+    const customerMessages = await db.select({ content: messagesTable.content })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.conversationId, conversationId),
+        eq(messagesTable.sender, "customer"),
+      ))
+      .orderBy(asc(messagesTable.createdAt))
+      .limit(40);
+    if (customerMessages.length === 0) return;
+
+    const texts = customerMessages.map(m => m.content);
+    const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
+    console.log(`[AI] conv=${conversationId} cancel extraction: phone=${extraction.cancelPhone} tokens=${totalTokens}`);
+    if (totalTokens > 0) {
+      consumeCredits(storeId, conversationId, null, null, "gpt-4o-mini", inputTokens, outputTokens, totalTokens)
+        .catch(err => console.error("[AI] extraction credit error:", err));
+    }
+    await handleAiCancellation(storeId, conversationId, extraction.cancelPhone, lockedLanguage);
+    return;
+  }
+
+  // ── "other" / "order_confirm" intent: full state-machine + extraction ─
+
+  // State machine guard for terminal states
   if (currentFlowState === "order_cancelled" || currentFlowState === "order_created") {
-    // Check last customer message for a fresh cycle signal before skipping
     const [lastMsg] = await db.select({ content: messagesTable.content })
       .from(messagesTable)
       .where(and(
@@ -553,21 +702,18 @@ async function runOrderExtractionFlow(
       .limit(1);
 
     if (lastMsg && isNewCycleSignal(lastMsg.content)) {
-      // Customer is starting a fresh order/cancel cycle — reset state
-      console.log(`[AI] conv=${conversationId} new cycle signal detected, resetting aiFlowState from ${aiFlowState}`);
+      console.log(`[AI] conv=${conversationId} new cycle signal: resetting from ${currentFlowState}`);
       await db.update(conversationsTable).set({ aiFlowState: null })
         .where(eq(conversationsTable.id, conversationId));
-      // Fall through to full extraction below
+      // Fall through to full extraction
     } else {
-      console.log(`[AI] conv=${conversationId} extraction skipped: flow state=${aiFlowState}`);
+      console.log(`[AI] conv=${conversationId} extraction skipped: flow state=${currentFlowState}`);
       return;
     }
   }
 
-  // When waiting for the customer to choose which order to cancel,
-  // only check for an order number in the latest message
+  // Pending cancel choice: let customer pick which order to cancel
   if (currentFlowState === "pending_cancel_choice") {
-    // Allow escape from pending state if customer signals a new cycle
     const [lastPendMsg] = await db.select({ content: messagesTable.content })
       .from(messagesTable)
       .where(and(
@@ -578,7 +724,7 @@ async function runOrderExtractionFlow(
       .limit(1);
 
     if (lastPendMsg && isNewCycleSignal(lastPendMsg.content)) {
-      console.log(`[AI] conv=${conversationId} new cycle detected during pending_cancel_choice, resetting state`);
+      console.log(`[AI] conv=${conversationId} new cycle during pending_cancel_choice, resetting`);
       await db.update(conversationsTable).set({ aiFlowState: null })
         .where(eq(conversationsTable.id, conversationId));
       // Fall through to full extraction
@@ -588,7 +734,7 @@ async function runOrderExtractionFlow(
     }
   }
 
-  // Fetch all customer-only messages in this conversation for extraction
+  // Full extraction for order_confirm / other
   const customerMessages = await db.select({ content: messagesTable.content })
     .from(messagesTable)
     .where(and(
@@ -603,29 +749,19 @@ async function runOrderExtractionFlow(
   const texts = customerMessages.map(m => m.content);
   const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
 
-  console.log(`[AI] conv=${conversationId} extraction: canCreate=${extraction.canAutoCreate} cancelIntent=${extraction.cancelIntent} tokens=${totalTokens}`);
+  console.log(`[AI] conv=${conversationId} extraction: canCreate=${extraction.canAutoCreate} cancelIntent=${extraction.cancelIntent} intent=${dominantIntent} tokens=${totalTokens}`);
 
-  // ── Record extraction token usage via credit accounting (non-blocking) ──
   if (totalTokens > 0) {
-    consumeCredits(
-      storeId,
-      conversationId,
-      null,
-      null,
-      "gpt-4o-mini",
-      inputTokens,
-      outputTokens,
-      totalTokens,
-    ).catch(err => console.error("[AI] extraction credit accounting error:", err));
+    consumeCredits(storeId, conversationId, null, null, "gpt-4o-mini", inputTokens, outputTokens, totalTokens)
+      .catch(err => console.error("[AI] extraction credit error:", err));
   }
 
-  // ── CANCELLATION FLOW ──────────────────────────────────────────────────
-  if (extraction.cancelIntent) {
+  // STRICT: never run cancellation when dominant intent signals new order
+  if (extraction.cancelIntent && dominantIntent !== "new_order") {
     await handleAiCancellation(storeId, conversationId, extraction.cancelPhone, lockedLanguage);
     return;
   }
 
-  // ── AUTO ORDER CREATION ────────────────────────────────────────────────
   if (extraction.canAutoCreate) {
     await handleAiOrderCreation(storeId, conversationId, conv, extraction.orderData, lockedLanguage);
   }
@@ -715,9 +851,9 @@ async function handlePendingCancelChoice(
     .orderBy(desc(ordersTable.createdAt))
     .limit(50);
 
-  // Filter by normalized phone (security: only allow cancellation of THIS customer's orders)
+  // Filter by phone — phonesMatch applies exact + suffix fallback (security: scoped to customer)
   const phoneEligible = allCancellable.filter(o =>
-    o.customerPhone ? normalizePhone(o.customerPhone) === customerNormalizedPhone : false
+    o.customerPhone && customerNormalizedPhone ? phonesMatch(o.customerPhone, customerNormalizedPhone) : false
   );
 
   // Find the specific order the customer chose — must be in the phone-bound eligible list.
@@ -792,10 +928,10 @@ async function handleAiCancellation(
     .orderBy(desc(ordersTable.createdAt))
     .limit(50);
 
-  // Filter by normalized phone comparison
+  // Filter by phone — exact normalized match first, suffix fallback for legacy phones
   const eligibleOrders = allCancellable.filter(o => {
     if (!o.customerPhone) return false;
-    return normalizePhone(o.customerPhone) === normalizedPhone;
+    return phonesMatch(o.customerPhone, cancelPhone);
   }).slice(0, 3);
 
   let confirmationMessage: string;

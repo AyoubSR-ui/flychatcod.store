@@ -1,0 +1,288 @@
+Implement the next FlyChat COD AI autopilot stability fix.
+
+IMPORTANT
+Do not rebuild the app.
+Do not change unrelated features.
+Work inside the existing monorepo and preserve the current architecture, widget, realtime inbox, AI autopilot, order creation/cancellation, AI credits, and current language handling.
+
+GOAL
+Fix the remaining flow-state bugs shown in real usage screenshots.
+
+CURRENT REAL PROBLEMS
+From live screenshots and behavior:
+1. after cancellation, if the customer starts a new order, the AI sometimes sends TWO conflicting replies:
+   - one correct new-order reply
+   - one stale cancellation-related reply
+2. this means multiple branches are still executing for the same customer message
+3. the AI must never mix cancellation flow and new-order flow in the same turn
+4. if the customer starts a new order after cancellation, the conversation must cleanly reset into a fresh order cycle
+5. product inquiries must not trigger cancellation lookup accidentally
+6. replies must stay in the correct customer language
+7. phone matching still needs to be more robust for legacy formats
+
+THIS TASK IS ABOUT:
+- strict state transition control
+- one-intent-per-message execution
+- clearing stale cancellation state
+- preventing late duplicate branch replies
+- more robust phone matching
+- cleaner Darija/French behavior in new order vs cancellation contexts
+
+--------------------------------------------------
+PART 1 — SINGLE DOMINANT INTENT PER MESSAGE
+--------------------------------------------------
+
+Implement strict intent arbitration so each customer message can drive only ONE primary flow.
+
+REQUIRED RULE
+For every incoming customer message, decide one dominant intent only, such as:
+- greeting
+- product inquiry
+- new order intent
+- order confirmation
+- cancellation intent
+- thanks / closing
+- human handoff
+
+Once the dominant intent is selected:
+- only that flow may execute
+- all other flows must be skipped for this message
+
+IMPORTANT
+The backend must not allow:
+- new-order response + cancellation response in the same turn
+- cancellation response + product inquiry response in the same turn
+- stale previous flow logic to emit a second message later for the same user input
+
+Use a clear priority/arbitration layer before downstream handlers execute.
+
+--------------------------------------------------
+PART 2 — HARD RESET FROM CANCELLED FLOW TO NEW ORDER CYCLE
+--------------------------------------------------
+
+If a conversation is in or just completed cancellation flow, and the customer clearly starts a new order, the AI must reset into a fresh order cycle.
+
+Examples of new order restart signals:
+- راني حاب طلب من عندكم
+- بغيـت نشري
+- nheb ncommande
+- can i make order
+- je veux commander
+- I want to order
+
+REQUIRED BEHAVIOR
+If the message is classified as clear new-order intent:
+- clear stale cancellation choice state
+- clear pending cancellation flow state
+- do not run cancellation lookup for that message
+- switch conversation flow state to new-order / collecting_order_details
+- continue with product/order assistance only
+
+This reset must be real backend state logic, not just prompt behavior.
+
+--------------------------------------------------
+PART 3 — PREVENT STALE / LATE BRANCH REPLIES
+--------------------------------------------------
+
+Fix any case where an old asynchronous branch can still emit a reply after the system already chose a different flow.
+
+From the screenshots, this appears to be happening:
+- one branch handles the new order correctly
+- another stale branch still emits cancellation-related text
+
+REQUIRED FIX
+Introduce a guard so that for each customer message:
+- only one AI reply can be emitted from the chosen branch
+- stale branches must detect they lost arbitration and exit silently
+- if one branch already committed a reply for the message, no second branch may emit another reply for the same trigger
+
+Possible implementation:
+- message-level processing token / operation lock
+- chosenIntent stored for that message
+- per-message reply-committed guard
+Use the cleanest practical backend solution.
+
+--------------------------------------------------
+PART 4 — STATE MACHINE CLEANUP
+--------------------------------------------------
+
+Refine conversation AI flow state so it is explicit and stable.
+
+Suggested states (adjust as needed):
+- idle
+- collecting_order_details
+- awaiting_order_confirmation
+- order_created
+- pending_cancel_choice
+- cancellation_confirmed
+- order_cancelled
+- awaiting_human
+
+REQUIRED RULES
+- after order_cancelled, the next clear new-order message must transition to collecting_order_details
+- after order_created, if the user starts a new order, transition cleanly to collecting_order_details for a new cycle
+- thanks/closing messages after cancellation should not reopen cancellation logic
+- product inquiry messages should not activate cancellation state
+- cancellation lookup should only run when dominant intent is cancellation-related
+
+--------------------------------------------------
+PART 5 — PHONE MATCHING HARDENING
+--------------------------------------------------
+
+The audit already noted remaining phone-format edge cases.
+
+Implement a safer phone matching strategy for same-store order lookup:
+1. normalize 0XXXXXXXXX
+2. normalize +213XXXXXXXXX
+3. normalize 00213XXXXXXXXX
+4. add a suffix-based fallback for legacy 9-digit / 10-digit local variants when safe
+   - compare last 9 digits as fallback if exact normalized match fails
+5. keep all lookups scoped to the same store
+
+Use this for:
+- cancellation lookup
+- recent order lookup
+- customer reuse by phone where appropriate
+
+IMPORTANT
+Do not create unsafe cross-customer matches.
+Prefer:
+- exact normalized match first
+- suffix fallback only as secondary safe fallback
+
+--------------------------------------------------
+PART 6 — PRODUCT / CATALOG INQUIRY MUST NOT TRIGGER CANCELLATION
+--------------------------------------------------
+
+If the customer asks about products or says they want to order, the AI must not also run cancellation logic.
+
+Examples:
+- can i make order pls
+- راني حاب طلب من عندكم
+- ممكن نعرف المنتجات لي عندكم
+- je veux commander
+- what products do you have
+
+REQUIRED BEHAVIOR
+These should go to:
+- product inquiry
+- order collection
+NOT:
+- cancellation lookup
+- "I couldn't find any cancellable order..."
+
+This must be enforced at intent-routing level.
+
+--------------------------------------------------
+PART 7 — LANGUAGE CONSISTENCY
+--------------------------------------------------
+
+Keep improving language consistency in the same fix.
+
+Requirements:
+- if the customer writes in Darija/Arabic, reply in Darija/Arabic
+- if the customer writes in French, reply in French
+- if the conversation already has a locked language, keep it unless a clear intentional switch happens
+- the stale second reply bug must not produce a different language than the first reply
+- no default English fallback for clearly Arabic/French messages
+
+For this fix, language must follow the chosen dominant flow only.
+
+--------------------------------------------------
+PART 8 — PROMPT / FEW-SHOT UPDATE
+--------------------------------------------------
+
+Update the AI prompt/examples so it understands these exact situations better:
+
+1. After cancellation, customer says thanks in Darija
+Example:
+Customer: يعطيك الصحة
+Assistant: short polite Darija closing, no cancellation restart
+
+2. After cancellation, customer starts a new order
+Example:
+Customer: راني حاب طلب من عندكم
+Assistant: starts fresh order flow, asks what product they want, no cancellation text
+
+3. Product inquiry in Darija
+Example:
+Customer: ممكن نعرف المنتجات لي عندكم
+Assistant: answers product/catalog help in Darija
+
+4. New order intent in Darija Latin
+Example:
+Customer: nheb ncommande baskat
+Assistant: starts order flow, no cancellation logic
+
+5. Cancellation intent with clear phone/order reference
+Example:
+Customer: حاب نلغي الطلب
+Assistant: uses cancellation flow only
+
+The examples should strongly reinforce:
+- one flow at a time
+- no mixed responses
+- no stale cancellation prompts after moving to new order
+
+--------------------------------------------------
+PART 9 — TEST SCENARIOS
+--------------------------------------------------
+
+After implementation, test and report:
+
+1. Cancel order, then say thanks in Darija
+Expected:
+- short Darija reply only
+- no repeated cancellation prompt
+
+2. Cancel order, then start a new order in Darija
+Input:
+راني حاب طلب من عندكم
+Expected:
+- fresh new order flow only
+- no cancellation-related second message
+
+3. Ask for products after cancellation
+Input:
+ممكن نعرف المنتجات لي عندكم
+Expected:
+- product/catalog response only
+- no cancellation lookup message
+
+4. Legacy phone format
+Test:
+- stored phone local
+- user provides +213 or 00213 or local variant
+Expected:
+- correct same-store order match
+
+5. One-message-one-reply guard
+Expected:
+- no two conflicting AI replies for the same customer message
+
+6. Language consistency
+Expected:
+- Arabic/Darija stays Arabic/Darija
+- French stays French
+- no accidental English fallback
+
+--------------------------------------------------
+PART 10 — OUTPUT SUMMARY
+--------------------------------------------------
+
+After implementation, provide a complete summary:
+1. how dominant-intent arbitration now works
+2. how stale cancellation state is cleared for new order cycles
+3. how duplicate/late branch replies are prevented
+4. how phone matching was improved
+5. how product inquiries are prevented from triggering cancellation logic
+6. what prompt/examples were added
+7. results of each test scenario
+8. any remaining edge cases
+
+QUALITY BAR
+- real backend fix
+- no fake frontend workaround
+- preserve current working order creation/cancellation
+- preserve AI credits and realtime messaging
+- prefer stable deterministic behavior over overcomplicated redesign

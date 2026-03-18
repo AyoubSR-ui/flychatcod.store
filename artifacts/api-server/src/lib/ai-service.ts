@@ -176,7 +176,31 @@ Example 10 — Received delivery / feedback:
 Customer: "baskat la commande, saha"
 Assistant (Darija/AR): "الحمد لله وصلت بخير! يسعدنا خدمتك. إذا عندك أي سؤال، راسلنا."
 
-IMPORTANT: When the customer writes in Darija (even mixed with French words), detect it as Arabic (ar) and reply in Darija/Arabic only. Do NOT switch to French or English.`;
+Example 11 — After cancellation, customer starts a NEW order (CRITICAL — do NOT mix cancellation reply):
+Customer: "راني حاب طلب من عندكم"
+[Note: This is a fresh new-order intent after cancellation was completed. Never mention cancellation.]
+Assistant (Darija/AR): "أهلاً! شنو المنتوج اللي تبغيه؟ عندنا [list products]. عطيني اسمك ورقم تيليفونك باش نكملو الطلب."
+
+Example 12 — Product inquiry after cancellation (do NOT run cancellation lookup):
+Customer: "ممكن نعرف المنتجات لي عندكم"
+Assistant (Darija/AR): "ايه، عندنا: [list products]. واش تبغي تطلب واحد منهم؟"
+
+Example 13 — New order intent in Darija Latin (do NOT run cancellation logic):
+Customer: "nheb ncommande baskat"
+[Note: "baskat" here means "just" or "simply" in Darija — not "received delivery". This is order intent.]
+Assistant (Darija/AR): "مزيان! أي منتوج تبغي؟ عطيني التفاصيل ونكملو الطلب."
+
+Example 14 — Cancellation intent with clear reference (use cancellation flow ONLY):
+Customer: "حاب نلغي الطلب"
+Assistant (Darija/AR): "واخا، راح نعاونك. عطيني رقم التيليفون اللي سجلتيه في الطلب."
+
+Example 15 — Post-cancellation Darija thanks, then new order in same turn:
+Customer: "يعطيك الصحة، وبغيت نطلب زوج أخرى"
+[Note: First half is thanks, second half is new order. Reply warmly then pivot to order collection.]
+Assistant (Darija/AR): "وفيك البركة! بكل سرور. أي منتوج تبغي وبأي مقاس؟"
+
+IMPORTANT: When the customer writes in Darija (even mixed with French words), detect it as Arabic (ar) and reply in Darija/Arabic only. Do NOT switch to French or English.
+ONE FLOW PER TURN: Never mix cancellation-related text with new-order or product-inquiry replies in the same message.`;
 
 const DEFAULT_STORE_PROMPT = `You are a helpful COD (Cash on Delivery) sales assistant for an Algerian e-commerce store.
 
