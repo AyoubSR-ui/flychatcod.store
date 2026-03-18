@@ -558,8 +558,25 @@ async function runOrderExtractionFlow(
   // When waiting for the customer to choose which order to cancel,
   // only check for an order number in the latest message
   if (currentFlowState === "pending_cancel_choice") {
-    await handlePendingCancelChoice(storeId, conversationId, lockedLanguage);
-    return;
+    // Allow escape from pending state if customer signals a new cycle
+    const [lastPendMsg] = await db.select({ content: messagesTable.content })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.conversationId, conversationId),
+        eq(messagesTable.sender, "customer"),
+      ))
+      .orderBy(desc(messagesTable.createdAt))
+      .limit(1);
+
+    if (lastPendMsg && isNewCycleSignal(lastPendMsg.content)) {
+      console.log(`[AI] conv=${conversationId} new cycle detected during pending_cancel_choice, resetting state`);
+      await db.update(conversationsTable).set({ aiFlowState: null })
+        .where(eq(conversationsTable.id, conversationId));
+      // Fall through to full extraction
+    } else {
+      await handlePendingCancelChoice(storeId, conversationId, lockedLanguage);
+      return;
+    }
   }
 
   // Fetch all customer-only messages in this conversation for extraction
@@ -653,14 +670,19 @@ async function handlePendingCancelChoice(
   }
 
   // Re-extract the customer phone from the last 10 messages (security: bind to original phone)
+  // Accept digits with optional separators: spaces, dashes, dots, parentheses
+  // e.g. 0661 23 45 67, +213-661-23-45-67, (0661) 234567
   let customerNormalizedPhone: string | null = null;
-  // Algerian phone pattern: 0[5-7]\d{8} or +213[5-7]\d{8}
-  const phonePattern = /(?:\+?213|0)[5-7]\d{8}/g;
+  const phonePattern = /(?:\+?213[\s\-.]?|0)[5-7][\d\s\-.()\/.]{7,14}/g;
   for (const msg of [...recentMsgs].reverse()) {
-    const phoneMatch = msg.content.match(phonePattern);
-    if (phoneMatch) {
-      customerNormalizedPhone = normalizePhone(phoneMatch[0]);
-      break;
+    const phoneMatches = msg.content.match(phonePattern);
+    if (phoneMatches) {
+      const normalized = normalizePhone(phoneMatches[0]);
+      // Must be 9-12 digits after normalization (Algerian phone: 10 digits starting 0 or 12 digits with 213)
+      if (normalized.length >= 9 && normalized.length <= 12) {
+        customerNormalizedPhone = normalized;
+        break;
+      }
     }
   }
 
