@@ -52,16 +52,17 @@ export default function Widget() {
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Welcome Message (English)</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Widget Header Text (English)</label>
                   <textarea rows={3} defaultValue={config?.welcomeMessageEn} onChange={e => setForm({...form, welcomeMessageEn: e.target.value})}
                     className="w-full border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Welcome Message (Français)</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Widget Header Text (Français)</label>
                   <textarea rows={3} defaultValue={config?.welcomeMessageFr} onChange={e => setForm({...form, welcomeMessageFr: e.target.value})}
                     className="w-full border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground -mt-4">Shown as a subtitle in the widget header. Not sent as a message in the chat thread.</p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>

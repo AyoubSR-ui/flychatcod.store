@@ -1229,6 +1229,19 @@ async function executeAction(
 
   switch (rule.action) {
     case "send_message": {
+      // When this is a new_conversation welcome message, suppress it if AI Autopilot
+      // is eligible for the store. The AI handles the first customer message directly,
+      // and a pre-inserted bot greeting contaminates the conversation context.
+      if (ctx.triggerType === "new_conversation") {
+        const aiStatus = await getAiStatus(ctx.storeId);
+        if (aiStatus.eligible) {
+          console.log(
+            `[AutoEngine] Rule ${rule.id}: new_conversation send_message suppressed — AI Autopilot is active for store ${ctx.storeId}`,
+          );
+          return;
+        }
+      }
+
       const messageText = (
         typeof cfg.message === "string" ? cfg.message :
         typeof cfg.message_en === "string" ? cfg.message_en :
