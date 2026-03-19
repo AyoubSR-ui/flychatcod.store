@@ -281,10 +281,10 @@ export default function Automation() {
                       <span className="text-xs text-muted-foreground">Then: <span className="font-medium text-foreground">{aMeta.label}</span></span>
                     </div>
                     {summary && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{summary}</p>}
-                    {rule.trigger === "new_conversation" && rule.action === "send_message" && aiStatus?.eligible && (
+                    {rule.trigger === "new_conversation" && rule.action === "send_message" && (
                       <p className="text-[11px] text-violet-600 mt-1 flex items-center gap-1">
                         <Bot className="w-2.5 h-2.5 shrink-0" />
-                        AI Autopilot is active — this welcome message is currently suppressed. The AI handles the first customer message directly.
+                        When AI Autopilot is active for the store, this welcome message is not sent — the AI handles the first customer message directly.
                       </p>
                     )}
                   </div>
@@ -427,7 +427,7 @@ export default function Automation() {
                     onChange={e => setConfig("message", e.target.value)}
                     rows={3} placeholder="e.g. Bonjour! Comment pouvons-nous vous aider?"
                     className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background resize-none" />
-                  {form.trigger === "new_conversation" && aiStatus?.eligible && (
+                  {form.trigger === "new_conversation" && (
                     <div className="mt-2 flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-xl px-3 py-2.5">
                       <Bot className="w-3.5 h-3.5 text-violet-500 mt-0.5 shrink-0" />
                       <p className="text-[11px] text-violet-700">When AI Autopilot is active for the store, this welcome message is not sent — the AI handles the first customer message directly.</p>
