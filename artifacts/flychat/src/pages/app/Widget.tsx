@@ -13,7 +13,7 @@ export default function Widget() {
   const { data: config, isLoading, refetch } = useGetWidgetConfig();
   const updateConfig = useUpdateWidgetConfig();
   const { t } = useI18n();
-  const [form, setForm] = useState({ welcomeMessageEn: "", welcomeMessageFr: "", defaultLanguage: "fr", primaryColor: "#2563eb", position: "bottom-right", isActive: true });
+  const [form, setForm] = useState({ defaultLanguage: "fr", primaryColor: "#2563eb", position: "bottom-right", isActive: true });
 
   const handleSave = async () => {
     setSaving(true);
@@ -50,20 +50,6 @@ export default function Widget() {
 
           {tab === "settings" && (
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Widget Header Text (English)</label>
-                  <textarea rows={3} defaultValue={config?.welcomeMessageEn} onChange={e => setForm({...form, welcomeMessageEn: e.target.value})}
-                    className="w-full border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Widget Header Text (Français)</label>
-                  <textarea rows={3} defaultValue={config?.welcomeMessageFr} onChange={e => setForm({...form, welcomeMessageFr: e.target.value})}
-                    className="w-full border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground -mt-4">Shown as a subtitle in the widget header. Not sent as a message in the chat thread.</p>
-
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block flex items-center gap-2"><Globe className="w-3 h-3" /> Default Language</label>
@@ -127,7 +113,7 @@ export default function Widget() {
                     </div>
                     <div className="p-4 space-y-3">
                       <div className="bg-gray-100 rounded-xl rounded-tl-none p-3 max-w-[80%]">
-                        <p className="text-xs text-gray-700">{config?.welcomeMessageFr || form.welcomeMessageFr || "Bonjour! Comment pouvons-nous vous aider?"}</p>
+                        <p className="text-xs text-gray-700">Bonjour! Comment pouvons-nous vous aider?</p>
                       </div>
                       <div className="flex gap-2">
                         <button className="text-xs px-3 py-1.5 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-50">Commander</button>
