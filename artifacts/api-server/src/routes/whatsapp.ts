@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import {
   channelConnectionsTable,
   conversationsTable,
@@ -65,16 +65,11 @@ async function processIncomingWhatsAppMessage(incoming: {
   console.log("[WhatsApp] Looking for channel with phoneNumberId:", incoming.phoneNumberId);
 
   // 1. Find channel by phoneNumberId (stored in externalAccountId)
-  const [channel] = await db
-    .select()
-    .from(channelConnectionsTable)
-    .where(
-      and(
-        eq(channelConnectionsTable.channel, "whatsapp"),
-        eq(channelConnectionsTable.externalAccountId, incoming.phoneNumberId)
-      )
-    )
-    .limit(1);
+  const { rows: channelRows } = await pool.query(
+    `SELECT * FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
+    [incoming.phoneNumberId]
+  );
+  const channel = channelRows[0];
 
   console.log("[WhatsApp] Channel found:", channel);
 
