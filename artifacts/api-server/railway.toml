@@ -1,6 +1,6 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --no-frozen-lockfile && pnpm build"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "pnpm start"
