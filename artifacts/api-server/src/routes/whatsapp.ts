@@ -1,11 +1,9 @@
 import { Router } from "express";
 import { db, pool } from "@workspace/db";
 import {
-  channelConnectionsTable,
   conversationsTable,
   messagesTable,
   customersTable,
-  storesTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { generateId } from "../lib/id.js";
@@ -85,11 +83,11 @@ async function processIncomingWhatsAppMessage(incoming: {
   }
 
   // 2. Load store
-  const [store] = await db
-    .select()
-    .from(storesTable)
-    .where(eq(storesTable.id, channel.storeId))
-    .limit(1);
+  const { rows: storeRows } = await pool.query(
+    `SELECT * FROM stores WHERE id = $1 LIMIT 1`,
+    [channel.store_id]
+  );
+  const store = storeRows[0];
 
   console.log("[WhatsApp] Store found:", store?.id);
 
