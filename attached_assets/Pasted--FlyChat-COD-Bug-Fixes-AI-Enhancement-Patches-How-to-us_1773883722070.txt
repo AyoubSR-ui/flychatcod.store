@@ -1,0 +1,482 @@
+# FlyChat COD — Bug Fixes & AI Enhancement Patches
+
+> **How to use:** For each patch, open the file in Replit editor, find the exact section, and replace it.  
+> All patches are self-contained — apply them in order.
+
+---
+
+## PATCH 1 — `artifacts/api-server/src/lib/auth.ts`
+### Fix: JWT Secret Hardcoded Fallback (Bug D)
+
+**Find this** (top of file, around line 1–10):
+```typescript
+const JWT_SECRET = process.env.JWT_SECRET || "flychat-dev-secret-change-in-prod";
+```
+
+**Replace with:**
+```typescript
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error(
+    "[FATAL] JWT_SECRET environment variable is not set. " +
+    "Go to Replit Secrets and add JWT_SECRET with a strong random value."
+  );
+}
+```
+
+---
+
+## PATCH 2 — `artifacts/api-server/src/lib/ai-service.ts`
+### Fix: Bug B (product format) + Bug C (greeting on first turn) + Language detection + Row-by-row format + Customer support persona
+
+**Replace the entire `buildLanguageBlock` function:**
+
+```typescript
+function buildLanguageBlock(language: string | null, historyBeforeCurrent: Message[]): string {
+  // Fix Bug C: only suppress greeting if there are PRIOR turns (not counting current message)
+  const hasHistory = historyBeforeCurrent.length > 0;
+
+  if (!language) {
+    return `LANGUAGE RULES:
+- Detect the language of the customer's FIRST message.
+- Respond ONLY in that exact language for the entire conversation.
+- Supported: French, English, Darija (Algerian Arabic — Arabic script OR Latin script).
+- If the customer writes Darija in Latin script (e.g. "wach 3andkom"), reply in Latin-script Darija.
+- If the customer writes in Arabic script, reply in Arabic script.
+- NEVER mix languages in one reply.
+${!hasHistory ? "- This is the first message. Greet the customer warmly and briefly." : "- Do NOT repeat a greeting. The conversation is already in progress."}`;
+  }
+
+  const langName = language === "fr" ? "French" : language === "en" ? "English" : "Darija (Algerian Arabic)";
+  return `LANGUAGE: Respond ONLY in ${langName} for this entire conversation.
+${!hasHistory ? "- This is the first message. Greet the customer warmly and briefly." : "- Do NOT repeat a greeting. The conversation is already in progress."}`;
+}
+```
+
+**Replace the entire `buildSystemPrompt` function:**
+
+```typescript
+export function buildSystemPrompt(
+  store: { name: string; aiSystemPrompt?: string | null; shippingWilayas?: string[] },
+  products: Array<{ name: string; price: number; stock: number; variants?: unknown }>,
+  recentOrders: Array<{ id: string; status: string; customerName?: string; items?: unknown }>,
+  language: string | null,
+  historyBeforeCurrent: Message[]
+): string {
+  // --- Product catalog (Fix Bug B: clean format, no pipes) ---
+  const productList = products.length > 0
+    ? products.map((p) => {
+        const variantStr = p.variants
+          ? `\n   Variants: ${JSON.stringify(p.variants)}`
+          : "";
+        return `• ${p.name} — ${p.price.toLocaleString()} DZD (stock: ${p.stock})${variantStr}`;
+      }).join("\n")
+    : "No products currently available.";
+
+  // --- Recent orders summary ---
+  const orderSummary = recentOrders.length > 0
+    ? recentOrders.map((o) =>
+        `• Order ${o.id} | Status: ${o.status} | Customer: ${o.customerName ?? "unknown"}`
+      ).join("\n")
+    : "No recent orders.";
+
+  const languageBlock = buildLanguageBlock(language, historyBeforeCurrent);
+
+  return `You are the AI customer support agent for "${store.name}".
+
+${languageBlock}
+
+BEHAVIOR RULES:
+- You are a helpful, professional support agent. Be concise and friendly.
+- ONLY provide information the customer asks for. Do not volunteer extra details.
+- Never mention that you are an AI unless directly asked.
+- Never show internal data (IDs, raw JSON, pipe-separated text).
+
+CAPABILITIES — you can:
+1. Answer questions about products (prices, variants, stock).
+2. Collect order details and create new orders.
+3. Cancel or update existing orders when the customer requests it.
+4. Check order status for a customer.
+
+RESPONSE FORMAT RULES (CRITICAL):
+- Keep responses short and natural.
+- When listing multiple items, put EACH item on its own line.
+- For order confirmation, use EXACTLY this format:
+
+  Let's finalize your order. To confirm:
+   - Product: [product name + variant/size]
+   - Quantity: [qty]
+   - Name: [customer full name]
+   - Phone: [phone number]
+   - Wilaya: [wilaya]
+   - Address: [full address]
+  Is everything correct?
+
+- After the customer confirms, respond with a short confirmation message only. Do NOT repeat the list.
+- NEVER send two separate messages. Your reply must be ONE single message.
+
+ORDER COLLECTION FLOW:
+- Collect these 6 fields before confirming: product+variant, customer name, phone, wilaya, address, quantity.
+- Ask for missing fields naturally, one or two at a time — do not list all fields at once.
+- Only show the confirmation summary when ALL 6 fields are collected.
+
+CANCEL FLOW:
+- When a customer wants to cancel, ask for their phone number if not already known.
+- Confirm the cancellation clearly in one message.
+
+STORE PRODUCTS:
+${productList}
+
+RECENT ORDERS:
+${orderSummary}
+
+${store.aiSystemPrompt ? `ADDITIONAL STORE INSTRUCTIONS:\n${store.aiSystemPrompt}` : ""}`.trim();
+}
+```
+
+---
+
+## PATCH 3 — `artifacts/api-server/src/lib/automation-engine.ts`
+### Fix: Bug A (single bot message) + Welcome message removal + Order created by AI label
+
+### 3a — Remove welcome message from `fireTrigger` for `new_conversation`
+
+**Find this block** inside `fireTrigger` (the Task #15 suppression logic):
+```typescript
+// For send_message: check getAiStatus() — if eligible, SUPPRESS (Task #15 gate)
+if (rule.action === "send_message") {
+  const aiStatus = await getAiStatus(store.id);
+  if (aiStatus.eligible) {
+    // suppress — AI will handle first message
+    continue;
+  }
+  // Insert welcome bot message
+  await insertBotMessage(conv.id, rule.actionPayload?.message ?? "");
+  emitToStore(store.id, conv.id, ...);
+}
+```
+
+**Replace with:**
+```typescript
+// Welcome message via automation send_message is disabled.
+// All first-message handling is done by AI autopilot or manual agents.
+// To send a welcome, configure it through the Automation portal only.
+if (rule.action === "send_message" && trigger === "new_conversation") {
+  // Skipped — welcome messages must be managed via Automation portal
+  continue;
+}
+```
+
+---
+
+### 3b — Fix `handleAiReplyForMessage` to produce ONE message only (Bug A)
+
+**Find this section** at the end of `handleAiReplyForMessage` (after AI reply is inserted):
+```typescript
+  // Insert AI reply
+  await db.insert(messages).values({
+    id: generateId("msg"),
+    conversationId: conv.id,
+    content: aiReply,
+    sender: "bot",
+    aiGenerated: true,
+    createdAt: new Date(),
+  });
+
+  emitNewMessage(conv.id, store.id, ...);
+  await consumeCredits(store.id);
+
+  // Fire extraction async
+  setImmediate(() => runOrderExtractionFlow(conv, store, products, fullHistory, aiReply));
+```
+
+**Replace with:**
+```typescript
+  // Insert AI reply — this is the ONLY message inserted per turn
+  const replyId = generateId("msg");
+  await db.insert(messages).values({
+    id: replyId,
+    conversationId: conv.id,
+    content: aiReply,
+    sender: "bot",
+    aiGenerated: true,
+    createdAt: new Date(),
+  });
+
+  emitNewMessage(conv.id, store.id, replyId, aiReply);
+  await consumeCredits(store.id);
+
+  // Run extraction SILENTLY — DB operations only, NO additional bot messages
+  setImmediate(() =>
+    runOrderExtractionFlowSilent(conv, store, products, fullHistory)
+      .catch((err) => console.error("[extraction] silent flow error:", err))
+  );
+```
+
+---
+
+### 3c — Add `runOrderExtractionFlowSilent` function
+
+Add this new function right after the existing `runOrderExtractionFlow` function:
+
+```typescript
+/**
+ * Silent extraction — performs DB operations (order create/cancel/update)
+ * WITHOUT inserting any bot messages. The AI conversational reply already
+ * handles all customer-facing communication. This prevents double messages (Bug A).
+ */
+async function runOrderExtractionFlowSilent(
+  conv: Conversation,
+  store: Store,
+  products: Product[],
+  history: Message[]
+): Promise<void> {
+  const intent = classifyDominantIntent(history);
+
+  // Skip extraction for non-actionable intents
+  if (intent === "product_inquiry" || intent === "thanks_closing" || intent === "other") {
+    return;
+  }
+
+  let extraction: OrderExtractionResult | null = null;
+  try {
+    extraction = await extractOrderState(history, products, store);
+  } catch (err) {
+    console.error("[extraction] OpenAI call failed:", err);
+    return;
+  }
+
+  if (!extraction) return;
+
+  // --- Handle order creation (silent) ---
+  if (
+    intent === "order_confirm" &&
+    extraction.canAutoCreate &&
+    extraction.orderData
+  ) {
+    await handleAiOrderCreationSilent(conv, store, extraction.orderData);
+    return;
+  }
+
+  // --- Handle cancellation (silent) ---
+  if (
+    (intent === "cancel" || conv.aiFlowState === "pending_cancel_choice") &&
+    extraction.cancelIntent &&
+    extraction.customerPhone
+  ) {
+    await handleAiCancellationSilent(conv, store, extraction.customerPhone);
+    return;
+  }
+}
+```
+
+---
+
+### 3d — Add `handleAiOrderCreationSilent` function
+
+Add this function after `handleAiOrderCreation`:
+
+```typescript
+/**
+ * Creates order in DB without inserting a bot confirmation message.
+ * Tags order as created by AI agent.
+ */
+async function handleAiOrderCreationSilent(
+  conv: Conversation,
+  store: Store,
+  orderData: ExtractedOrderData
+): Promise<void> {
+  try {
+    const orderId = generateId("ord");
+    await db.insert(orders).values({
+      id: orderId,
+      storeId: store.id,
+      conversationId: conv.id,
+      customerId: conv.customerId ?? null,
+      status: "awaiting_confirmation",
+      customerName: orderData.customerName,
+      customerPhone: orderData.customerPhone,
+      wilaya: orderData.wilaya,
+      address: orderData.address ?? null,
+      notes: "Created by AI agent", // ← AI agent label
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    // Insert order items
+    for (const item of orderData.items ?? []) {
+      await db.insert(orderItems).values({
+        id: generateId("oi"),
+        orderId,
+        productId: item.productId ?? null,
+        productName: item.productName,
+        price: item.price,
+        quantity: item.quantity,
+        variant: item.variant ?? null,
+      });
+    }
+
+    // Update conversation flow state
+    await db
+      .update(conversations)
+      .set({ aiFlowState: "order_created", updatedAt: new Date() })
+      .where(eq(conversations.id, conv.id));
+
+    console.log(`[AI] Order ${orderId} created silently for conv ${conv.id}`);
+  } catch (err) {
+    console.error("[AI] Silent order creation failed:", err);
+  }
+}
+```
+
+---
+
+### 3e — Add `handleAiCancellationSilent` function
+
+Add this function after `handleAiCancellation`:
+
+```typescript
+/**
+ * Cancels order in DB without inserting a bot confirmation message.
+ */
+async function handleAiCancellationSilent(
+  conv: Conversation,
+  store: Store,
+  customerPhone: string
+): Promise<void> {
+  try {
+    const cancellableStatuses = ["new", "awaiting_confirmation", "confirmed"];
+
+    const [targetOrder] = await db
+      .select()
+      .from(orders)
+      .where(
+        and(
+          eq(orders.storeId, store.id),
+          eq(orders.customerPhone, customerPhone),
+          inArray(orders.status, cancellableStatuses)
+        )
+      )
+      .orderBy(desc(orders.createdAt))
+      .limit(1);
+
+    if (!targetOrder) {
+      console.log(`[AI] No cancellable order found for phone ${customerPhone}`);
+      return;
+    }
+
+    await db
+      .update(orders)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(orders.id, targetOrder.id));
+
+    await db
+      .update(conversations)
+      .set({ aiFlowState: "order_cancelled", updatedAt: new Date() })
+      .where(eq(conversations.id, conv.id));
+
+    console.log(`[AI] Order ${targetOrder.id} cancelled silently for conv ${conv.id}`);
+  } catch (err) {
+    console.error("[AI] Silent cancellation failed:", err);
+  }
+}
+```
+
+---
+
+## PATCH 4 — `artifacts/api-server/src/routes/widget.ts`
+### Fix: Remove any hardcoded welcome message sent on widget init
+
+**Find any code that auto-inserts a welcome/greeting message on conversation creation**, such as:
+```typescript
+// Something like this in POST /conversations handler:
+await db.insert(messages).values({
+  content: store.widgetConfig?.welcomeMessage ?? "Hello! How can I help you?",
+  sender: "bot",
+  ...
+});
+```
+
+**Delete the entire block** that inserts a welcome message. The conversation should start empty — the first message shown is from the customer.
+
+If the welcome text is only shown in the widget UI header (not as a chat message), leave it as-is — that's the `widgetHeaderText` label and is fine.
+
+---
+
+## PATCH 5 — `lib/db/src/schema/orders.ts`
+### Fix: Add `handledBy` field to mark AI-created orders
+
+**Find the orders table definition**, look for the columns list:
+```typescript
+export const orders = pgTable("orders", {
+  id: text("id").primaryKey(),
+  storeId: text("store_id").notNull(),
+  // ... other columns
+  notes: text("notes"),
+```
+
+**Add this column** right after `notes`:
+```typescript
+  handledBy: text("handled_by").default("agent"), // values: "agent" | "ai_agent"
+```
+
+Then in **Patch 3d** above, change the order insert to:
+```typescript
+      notes: "Created by AI agent",
+      handledBy: "ai_agent", // ← this new field
+```
+
+After adding the column, run in Replit Shell:
+```bash
+pnpm --filter @workspace/db run push
+```
+
+---
+
+## PATCH 6 — `artifacts/api-server/src/lib/ai-service.ts`
+### Fix: Pass `historyBeforeCurrent` correctly (Bug C)
+
+**Find the call to `buildSystemPrompt`** inside `generateAiReply()`:
+```typescript
+const systemPrompt = buildSystemPrompt(store, products, recentOrders, language, history);
+```
+
+**Replace with:**
+```typescript
+// Pass history EXCLUDING the current (last) customer message so
+// hasHistory correctly reflects prior turns — fixes Bug C (missing greeting)
+const historyBeforeCurrent = history.slice(0, -1);
+const systemPrompt = buildSystemPrompt(store, products, recentOrders, language, historyBeforeCurrent);
+```
+
+---
+
+## PATCH 7 — Replit Secrets (Bug D + Bug F)
+### Set required environment variables
+
+In Replit, go to **Tools → Secrets** and add/update:
+
+| Key | Value |
+|-----|-------|
+| `JWT_SECRET` | Generate a strong random string: `openssl rand -hex 32` |
+| `RESEND_API_KEY` | Your valid Resend API key from resend.com |
+
+---
+
+## Summary of What Each Patch Fixes
+
+| Patch | Bug | What it does |
+|-------|-----|-------------|
+| 1 | Bug D | JWT secret no longer falls back to hardcoded value |
+| 2 | Bug B + C + New | System prompt: customer support persona, clean product format, row-by-row format, correct greeting logic |
+| 3a | New req | Welcome bot message removed from code — manage via Automation portal |
+| 3b | Bug A | Only ONE bot message inserted per turn |
+| 3c–3e | Bug A | Silent extraction: DB operations without emitting extra messages |
+| 4 | New req | No hardcoded welcome message on widget init |
+| 5 | New req | Orders show `handledBy: "ai_agent"` when AI creates them |
+| 6 | Bug C | historyBeforeCurrent passed correctly — AI greets on first turn |
+| 7 | Bug D + F | JWT_SECRET and RESEND_API_KEY set in Replit Secrets |
+
+> **Note on Bug E (inactivity timers):** Full fix requires BullMQ + Redis (persistent job queue).
+> For now, add this to your restart script: log a warning that active inactivity timers were reset.
+> Production fix is a separate task.
