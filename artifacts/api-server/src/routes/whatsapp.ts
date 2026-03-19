@@ -61,6 +61,9 @@ async function processIncomingWhatsAppMessage(incoming: {
   text: string;
   timestamp: Date;
 }) {
+  console.log("[WhatsApp] Processing message from:", incoming.from);
+  console.log("[WhatsApp] Looking for channel with phoneNumberId:", incoming.phoneNumberId);
+
   // 1. Find channel by phoneNumberId (stored in externalAccountId)
   const [channel] = await db
     .select()
@@ -73,6 +76,8 @@ async function processIncomingWhatsAppMessage(incoming: {
     )
     .limit(1);
 
+  console.log("[WhatsApp] Channel found:", channel);
+
   if (!channel) {
     console.warn(`[WhatsApp] No channel for phoneNumberId: ${incoming.phoneNumberId}`);
     return;
@@ -84,6 +89,8 @@ async function processIncomingWhatsAppMessage(incoming: {
     .from(storesTable)
     .where(eq(storesTable.id, channel.storeId))
     .limit(1);
+
+  console.log("[WhatsApp] Store found:", store?.id);
 
   if (!store) return;
 
@@ -117,6 +124,8 @@ async function processIncomingWhatsAppMessage(incoming: {
       .limit(1)
       .then((r) => r[0]);
   }
+
+  console.log("[WhatsApp] Customer found/created:", customer?.id);
 
   // 4. Find or create open conversation
   let conversation = await db
@@ -155,6 +164,8 @@ async function processIncomingWhatsAppMessage(incoming: {
       .then((r) => r[0]);
   }
 
+  console.log("[WhatsApp] Conversation found/created:", conversation?.id);
+
   if (!conversation) return;
 
   // 5. Dedup check
@@ -187,6 +198,7 @@ async function processIncomingWhatsAppMessage(incoming: {
     })
     .where(eq(conversationsTable.id, conversation.id));
 
+  console.log("[WhatsApp] Message saved successfully");
   console.log(`[WhatsApp] Message saved: conv=${conversation.id}`);
 
   // 7. AI reply
