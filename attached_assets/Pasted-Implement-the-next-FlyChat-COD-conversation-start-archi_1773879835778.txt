@@ -1,0 +1,217 @@
+Implement the next FlyChat COD conversation-start architecture fix.
+
+IMPORTANT
+Do not rebuild the app.
+Do not change unrelated features.
+Work inside the existing monorepo and preserve the current architecture, widget, realtime inbox, automation engine, AI autopilot, order flow, AI credits, and current dashboard UI.
+
+GOAL
+Fix the conversation-start logic so the system no longer mixes widget welcome messages, automation welcome messages, and AI replies.
+
+We want a clean separation:
+
+1. If AI autopilot is ACTIVE for the conversation/store:
+   - the widget must NOT inject a welcome message into the conversation thread
+   - the New Conversation automation welcome message must NOT fire into the conversation
+   - the AI should handle the first real customer message directly
+   - no duplicate start-of-conversation messages
+
+2. If AI autopilot is NOT active:
+   - the widget still must NOT inject a hardcoded welcome chat message as a real conversation message
+   - stores may use the Automation portal trigger:
+     New Conversation → Send Message
+   - this automation message becomes the human/store welcome flow
+
+IMPORTANT PRODUCT DECISION
+The widget page should no longer act as a conversation-message source for welcome text.
+The widget settings page may still keep branding/display settings if needed, but it must not create real welcome messages in the chat thread when the conversation starts.
+
+CURRENT PROBLEM
+Right now there is overlap between:
+- Widget page welcome message configuration (English/French)
+- Automation portal New Conversation trigger
+- AI autopilot first reply
+
+This overlap is likely causing:
+- mixed EN/FR opening behavior
+- duplicated or contaminated opening context
+- AI learning from old welcome messages
+- poor first-turn quality
+
+--------------------------------------------------
+PART 1 — REMOVE WIDGET WELCOME MESSAGE AS A REAL CHAT MESSAGE
+--------------------------------------------------
+
+Change the widget behavior so the widget-config welcome message is no longer inserted into the conversation as a real message.
+
+REQUIRED BEHAVIOR
+- opening the widget may still visually show UI branding if needed
+- but it must NOT create/save/send a welcome message into the actual conversation thread
+- no automatic widget-generated chat message should appear in DB just because the widget opened
+
+If the widget currently uses welcomeMessageEn / welcomeMessageFr as actual conversation content:
+- stop doing that
+- keep those fields only if needed temporarily for UI compatibility
+- but they must no longer act as message-source logic
+
+If necessary, deprecate or hide those widget welcome message fields from the Settings UI.
+
+--------------------------------------------------
+PART 2 — AUTOMATION WELCOME MESSAGE ONLY FOR NON-AI FLOW
+--------------------------------------------------
+
+The welcome-message responsibility should live in the Automation portal, not the widget.
+
+REQUIRED RULE
+Use New Conversation → Send Message only when AI is not active for that conversation/store.
+
+If AI is active:
+- suppress New Conversation auto-message actions that would create a greeting/start message
+- do not let automation inject a welcome message into the same conversation start
+
+If AI is not active:
+- New Conversation → Send Message works normally
+- this is the human/store welcome flow
+
+Implement this as a real backend rule, not just a frontend suggestion.
+
+--------------------------------------------------
+PART 3 — AI-FIRST START WHEN AUTOPILOT IS ACTIVE
+--------------------------------------------------
+
+If AI is active:
+- the first real customer message should be the first meaningful trigger
+- AI should answer that message directly
+- no pre-inserted welcome message from widget
+- no automation welcome message before the customer speaks
+
+This means:
+- conversation can exist silently
+- but no chat message should be injected before the visitor sends the first real message
+- AI handles the first turn cleanly
+
+--------------------------------------------------
+PART 4 — UPDATE WIDGET SETTINGS PAGE
+--------------------------------------------------
+
+Update the Widget settings page to reflect the new architecture.
+
+Current fields:
+- Welcome Message (English)
+- Welcome Message (Français)
+
+These are now misleading if they are not supposed to send real chat messages.
+
+Required changes:
+Choose the cleanest option:
+1. remove these welcome-message fields from the widget settings UI
+OR
+2. relabel them clearly as non-chat display text if they are still used visually only
+OR
+3. move store greeting logic entirely out of Widget settings and into Automation
+
+Preferred result:
+- widget settings should focus on:
+  - language default
+  - color
+  - position
+  - active/inactive
+- greeting logic should belong to Automation when AI is off
+
+Do not leave a misleading UI that suggests the widget itself will send a welcome chat message.
+
+--------------------------------------------------
+PART 5 — AUTOMATION PORTAL CLARITY
+--------------------------------------------------
+
+Update Automation logic/UI so it is clear:
+
+- New Conversation → Send Message = human/store welcome flow
+- this should be used when AI is OFF
+- when AI is ON, the AI handles the first message instead
+
+If helpful, show a note/warning in Automation UI such as:
+- Welcome auto-messages are ignored when AI autopilot is active
+or another clean equivalent
+
+Do not overbuild the UI, but make the behavior clear and truthful.
+
+--------------------------------------------------
+PART 6 — PREVENT CONTEXT CONTAMINATION
+--------------------------------------------------
+
+Make sure the AI does not receive startup contamination from old widget/automation welcome behavior.
+
+Requirements:
+- widget-generated welcome text should no longer pollute history
+- if New Conversation automation is suppressed because AI is active, that message should not be stored/sent
+- the first AI prompt should reflect the real customer message, not a fake welcome exchange
+
+This should improve:
+- language choice
+- intent detection
+- cleaner first-turn behavior
+
+--------------------------------------------------
+PART 7 — KEEP EXISTING CORE FEATURES SAFE
+--------------------------------------------------
+
+Do not break:
+- realtime widget/inbox messaging
+- AI credits
+- AI autopilot toggles
+- order creation/cancellation
+- automation engine generally
+- bilingual UI
+- widget embedding
+
+Only change the conversation-start behavior and the source of welcome messages.
+
+--------------------------------------------------
+PART 8 — TEST SCENARIOS
+--------------------------------------------------
+
+After implementation, test and report:
+
+1. AI active conversation start
+- widget opens
+- no welcome message inserted into conversation
+- visitor sends first message
+Expected:
+- AI handles first real message directly
+- no duplicate greeting from widget or automation
+
+2. AI off conversation start
+- widget opens
+- no widget-inserted chat message
+- New Conversation automation rule exists with Send Message
+Expected:
+- automation welcome message appears normally
+
+3. Widget settings page
+Expected:
+- no misleading welcome-message configuration that behaves like chat injection
+
+4. Automation clarity
+Expected:
+- clear behavior when AI is on vs off
+
+--------------------------------------------------
+PART 9 — OUTPUT SUMMARY
+--------------------------------------------------
+
+After implementation, provide a complete summary:
+1. how widget welcome-message behavior was changed
+2. whether widget welcome messages were removed, hidden, or repurposed
+3. how New Conversation automation now behaves when AI is active
+4. how first-turn AI handling now works
+5. which UI/settings were changed
+6. results of each test scenario
+7. any remaining edge cases
+
+QUALITY BAR
+- real backend behavior fix
+- no misleading UI
+- no duplicate conversation-start messages
+- preserve current working features
+- stable architecture going forward
