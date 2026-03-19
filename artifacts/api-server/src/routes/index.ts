@@ -15,6 +15,7 @@ import billingRouter from "./billing.js";
 import settingsRouter from "./settings.js";
 import adminRouter from "./admin.js";
 import aiRouter from "./ai.js";
+import { whatsappRouter } from "./whatsapp.js";
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.use("/billing", billingRouter);
 router.use("/settings", settingsRouter);
 router.use("/admin", adminRouter);
 router.use("/ai", aiRouter);
+router.use("/whatsapp", whatsappRouter);
 router.use("/", storageRouter);
 
 export default router;

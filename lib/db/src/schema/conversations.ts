@@ -40,6 +40,7 @@ export const messagesTable = pgTable("messages", {
   senderName: text("sender_name"),
   isInternal: integer("is_internal").notNull().default(0),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  externalId: text("external_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
