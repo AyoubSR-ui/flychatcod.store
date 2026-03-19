@@ -41,6 +41,7 @@ import { generateId, generateOrderNumber } from "./id.js";
 import { getIO } from "../socket.js";
 import { generateAiReply, extractOrderState } from "./ai-service.js";
 import { getAiStatus, consumeCredits, recordBlockedRun } from "./ai-credits.js";
+import { callAiBridge, type AgentProduct, type AgentOrder } from "./ai-agent-bridge.js";
 
 export type TriggerType = "new_conversation" | "keyword" | "order_created" | "inactivity";
 
@@ -276,284 +277,86 @@ export async function handleAiReplyForMessage(
   if (triggerMessage.sender !== "customer") return;
   if (triggerMessage.metadata?.aiGenerated) return;
 
-  if (aiReplyInFlight.has(triggerMessage.id)) return;
-  aiReplyInFlight.add(triggerMessage.id);
-  setTimeout(() => aiReplyInFlight.delete(triggerMessage.id), 30000);
-
   // ------------------------------------------------------------------
-  // 1. Fetch conversation — including aiConversationLanguage
+  // Fetch prerequisites for AI bridge
   // ------------------------------------------------------------------
-  const [conv] = await db.select({
-    aiMode: conversationsTable.aiMode,
-    customerName: conversationsTable.customerName,
-    customerPhone: conversationsTable.customerPhone,
-    customerId: conversationsTable.customerId,
-    widgetLanguage: conversationsTable.widgetLanguage,
-    aiConversationLanguage: conversationsTable.aiConversationLanguage,
-    aiFlowState: conversationsTable.aiFlowState,
-  })
-    .from(conversationsTable).where(eq(conversationsTable.id, conversationId)).limit(1);
-  if (!conv || conv.aiMode !== "ai_autopilot") return;
-
-  // ------------------------------------------------------------------
-  // 2. Language anchor: detect + persist on first meaningful message
-  // ------------------------------------------------------------------
-  let lockedLanguage = conv.aiConversationLanguage;
-  let languageSource: "locked" | "detected" | "fallback" = "locked";
-
-  if (!lockedLanguage) {
-    if (isMeaningfulMessage(triggerMessage.content)) {
-      lockedLanguage = detectLanguage(triggerMessage.content);
-      languageSource = "detected";
-      // Persist immediately so all future turns use it
-      await db.update(conversationsTable)
-        .set({ aiConversationLanguage: lockedLanguage })
-        .where(eq(conversationsTable.id, conversationId));
-    } else {
-      lockedLanguage = conv.widgetLanguage || null;
-      languageSource = "fallback";
-    }
-  }
-
-  console.log(
-    `[AI] conv=${conversationId} lang=${lockedLanguage ?? "unknown"} source=${languageSource}`,
-  );
-
-  // ------------------------------------------------------------------
-  // 3. AI eligibility check
-  // ------------------------------------------------------------------
-  const aiStatus = await getAiStatus(storeId);
-
-  if (!aiStatus.eligible) {
-    const blockReason: "blocked_no_credits" | "blocked_plan" | "blocked_mode" | "blocked_sender" =
-      aiStatus.statusLabel === "paused" ? "blocked_no_credits"
-      : aiStatus.statusLabel === "not_included" ? "blocked_plan"
-      : "blocked_mode";
-    await recordBlockedRun(storeId, conversationId, triggerMessage.id, blockReason, aiStatus.statusLabel);
-    return;
-  }
-
-  // ------------------------------------------------------------------
-  // 4. Fetch store and products
-  // ------------------------------------------------------------------
-  const [store] = await db.select({ name: storesTable.name, aiSystemPrompt: storesTable.aiSystemPrompt })
-    .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+  const [store] = await db
+    .select({ name: storesTable.name, aiSystemPrompt: storesTable.aiSystemPrompt })
+    .from(storesTable)
+    .where(eq(storesTable.id, storeId))
+    .limit(1);
   if (!store) return;
 
-  const products = await db.select({
-    name: productsTable.name,
-    price: productsTable.price,
-    stock: productsTable.stock,
-    variants: productsTable.variants,
-  })
+  const rawProducts = await db
+    .select({
+      id: productsTable.id,
+      name: productsTable.name,
+      price: productsTable.price,
+      stock: productsTable.stock,
+      variants: productsTable.variants,
+    })
     .from(productsTable)
     .where(and(eq(productsTable.storeId, storeId), eq(productsTable.isActive, true)))
     .orderBy(asc(productsTable.name))
     .limit(20);
 
-  let productContext: string | null = null;
-  if (products.length > 0) {
-    productContext = products.map(p => {
-      const variantsStr = Array.isArray(p.variants) && p.variants.length > 0
-        ? p.variants.join(", ")
-        : "N/A";
-      const stockStr = p.stock != null ? String(p.stock) : "N/A";
-      return `${p.name} | ${p.price} DZD | stock: ${stockStr} | variants: ${variantsStr}`;
-    }).join("\n");
-  }
+  const products: AgentProduct[] = rawProducts.map((p) => ({
+    id: p.id,
+    name: p.name,
+    price: Number(p.price),
+    stock: p.stock ?? 0,
+    variants: p.variants,
+  }));
+
+  const recentOrders: AgentOrder[] = await db
+    .select({
+      id: ordersTable.id,
+      orderNumber: ordersTable.orderNumber,
+      status: ordersTable.status,
+      customerName: ordersTable.customerName,
+      customerPhone: ordersTable.customerPhone,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.storeId, storeId))
+    .orderBy(desc(ordersTable.createdAt))
+    .limit(10);
 
   // ------------------------------------------------------------------
-  // 5. Recent orders by phone (last 48h) for context
+  // Delegate to AI bridge (callAiBridge handles dedup, credits, socket)
   // ------------------------------------------------------------------
-  let recentOrdersContext: string | null = null;
-  if (conv.customerPhone) {
-    const normalizedPhone = normalizePhone(conv.customerPhone);
-    if (normalizedPhone) {
-      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
-      const recentOrders = await db.select({
-        orderNumber: ordersTable.orderNumber,
-        status: ordersTable.status,
-        total: ordersTable.total,
-        createdAt: ordersTable.createdAt,
-      })
-        .from(ordersTable)
-        .where(and(
-          eq(ordersTable.storeId, storeId),
-          eq(ordersTable.customerPhone, normalizedPhone),
-          gte(ordersTable.createdAt, cutoff),
-        ))
-        .orderBy(desc(ordersTable.createdAt))
-        .limit(3);
-
-      if (recentOrders.length > 0) {
-        recentOrdersContext = recentOrders.map(o =>
-          `Order #${o.orderNumber} | Status: ${o.status} | Total: ${o.total} DZD | Placed: ${o.createdAt.toISOString()}`
-        ).join("\n");
+  await callAiBridge({
+    messageId: triggerMessage.id,
+    conversationId,
+    storeId,
+    storeName: store.name,
+    aiSystemPrompt: store.aiSystemPrompt ?? undefined,
+    products,
+    recentOrders,
+    emitNewMessage: (convId, sId, msgId, content) => {
+      try {
+        const io = getIO();
+        const msg = {
+          id: msgId,
+          content,
+          sender: "bot",
+          senderName: "AI Assistant",
+          metadata: { aiGenerated: true },
+          createdAt: new Date(),
+        };
+        io.to(`conv:${convId}`).emit("new_message", { conversationId: convId, message: msg });
+        io.to(`store:${sId}`).emit("new_message", { conversationId: convId, message: msg });
+      } catch {
+        // Socket not ready — message already in DB, client will poll
       }
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // 6. Build filtered conversation history
-  //    INCLUDE: customer messages, human agent messages
-  //    EXCLUDE: AI autopilot replies (aiGenerated=true), bot/inactivity messages
-  // ------------------------------------------------------------------
-  const rawMessages = await db.select({
-    id: messagesTable.id,
-    content: messagesTable.content,
-    sender: messagesTable.sender,
-    senderName: messagesTable.senderName,
-    metadata: messagesTable.metadata,
-  })
-    .from(messagesTable)
-    .where(eq(messagesTable.conversationId, conversationId))
-    .orderBy(desc(messagesTable.createdAt))
-    .limit(40); // fetch more so filtering still leaves enough context
-
-  rawMessages.reverse();
-
-  // Filter to only customer + agent messages — exclude all AI and bot messages
-  const includedMessages = rawMessages.filter(m => {
-    if (m.sender === "customer") return true;
-    if (m.sender === "agent") return true;
-    // Exclude AI-generated bot replies and inactivity/automation bot messages
-    return false;
+    },
+    consumeCredits: async () => {
+      await consumeCredits(storeId, conversationId, triggerMessage.id, null, "gpt-4o-mini", 0, 0, 0);
+    },
+    checkCredits: async () => {
+      const status = await getAiStatus(storeId);
+      return status.eligible;
+    },
   });
-
-  // Ensure the trigger message is included (in case it was just inserted)
-  const triggerInFiltered = includedMessages.some(m => m.id === triggerMessage.id);
-  if (!triggerInFiltered) {
-    includedMessages.push({
-      id: triggerMessage.id,
-      content: triggerMessage.content,
-      sender: triggerMessage.sender,
-      senderName: null,
-      metadata: null,
-    });
-  }
-
-  // Keep most recent 20 after filtering
-  const historySlice = includedMessages.slice(-20);
-
-  const history = historySlice
-    .filter(m => m.content && m.content.trim().length > 0)
-    .map(m => ({
-      role: (m.sender === "customer" ? "user" : "assistant") as "user" | "assistant",
-      content: m.content,
-    }));
-
-  const excludedCount = rawMessages.length - historySlice.length;
-  console.log(
-    `[AI] conv=${conversationId} history: ${history.length} included, ${excludedCount} excluded (raw=${rawMessages.length})`,
-  );
-
-  // ------------------------------------------------------------------
-  // 7. Generate AI reply
-  // ------------------------------------------------------------------
-  try {
-    const replyParams = {
-      storeSystemPrompt: store.aiSystemPrompt,
-      storeName: store.name,
-      conversationHistory: history,
-      customerName: conv.customerName,
-      aiConversationLanguage: lockedLanguage,
-      widgetLanguage: conv.widgetLanguage,
-      productContext,
-      recentOrdersContext,
-      conversationFlowState: conv.aiFlowState,
-    };
-
-    let result = await generateAiReply(replyParams);
-
-    // ------------------------------------------------------------------
-    // 8. Anti-repetition guard — check last 3 AI replies for exact match
-    // ------------------------------------------------------------------
-    const recentAiReplies = await db.select({ content: messagesTable.content })
-      .from(messagesTable)
-      .where(and(
-        eq(messagesTable.conversationId, conversationId),
-        eq(messagesTable.sender, "bot"),
-        sql`${messagesTable.metadata}::text LIKE '%"aiGenerated":true%'`,
-      ))
-      .orderBy(desc(messagesTable.createdAt))
-      .limit(3);
-
-    const isRepeat = recentAiReplies.some(
-      m => m.content.trim() === result.reply.trim(),
-    );
-
-    if (isRepeat) {
-      console.log(`[AI] conv=${conversationId} anti-repeat guard fired — retrying with override`);
-      result = await generateAiReply({ ...replyParams, antiRepeatRetry: true });
-    }
-
-    // ------------------------------------------------------------------
-    // 9. Save AI reply + emit socket
-    // ------------------------------------------------------------------
-    const msgId = generateId("msg");
-    await db.insert(messagesTable).values({
-      id: msgId,
-      conversationId,
-      content: result.reply,
-      sender: "bot",
-      senderName: "AI Assistant",
-      isInternal: 0,
-      metadata: { aiGenerated: true },
-    });
-
-    await db.update(conversationsTable).set({ lastMessage: result.reply, updatedAt: new Date() })
-      .where(eq(conversationsTable.id, conversationId));
-
-    try {
-      const io = getIO();
-      const [savedMsg] = await db.select({
-        id: messagesTable.id, content: messagesTable.content, sender: messagesTable.sender,
-        senderName: messagesTable.senderName, metadata: messagesTable.metadata, createdAt: messagesTable.createdAt,
-      }).from(messagesTable).where(eq(messagesTable.id, msgId));
-
-      if (savedMsg) {
-        io.to(`conv:${conversationId}`).emit("new_message", { conversationId, message: savedMsg });
-        io.to(`store:${storeId}`).emit("new_message", { conversationId, message: savedMsg });
-      }
-    } catch {}
-
-    await consumeCredits(storeId, conversationId, triggerMessage.id, msgId, result.modelName, result.inputTokens, result.outputTokens, result.totalTokens);
-
-    // ------------------------------------------------------------------
-    // 10. Classify dominant intent + structured extraction
-    //     Intent is determined before extraction so each message drives
-    //     exactly ONE flow (cancel OR new_order OR AI-conversational).
-    // ------------------------------------------------------------------
-    const recentCustomerTexts = rawMessages
-      .filter(m => m.sender === "customer")
-      .slice(-3)
-      .map(m => m.content);
-    const dominantIntent = classifyDominantIntent(recentCustomerTexts);
-    console.log(`[AI] conv=${conversationId} dominantIntent=${dominantIntent}`);
-
-    setImmediate(() => {
-      runOrderExtractionFlow(storeId, conversationId, conv, store.name, lockedLanguage, conv.aiFlowState, dominantIntent).catch(err => {
-        console.error("[AI] Order extraction flow error:", err);
-      });
-    });
-
-  } catch (err) {
-    console.error("[AutoEngine] AI reply generation failed:", err);
-    await db.insert((await import("@workspace/db")).aiRunsTable).values({
-      id: generateId("airun"),
-      storeId,
-      conversationId,
-      triggerMessageId: triggerMessage.id,
-      responseMessageId: null,
-      modelName: null,
-      inputTokens: null,
-      outputTokens: null,
-      totalTokens: null,
-      creditsCharged: 0,
-      status: "failed",
-      errorReason: (err as Error).message,
-    });
-  }
 }
 
 // ---------------------------------------------------------------------------
