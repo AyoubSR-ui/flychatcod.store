@@ -65,10 +65,16 @@ async function processIncomingWhatsAppMessage(incoming: {
   console.log("[WhatsApp] Looking for channel with phoneNumberId:", incoming.phoneNumberId);
 
   // 1. Find channel by phoneNumberId (stored in externalAccountId)
+  const { rows: debugRows } = await pool.query(
+    `SELECT COUNT(*) as total FROM channel_connections`
+  );
+  console.log("[WhatsApp] Total channel_connections rows:", debugRows[0].total);
+
   const { rows: channelRows } = await pool.query(
-    `SELECT * FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
+    `SELECT * FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 LIMIT 1`,
     [incoming.phoneNumberId]
   );
+  console.log("[WhatsApp] Raw SQL result:", JSON.stringify(channelRows));
   const channel = channelRows[0];
 
   console.log("[WhatsApp] Channel found:", channel);
