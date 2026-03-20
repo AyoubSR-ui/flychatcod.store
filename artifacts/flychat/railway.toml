@@ -1,0 +1,8 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "pnpm install --no-frozen-lockfile && pnpm --filter @workspace/flychat run build"
+
+[deploy]
+startCommand = "pnpm --filter @workspace/flychat run serve"
+healthcheckPath = "/"
+healthcheckTimeout = 60
