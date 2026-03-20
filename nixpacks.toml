@@ -5,4 +5,4 @@ cmds = ["pnpm install --no-frozen-lockfile"]
 cmds = ["pnpm --filter @workspace/flychat run build"]
 
 [start]
-cmd = "node_modules/.bin/vite preview --config artifacts/flychat/vite.config.ts --host 0.0.0.0 --port 4173"
+cmd = "artifacts/flychat/node_modules/.bin/vite preview --config artifacts/flychat/vite.config.ts --outDir artifacts/flychat/dist --host 0.0.0.0 --port 4173"
