@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["pnpm install --no-frozen-lockfile"]
+
+[phases.build]
+cmds = ["pnpm --filter @workspace/flychat run build"]
+
+[start]
+cmd = "cd artifacts/flychat && node_modules/.bin/vite preview --host 0.0.0.0 --port 4173"
