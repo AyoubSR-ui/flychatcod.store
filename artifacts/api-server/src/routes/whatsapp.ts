@@ -155,12 +155,11 @@ async function processIncomingWhatsAppMessage(incoming: {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    conversation = await db
-      .select()
-      .from(conversationsTable)
-      .where(eq(conversationsTable.id, convId))
-      .limit(1)
-      .then((r) => r[0]);
+    const { rows: convRows } = await pool.query(
+  `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" FROM conversations WHERE id = $1 LIMIT 1`,
+  [convId]
+  );
+   conversation = convRows[0];
   }
 
   console.log("[WhatsApp] Conversation found/created:", conversation?.id);
