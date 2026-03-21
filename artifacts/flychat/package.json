@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "serve-handler": "^6.1.7",
     "socket.io-client": "^4.8.3"
   }
 }
