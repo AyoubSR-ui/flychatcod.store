@@ -108,6 +108,9 @@ export default function Channels() {
   const { data, isLoading } = useGetChannels();
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
+  const API_BASE = "https://workspaceapi-server-production-0e92.up.railway.app";
+  const handleConnect = (ch) => { if (ch === "instagram") window.location.href = API_BASE + "/api/instagram/oauth/start"; };
+  const handleDisconnect = async (ch) => { if (ch === "instagram") { await fetch(API_BASE + "/api/instagram/disconnect", { method: "POST", credentials: "include" }); window.location.reload(); } };
 
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
 
@@ -128,7 +131,7 @@ export default function Channels() {
                 const meta = CHANNEL_META[ch];
                 const conn = channelMap[ch];
                 const isActive = conn?.status === "connected";
-                const isComingSoon = ch !== "widget";
+                const isComingSoon = ch === "messenger";
 
                 return (
                   <div key={ch} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isActive ? "border-primary/30" : "border-border"}`}>
@@ -161,14 +164,14 @@ export default function Channels() {
 
                       <div className="flex gap-3 pt-2 border-t border-border">
                         <button
-                          disabled={isComingSoon}
+                          disabled={isComingSoon} onClick={() => { if (isActive && ch !== "widget") handleDisconnect(ch); else if (!isActive && !isComingSoon) handleConnect(ch); }}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
                             isActive ? "bg-secondary text-foreground hover:bg-secondary/80" :
                             isComingSoon ? "bg-secondary/50 text-muted-foreground cursor-not-allowed" :
                             "bg-primary text-white hover:bg-primary/90"
                           }`}
                         >
-                          {isActive ? "Manage" : isComingSoon ? "Not Available Yet" : "Connect"}
+                          {isActive ? (ch === "widget" ? "Manage" : "Disconnect") : isComingSoon ? "Not Available Yet" : "Connect"}
                         </button>
                         <button
                           onClick={() => meta.hasGuide && setGuideOpen(true)}
