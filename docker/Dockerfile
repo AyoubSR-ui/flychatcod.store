@@ -1,4 +1,4 @@
-FROM docker.io/library/node:20-alpine
+FROM node:20
 RUN npm install -g pnpm
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
