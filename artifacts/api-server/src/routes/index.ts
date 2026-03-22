@@ -16,6 +16,7 @@ import settingsRouter from "./settings.js";
 import adminRouter from "./admin.js";
 import aiRouter from "./ai.js";
 import { whatsappRouter } from "./whatsapp.js";
+import { instagramRouter } from "./instagram.js";
 
 const router = Router();
 
@@ -35,6 +36,7 @@ router.use("/settings", settingsRouter);
 router.use("/admin", adminRouter);
 router.use("/ai", aiRouter);
 router.use("/whatsapp", whatsappRouter);
+router.use("/instagram", instagramRouter);
 router.use("/", storageRouter);
 
 export default router;
