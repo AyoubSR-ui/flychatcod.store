@@ -23,8 +23,22 @@ const API_BASE = process.env.API_BASE_URL || "https://workspaceapi-server-produc
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcod.store";
 const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
 
-instagramRouter.get("/oauth/start", requireAuth, async (req, res) => {
-  const storeId = req.user?.storeId;
+instagramRouter.get("/oauth/start", async (req, res) => {
+  // Support token from query param (browser redirect can't send Authorization header)
+  const queryToken = req.query.token as string;
+  let storeId: string | undefined;
+  if (queryToken) {
+    try {
+      const jwt = await import("jsonwebtoken");
+      const secret = process.env.JWT_SECRET || "";
+      const decoded = jwt.default.verify(queryToken, secret) as any;
+      storeId = decoded.storeId;
+    } catch (err) {
+      res.status(401).json({ error: "invalid_token" }); return;
+    }
+  } else {
+    storeId = (req as any).user?.storeId;
+  }
   if (!storeId) { res.status(400).json({ error: "No store found" }); return; }
   const state = Buffer.from(JSON.stringify({ storeId })).toString("base64url");
   const params = new URLSearchParams({
