@@ -2,6 +2,7 @@ FROM node:20
 RUN npm install -g pnpm
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY tsconfig.base.json ./
 COPY lib/ ./lib/
 COPY artifacts/api-server/ ./artifacts/api-server/
 COPY artifacts/flychat/ ./artifacts/flychat/
