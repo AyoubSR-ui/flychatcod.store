@@ -127,20 +127,11 @@ async function processIncomingWhatsAppMessage(incoming: {
   console.log("[WhatsApp] Customer found/created:", customer?.id);
 
   // 4. Find or create open conversation
-  let conversation = await db
-    .select()
-    .from(conversationsTable)
-    .where(
-      and(
-        eq(conversationsTable.storeId, store.id),
-        eq(conversationsTable.channel, "whatsapp"),
-        eq(conversationsTable.customerId, customer!.id),
-        eq(conversationsTable.status, "open")
-      )
-    )
-    .orderBy(conversationsTable.createdAt)
-    .limit(1)
-    .then((r) => r[0] ?? null);
+    const { rows: convFindRows } = await pool.query(
+  `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" FROM conversations WHERE store_id = $1 AND channel = 'whatsapp' AND customer_id = $2 AND status = 'open' ORDER BY created_at ASC LIMIT 1`,
+  [store.id, customer!.id]
+   );
+   let conversation = convFindRows[0] ?? null;
 
   if (!conversation) {
     const convId = generateId("conv");
