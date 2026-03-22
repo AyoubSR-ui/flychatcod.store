@@ -68,10 +68,10 @@ async function processIncomingWhatsAppMessage(incoming: {
   );
   console.log("[WhatsApp] Total channel_connections rows:", debugRows[0].total);
 
-  const { rows: channelRows } = await pool.query(
-    `SELECT * FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 LIMIT 1`,
-    [incoming.phoneNumberId]
-  );
+   const { rows: channelRows } = await pool.query(
+  `SELECT *, access_token as "accessToken", external_account_id as "externalAccountId", store_id as "storeId", webhook_secret as "webhookSecret" FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
+  [incoming.phoneNumberId]
+);
   console.log("[WhatsApp] Raw SQL result:", JSON.stringify(channelRows));
   const channel = channelRows[0];
 
@@ -191,7 +191,9 @@ async function processIncomingWhatsAppMessage(incoming: {
   console.log(`[WhatsApp] Message saved: conv=${conversation.id}`);
 
   // 7. AI reply
-  if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
+    // 7. AI reply
+   console.log("[WhatsApp] AI check - aiMode:", conversation.aiMode, "aiEnabled:", store.aiEnabled, "accessToken:", !!channel.accessToken);
+    if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const accessToken = channel.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN ?? "";
     const phoneNumberId = channel.externalAccountId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
 
