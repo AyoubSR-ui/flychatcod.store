@@ -185,8 +185,11 @@ export async function callAiBridge(params: {
     emitNewMessage(conversationId, storeId, replyMsgId, reply);
     await consumeCredits();
 
-    if (action.type === "create_order") {
+    // DEDUP FIX: only create order if not already created in this conversation
+    if (action.type === "create_order" && conv.aiFlowState !== "order_created") {
       await executeCreateOrderSilent(conversationId, storeId, conv.customerId, action);
+    } else if (action.type === "create_order" && conv.aiFlowState === "order_created") {
+      console.log(`[AI Bridge] Skipping duplicate order creation for conv ${conversationId} — already created`);
     } else if (action.type === "cancel_order" && action.customerPhone) {
       await executeCancelOrderSilent(conversationId, storeId, action.customerPhone);
     }
@@ -242,12 +245,13 @@ async function executeCreateOrderSilent(
       });
     }
 
+    // Mark conversation so subsequent messages don't re-trigger order creation
     await db
       .update(conversationsTable)
       .set({ aiFlowState: "order_created", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
 
-    console.log(`[AI Bridge] Order ${orderNumber} created silently for conv ${conversationId}`);
+    console.log(`[AI Bridge] Order ${orderNumber} created for conv ${conversationId}`);
   } catch (err) {
     console.error("[AI Bridge] Silent order creation failed:", err);
   }
@@ -284,7 +288,7 @@ async function executeCancelOrderSilent(
       .set({ aiFlowState: "order_cancelled", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
 
-    console.log(`[AI Bridge] Order ${targetOrder.orderNumber} cancelled silently for conv ${conversationId}`);
+    console.log(`[AI Bridge] Order ${targetOrder.orderNumber} cancelled for conv ${conversationId}`);
   } catch (err) {
     console.error("[AI Bridge] Silent cancellation failed:", err);
   }
