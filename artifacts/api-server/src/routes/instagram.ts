@@ -21,7 +21,6 @@ const IG_APP_SECRET = process.env.META_APP_SECRET_INSTAGRAM || "";
 const IG_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "flychat-wa-2026";
 const API_BASE = process.env.API_BASE_URL || "https://zealous-nature-production-771f.up.railway.app";
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
-const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
 
 // ─── OAuth Start ──────────────────────────────────────────────────────────────
 instagramRouter.get("/oauth/start", async (req, res) => {
@@ -54,11 +53,13 @@ instagramRouter.get("/oauth/start", async (req, res) => {
     return;
   }
 
-  const state = Buffer.from(JSON.stringify({ storeId })).toString("base64url");
+  // Pass storeId in redirect_uri since Instagram new API doesn't return state
+  const callbackUrl = `${API_BASE}/api/instagram/oauth/callback?sid=${storeId}`;
+
   const params = new URLSearchParams({
     force_reauth: "true",
     client_id: IG_APP_ID,
-    redirect_uri: CALLBACK_URL,
+    redirect_uri: callbackUrl,
     response_type: "code",
     scope: "instagram_business_basic,instagram_business_manage_messages",
   });
@@ -66,32 +67,27 @@ instagramRouter.get("/oauth/start", async (req, res) => {
 });
 
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
- instagramRouter.get("/oauth/callback", async (req, res) => {
+instagramRouter.get("/oauth/callback", async (req, res) => {
   console.log("[Instagram OAuth] Callback received:", JSON.stringify(req.query));
-  const { code, state, error, error_reason, error_description } = req.query as Record<string, string>;
+  const { code, error, error_reason, error_description, sid } = req.query as Record<string, string>;
+
   if (error) {
     console.error("[Instagram OAuth] Error:", error, error_reason, error_description);
     res.redirect(`${FRONTEND_URL}/channels?error=instagram_auth_failed`);
     return;
   }
 
-  if (!code) {
-    console.error("[Instagram OAuth] Missing code, all params:", JSON.stringify(req.query));
+  if (!code || !sid) {
+    console.error("[Instagram OAuth] Missing code or sid:", JSON.stringify(req.query));
     res.redirect(`${FRONTEND_URL}/channels?error=instagram_missing_params`);
     return;
   }
+
   try {
-    // Get storeId from state if available, otherwise look up from token
-    let storeId: string | null = null;
-    if (state) {
-      try { storeId = JSON.parse(Buffer.from(state, "base64url").toString()).storeId; } catch {}
-    }
-    if (!storeId) {
-      console.error("[Instagram OAuth] No storeId in state");
-      res.redirect(`${FRONTEND_URL}/channels?error=instagram_missing_params`);
-      return;
-    }
-    // Exchange code for token
+    const storeId = sid;
+    const callbackUrl = `${API_BASE}/api/instagram/oauth/callback?sid=${storeId}`;
+
+    // Exchange code for short-lived token
     const tokenRes = await fetch(`https://api.instagram.com/oauth/access_token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -99,28 +95,38 @@ instagramRouter.get("/oauth/start", async (req, res) => {
         client_id: IG_APP_ID,
         client_secret: IG_APP_SECRET,
         grant_type: "authorization_code",
-        redirect_uri: CALLBACK_URL,
+        redirect_uri: callbackUrl,
         code,
       }),
     });
     const tokenData = await tokenRes.json() as any;
     console.log("[Instagram OAuth] Token response:", JSON.stringify(tokenData));
+
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
+
     const shortToken = tokenData.access_token;
     const igUserId = tokenData.user_id;
+
     // Exchange for long-lived token
     const longRes = await fetch(
       `https://graph.instagram.com/access_token?` +
-      new URLSearchParams({ grant_type: "ig_exchange_token", client_secret: IG_APP_SECRET, access_token: shortToken })
+      new URLSearchParams({
+        grant_type: "ig_exchange_token",
+        client_secret: IG_APP_SECRET,
+        access_token: shortToken,
+      })
     );
     const longData = await longRes.json() as any;
     const accessToken = longData.access_token || shortToken;
+
     console.log(`[Instagram OAuth] Connected IG user ${igUserId} for store ${storeId}`);
+
     // Save to channel_connections
     const { rows: existing } = await pool.query(
       `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'instagram' LIMIT 1`,
       [storeId]
     );
+
     if (existing.length > 0) {
       await pool.query(
         `UPDATE channel_connections SET status = 'connected', access_token = $1, external_account_id = $2, metadata = $3, updated_at = NOW() WHERE store_id = $4 AND channel = 'instagram'`,
@@ -132,13 +138,13 @@ instagramRouter.get("/oauth/start", async (req, res) => {
         [generateId("ch"), storeId, accessToken, String(igUserId), JSON.stringify({ igUserId })]
       );
     }
+
     res.redirect(`${FRONTEND_URL}/channels?success=instagram_connected`);
   } catch (err) {
     console.error("[Instagram OAuth] Callback error:", err);
     res.redirect(`${FRONTEND_URL}/channels?error=instagram_setup_failed`);
   }
 });
-// ─── Webhook Verification ─────────────────────────────────────────────────────
 
 // ─── Webhook Verification ─────────────────────────────────────────────────────
 instagramRouter.get("/webhook", (req, res) => {
@@ -305,5 +311,5 @@ async function processIncomingInstagramMessage(incoming: {
         return status.eligible;
       },
     });
-   }
-};
+  }
+}
