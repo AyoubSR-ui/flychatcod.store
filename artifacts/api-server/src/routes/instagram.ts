@@ -13,7 +13,7 @@ import { generateId } from "../lib/id.js";
 import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { requireAuth } from "../middlewares/auth.js"; 
-
+import jwt from "jsonwebtoken";
 export const instagramRouter = Router();
 
 const IG_APP_ID = process.env.META_APP_ID || "";
