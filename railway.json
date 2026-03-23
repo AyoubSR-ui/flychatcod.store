@@ -4,6 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "node serve.js"
+    "startCommand": "node artifacts/api-server/dist/index.cjs
+"
   }
 }
