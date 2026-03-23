@@ -41,7 +41,8 @@ instagramRouter.get("/oauth/start", async (req, res) => {
         storeId = rows[0]?.id;
       }
     } catch (err) {
-      res.status(401).json({ error: "invalid_token" }); return;
+      console.error("[Instagram OAuth] Token verification failed:", err);
+      res.status(401).json({ error: "invalid_token", detail: String(err) }); return;
     }
   } else {
     storeId = (req as any).user?.storeId;
