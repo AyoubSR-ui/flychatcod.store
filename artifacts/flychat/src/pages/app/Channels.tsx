@@ -108,7 +108,7 @@ export default function Channels() {
   const { data, isLoading } = useGetChannels();
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
-  const API_BASE = "https://workspaceapi-server-production-0e92.up.railway.app";
+  const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
   const handleConnect = (ch: string) => { if (ch === "instagram") { const token = localStorage.getItem("flychat_token") || ""; window.location.href = API_BASE + "/api/instagram/oauth/start?token=" + token; } };
   const handleDisconnect = async (ch: string) => { if (ch === "instagram") { await fetch(API_BASE + "/api/instagram/disconnect", { method: "POST", credentials: "include" }); window.location.reload(); } };
 
