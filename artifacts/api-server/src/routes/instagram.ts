@@ -13,8 +13,8 @@ import { generateId } from "../lib/id.js";
 import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { requireAuth } from "../middlewares/auth.js"; 
-import jwt from "jsonwebtoken";
 export const instagramRouter = Router();
+import jwt from "jsonwebtoken";
 
 const IG_APP_ID = process.env.META_APP_ID || "";
 const IG_APP_SECRET = process.env.META_APP_SECRET || "";
@@ -29,9 +29,8 @@ instagramRouter.get("/oauth/start", async (req, res) => {
   let storeId: string | undefined;
   if (queryToken) {
     try {
-      const jwt = await import("jsonwebtoken");
       const secret = process.env.JWT_SECRET || "";
-      const decoded = jwt.default.verify(queryToken, secret) as any;
+      const decoded = jwt.verify(queryToken, secret) as any;
       storeId = decoded.storeId;
     } catch (err) {
       res.status(401).json({ error: "invalid_token" }); return;
