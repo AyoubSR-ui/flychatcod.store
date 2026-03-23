@@ -16,8 +16,8 @@ import jwt from "jsonwebtoken";
 
 export const instagramRouter = Router();
 
-const IG_APP_ID = process.env.META_APP_ID || "";
-const IG_APP_SECRET = process.env.META_APP_SECRET || "";
+const IG_APP_ID = process.env.INSTAGRAM_APP_ID || "";
+const IG_APP_SECRET = process.env.META_APP_SECRET_INSTAGRAM || "";
 const IG_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "flychat-wa-2026";
 const API_BASE = process.env.API_BASE_URL || "https://zealous-nature-production-771f.up.railway.app";
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
