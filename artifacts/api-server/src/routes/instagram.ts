@@ -84,16 +84,16 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
 
     // Exchange code for short-lived token using Instagram API
     const tokenRes = await fetch(`https://api.instagram.com/oauth/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: IG_APP_ID,
-        client_secret: IG_APP_SECRET,
-        grant_type: "authorization_code",
-        redirect_uri: CALLBACK_URL,
-        code,
-      }),
-    });
+  method: "POST",
+  headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams({
+    client_id: IG_APP_ID,
+    client_secret: IG_APP_SECRET,
+    grant_type: "authorization_code",
+    redirect_uri: CALLBACK_URL,
+    code,
+  }),
+  });
     const tokenData = await tokenRes.json() as any;
     console.log("[Instagram OAuth] Token response:", JSON.stringify(tokenData));
 
