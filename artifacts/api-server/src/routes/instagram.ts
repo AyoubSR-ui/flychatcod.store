@@ -71,13 +71,13 @@ instagramRouter.get("/oauth/start", async (req, res) => {
   const { code, state, error, error_reason, error_description } = req.query as Record<string, string>;
   if (error) {
     console.error("[Instagram OAuth] Error:", error, error_reason, error_description);
-    res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_auth_failed`);
+    res.redirect(`${FRONTEND_URL}/channels?error=instagram_auth_failed`);
     return;
   }
 
   if (!code) {
     console.error("[Instagram OAuth] Missing code, all params:", JSON.stringify(req.query));
-    res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_missing_params`);
+    res.redirect(`${FRONTEND_URL}/channels?error=instagram_missing_params`);
     return;
   }
   try {
@@ -88,7 +88,7 @@ instagramRouter.get("/oauth/start", async (req, res) => {
     }
     if (!storeId) {
       console.error("[Instagram OAuth] No storeId in state");
-      res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_missing_params`);
+      res.redirect(`${FRONTEND_URL}/channels?error=instagram_missing_params`);
       return;
     }
     // Exchange code for token
@@ -132,10 +132,10 @@ instagramRouter.get("/oauth/start", async (req, res) => {
         [generateId("ch"), storeId, accessToken, String(igUserId), JSON.stringify({ igUserId })]
       );
     }
-    res.redirect(`${FRONTEND_URL}/settings/channels?success=instagram_connected`);
+    res.redirect(`${FRONTEND_URL}/channels?success=instagram_connected`);
   } catch (err) {
     console.error("[Instagram OAuth] Callback error:", err);
-    res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_setup_failed`);
+    res.redirect(`${FRONTEND_URL}/channels?error=instagram_setup_failed`);
   }
 });
 // ─── Webhook Verification ─────────────────────────────────────────────────────
