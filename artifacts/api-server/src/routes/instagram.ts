@@ -60,10 +60,9 @@ instagramRouter.get("/oauth/start", async (req, res) => {
     client_id: IG_APP_ID,
     redirect_uri: CALLBACK_URL,
     response_type: "code",
-    scope: "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish",
-    state,
+    scope: "instagram_basic,instagram_manage_messages",
   });
-  res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
+  res.redirect(`https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`);
 });
 
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
