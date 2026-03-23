@@ -51,14 +51,15 @@ instagramRouter.get("/oauth/start", async (req, res) => {
   if (!storeId) { res.status(400).json({ error: "No store found" }); return; }
   const state = Buffer.from(JSON.stringify({ storeId })).toString("base64url");
   const params = new URLSearchParams({
+    force_reauth: "true",
     client_id: IG_APP_ID,
     redirect_uri: CALLBACK_URL,
-    scope: "instagram_basic,instagram_manage_messages,pages_show_list,pages_messaging",
     response_type: "code",
+    scope: "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish",
     state,
   });
-  res.redirect(`https://www.facebook.com/v18.0/dialog/oauth?${params.toString()}`);
-});
+  res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
+  }); 
 
 instagramRouter.get("/oauth/callback", async (req, res) => {
   const { code, state, error } = req.query as Record<string, string>;
