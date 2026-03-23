@@ -66,81 +66,20 @@ instagramRouter.get("/oauth/start", async (req, res) => {
 });
 
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
-instagramRouter.get("/oauth/callback", async (req, res) => {
-  const { code, state, error } = req.query as Record<string, string>;
-
+ instagramRouter.get("/oauth/callback", async (req, res) => {
+  console.log("[Instagram OAuth] Callback received:", JSON.stringify(req.query));
+  const { code, state, error, error_reason, error_description } = req.query as Record<string, string>;
   if (error) {
+    console.error("[Instagram OAuth] Error:", error, error_reason, error_description);
     res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_auth_failed`);
     return;
   }
+
   if (!code || !state) {
+    console.error("[Instagram OAuth] Missing params - code:", !!code, "state:", !!state, "all params:", JSON.stringify(req.query));
     res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_missing_params`);
     return;
   }
-
-  try {
-    const { storeId } = JSON.parse(Buffer.from(state, "base64url").toString());
-
-    // Exchange code for short-lived token using Instagram API
-    const tokenRes = await fetch(`https://api.instagram.com/oauth/access_token`, {
-  method: "POST",
-  headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({
-    client_id: IG_APP_ID,
-    client_secret: IG_APP_SECRET,
-    grant_type: "authorization_code",
-    redirect_uri: CALLBACK_URL,
-    code,
-  }),
-  });
-    const tokenData = await tokenRes.json() as any;
-    console.log("[Instagram OAuth] Token response:", JSON.stringify(tokenData));
-
-    if (!tokenData.access_token) {
-      throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
-    }
-
-    const shortToken = tokenData.access_token;
-    const igUserId = tokenData.user_id;
-
-    // Exchange for long-lived token
-    const longRes = await fetch(
-      `https://graph.instagram.com/access_token?` +
-      new URLSearchParams({
-        grant_type: "ig_exchange_token",
-        client_secret: IG_APP_SECRET,
-        access_token: shortToken,
-      })
-    );
-    const longData = await longRes.json() as any;
-    const accessToken = longData.access_token || shortToken;
-
-    console.log(`[Instagram OAuth] Connected IG user ${igUserId} for store ${storeId}`);
-
-    // Save to channel_connections
-    const { rows: existing } = await pool.query(
-      `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'instagram' LIMIT 1`,
-      [storeId]
-    );
-
-    if (existing.length > 0) {
-      await pool.query(
-        `UPDATE channel_connections SET status = 'connected', access_token = $1, external_account_id = $2, metadata = $3, updated_at = NOW() WHERE store_id = $4 AND channel = 'instagram'`,
-        [accessToken, String(igUserId), JSON.stringify({ igUserId }), storeId]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO channel_connections (id, store_id, channel, status, access_token, external_account_id, metadata, created_at, updated_at) VALUES ($1, $2, 'instagram', 'connected', $3, $4, $5, NOW(), NOW())`,
-        [generateId("ch"), storeId, accessToken, String(igUserId), JSON.stringify({ igUserId })]
-      );
-    }
-
-    res.redirect(`${FRONTEND_URL}/settings/channels?success=instagram_connected`);
-  } catch (err) {
-    console.error("[Instagram OAuth] Callback error:", err);
-    res.redirect(`${FRONTEND_URL}/settings/channels?error=instagram_setup_failed`);
-  }
-});
 
 // ─── Webhook Verification ─────────────────────────────────────────────────────
 instagramRouter.get("/webhook", (req, res) => {
@@ -308,4 +247,4 @@ async function processIncomingInstagramMessage(incoming: {
       },
     });
   }
-}
+}});
