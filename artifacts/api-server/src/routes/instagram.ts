@@ -35,7 +35,8 @@ instagramRouter.get("/oauth/start", async (req, res) => {
       // If no storeId in token, look up from userId
       if (!storeId && decoded.userId) {
         const { rows } = await pool.query(
-          `SELECT id FROM stores WHERE owner_id = $1 OR id IN (SELECT store_id FROM team_members WHERE user_id = $1) LIMIT 1`,
+          `SELECT s.id FROM stores s JOIN organizations o ON s.organization_id = o.id JOIN team_members tm ON tm.store_id = s.id WHERE tm.user_id = $1 LIMIT 1`,
+
           [decoded.userId]
         );
         storeId = rows[0]?.id;
