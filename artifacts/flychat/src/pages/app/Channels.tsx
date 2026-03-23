@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { MessageSquare, CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X } from "lucide-react";
 import { useGetChannels } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 import WidgetGuideVideo from "@/components/WidgetGuideVideo";
@@ -105,12 +105,56 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function Channels() {
-  const { data, isLoading } = useGetChannels();
+  const { data, isLoading, refetch } = useGetChannels();
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+
   const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-  const handleConnect = (ch: string) => { if (ch === "instagram") { const token = localStorage.getItem("flychat_token") || ""; window.location.href = API_BASE + "/api/instagram/oauth/start?token=" + token; } };
-  const handleDisconnect = async (ch: string) => { if (ch === "instagram") { await fetch(API_BASE + "/api/instagram/disconnect", { method: "POST", credentials: "include" }); window.location.reload(); } };
+
+  // Handle OAuth callback result from URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("success") === "instagram_connected") {
+      setSuccessMsg("Instagram DMs connected successfully!");
+      refetch();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (params.get("error")) {
+      setErrorMsg("Instagram connection failed. Please try again.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [refetch]);
+
+  // Listen for popup close to refresh channels
+  const handleConnect = (ch: string) => {
+    if (ch === "instagram") {
+      const token = localStorage.getItem("flychat_token") || "";
+      const popup = window.open(
+        API_BASE + "/api/instagram/oauth/start?token=" + token,
+        "instagram_oauth",
+        "width=600,height=700,scrollbars=yes"
+      );
+      // Poll for popup close then refetch
+      const timer = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(timer);
+          refetch();
+        }
+      }, 500);
+    }
+  };
+
+  const handleDisconnect = async (ch: string) => {
+    if (ch === "instagram") {
+      const token = localStorage.getItem("flychat_token") || "";
+      await fetch(API_BASE + "/api/instagram/disconnect", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      refetch();
+    }
+  };
 
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
 
@@ -122,6 +166,17 @@ export default function Channels() {
             <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.channels")}</h1>
             <p className="text-muted-foreground mt-1">Connect messaging channels to receive all conversations in one inbox.</p>
           </div>
+
+          {successMsg && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-sm font-medium">
+              <CheckCircle2 className="w-4 h-4" /> {successMsg}
+            </div>
+          )}
+          {errorMsg && (
+            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm font-medium">
+              <AlertCircle className="w-4 h-4" /> {errorMsg}
+            </div>
+          )}
 
           {isLoading ? (
             <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
@@ -157,18 +212,26 @@ export default function Channels() {
                       {isComingSoon && (
                         <div className="bg-secondary/50 border border-border rounded-xl p-3">
                           <p className="text-xs text-muted-foreground">
-                            <span className="font-semibold text-foreground">Integration ready</span> — The architecture for {meta.name} is in place. Full {ch === "whatsapp" ? "Meta Embedded Signup" : "OAuth connection"} will be available in a future update.
+                            <span className="font-semibold text-foreground">Integration ready</span> — The architecture for {meta.name} is in place. Full OAuth connection will be available in a future update.
                           </p>
                         </div>
                       )}
 
                       <div className="flex gap-3 pt-2 border-t border-border">
                         <button
-                          disabled={isComingSoon} onClick={() => { if (isActive && ch !== "widget") handleDisconnect(ch); else if (!isActive && !isComingSoon) handleConnect(ch); }}
+                          disabled={isComingSoon}
+                          onClick={() => {
+                            if (isActive && ch !== "widget") handleDisconnect(ch);
+                            else if (!isActive && !isComingSoon) handleConnect(ch);
+                          }}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
-                            isActive ? "bg-secondary text-foreground hover:bg-secondary/80" :
-                            isComingSoon ? "bg-secondary/50 text-muted-foreground cursor-not-allowed" :
-                            "bg-primary text-white hover:bg-primary/90"
+                            isActive
+                              ? ch === "widget"
+                                ? "bg-secondary text-foreground hover:bg-secondary/80"
+                                : "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                              : isComingSoon
+                              ? "bg-secondary/50 text-muted-foreground cursor-not-allowed"
+                              : "bg-primary text-white hover:bg-primary/90"
                           }`}
                         >
                           {isActive ? (ch === "widget" ? "Manage" : "Disconnect") : isComingSoon ? "Not Available Yet" : "Connect"}
@@ -198,7 +261,6 @@ export default function Channels() {
         </div>
       </div>
 
-      {/* Video Guide Modal */}
       {guideOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
