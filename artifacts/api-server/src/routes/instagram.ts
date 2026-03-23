@@ -32,6 +32,14 @@ instagramRouter.get("/oauth/start", async (req, res) => {
       const secret = process.env.JWT_SECRET || "";
       const decoded = jwt.verify(queryToken, secret) as any;
       storeId = decoded.storeId;
+      // If no storeId in token, look up from userId
+      if (!storeId && decoded.userId) {
+        const { rows } = await pool.query(
+          `SELECT id FROM stores WHERE owner_id = $1 OR id IN (SELECT store_id FROM team_members WHERE user_id = $1) LIMIT 1`,
+          [decoded.userId]
+        );
+        storeId = rows[0]?.id;
+      }
     } catch (err) {
       res.status(401).json({ error: "invalid_token" }); return;
     }
