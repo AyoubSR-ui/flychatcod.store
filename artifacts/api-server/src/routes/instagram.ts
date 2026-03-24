@@ -72,7 +72,7 @@ instagramRouter.get("/oauth/start", async (req, res) => {
   });
 
   console.log("[Instagram OAuth] Start redirect_uri:", CALLBACK_URL);
-  res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
+  res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);});
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
 instagramRouter.get("/oauth/callback", async (req, res) => {
   console.log("[Instagram OAuth] Callback received:", JSON.stringify(req.query));
@@ -332,4 +332,4 @@ async function processIncomingInstagramMessage(incoming: {
       },
     });
   }
-}});
+}
