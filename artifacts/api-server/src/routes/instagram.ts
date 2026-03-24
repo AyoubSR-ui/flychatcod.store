@@ -21,6 +21,8 @@ const IG_APP_SECRET = process.env.META_APP_SECRET_INSTAGRAM || "";
 const IG_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "flychat-wa-2026";
 const API_BASE = process.env.API_BASE_URL || "https://zealous-nature-production-771f.up.railway.app";
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
+// Temporary store for OAuth state (storeId mapped to random key)
+const oauthStateMap = new Map<string, string>();
 
 // ─── OAuth Start ──────────────────────────────────────────────────────────────
 instagramRouter.get("/oauth/start", async (req, res) => {
@@ -53,38 +55,51 @@ instagramRouter.get("/oauth/start", async (req, res) => {
     return;
   }
 
-  // Pass storeId in redirect_uri since Instagram new API doesn't return state
-  const callbackUrl = `${API_BASE}/api/instagram/oauth/callback?sid=${storeId}`;
+  // Generate random key and store storeId
+  const stateKey = generateId("st");
+  oauthStateMap.set(stateKey, storeId);
+  // Clean up after 10 minutes
+  setTimeout(() => oauthStateMap.delete(stateKey), 10 * 60 * 1000);
 
+  const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
   const params = new URLSearchParams({
     force_reauth: "true",
     client_id: IG_APP_ID,
-    redirect_uri: callbackUrl,
+    redirect_uri: CALLBACK_URL,
     response_type: "code",
     scope: "instagram_business_basic,instagram_business_manage_messages",
+    state: stateKey,
   });
-  res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
-});
 
+  res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
 instagramRouter.get("/oauth/callback", async (req, res) => {
   console.log("[Instagram OAuth] Callback received:", JSON.stringify(req.query));
-  const { code, error, error_reason, error_description, sid } = req.query as Record<string, string>;
-
+  const { code, state, error, error_reason, error_description } = req.query as Record<string, string>;
+  
   if (error) {
-    console.error("[Instagram OAuth] Error:", error, error_reason, error_description);
     res.redirect(`${FRONTEND_URL}/channels?error=instagram_auth_failed`);
     return;
   }
-
-  if (!code || !sid) {
-    console.error("[Instagram OAuth] Missing code or sid:", JSON.stringify(req.query));
+  if (!code || !state) {
+    res.redirect(`${FRONTEND_URL}/channels?error=instagram_missing_params`);
+    return;
+  }
+  
+  const storeId = oauthStateMap.get(state);
+  oauthStateMap.delete(state);
+  
+  if (!storeId) {
+    console.error("[Instagram OAuth] No storeId for state:", state);
     res.redirect(`${FRONTEND_URL}/channels?error=instagram_missing_params`);
     return;
   }
 
+  const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
+
   try {
-    const storeId = sid;
+    const storeId = oauthStateMap.get(state);
+    oauthStateMap.delete(state);
     const callbackUrl = `${API_BASE}/api/instagram/oauth/callback?sid=${storeId}`;
 
     // Exchange code for short-lived token
@@ -312,4 +327,4 @@ async function processIncomingInstagramMessage(incoming: {
       },
     });
   }
-}
+}});
