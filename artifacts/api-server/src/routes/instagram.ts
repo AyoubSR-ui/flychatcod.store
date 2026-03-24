@@ -314,6 +314,7 @@ async function processIncomingInstagramMessage(incoming: {
     const recentOrders = await db.select().from(ordersTable)
       .where(eq(ordersTable.storeId, store.id))
       .orderBy(desc(ordersTable.createdAt)).limit(20);
+    console.log(`[Instagram] Passing ${products.length} products and ${recentOrders.length} orders to AI`);
 
     await callAiBridge({
       messageId: msgId, conversationId: conversation.id,
