@@ -71,6 +71,7 @@ instagramRouter.get("/oauth/start", async (req, res) => {
     state: stateKey,
   });
 
+  console.log("[Instagram OAuth] Start redirect_uri:", CALLBACK_URL);
   res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
 instagramRouter.get("/oauth/callback", async (req, res) => {
