@@ -96,6 +96,7 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
   }
 
   const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
+  console.log("[Instagram OAuth] redirect_uri:", CALLBACK_URL);
 
   try {
     const storeId = oauthStateMap.get(state);
