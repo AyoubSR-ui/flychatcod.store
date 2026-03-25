@@ -18,7 +18,7 @@ export default function Features() {
                 <h2 className="text-3xl font-bold text-foreground">Real-time Omnichannel Inbox</h2>
                 <p className="text-lg text-muted-foreground">Stop missing messages. See all your customer queries in one place with instant notifications.</p>
                 <ul className="space-y-3">
-                  {['Website Chat Widget included', 'WhatsApp Integration (Coming Soon)', 'Instagram Direct (Coming Soon)'].map((i, k) => (
+                  {['Website Chat Widget included', 'WhatsApp Integration', 'Instagram DMs', 'Facebook Messenger'].map((i, k) => (
                     <li key={k} className="flex items-center gap-3 text-foreground font-medium"><CheckCircle2 className="text-primary w-5 h-5"/> {i}</li>
                   ))}
                 </ul>
