@@ -126,16 +126,15 @@ export default function Channels() {
     }
   }, [refetch]);
 
-  // Listen for popup close to refresh channels
+ // Listen for popup close to refresh channels
   const handleConnect = (ch: string) => {
-    if (ch === "instagram") {
+    if (ch === "instagram" || ch === "messenger") {
       const token = localStorage.getItem("flychat_token") || "";
       const popup = window.open(
-        API_BASE + "/api/instagram/oauth/start?token=" + token,
-        "instagram_oauth",
+        `${API_BASE}/api/${ch}/oauth/start?token=${token}`,
+        `${ch}_oauth`,
         "width=600,height=700,scrollbars=yes"
       );
-      // Poll for popup close then refetch
       const timer = setInterval(() => {
         if (popup?.closed) {
           clearInterval(timer);
@@ -144,7 +143,6 @@ export default function Channels() {
       }, 500);
     }
   };
-
   const handleDisconnect = async (ch: string) => {
     if (ch === "instagram") {
       const token = localStorage.getItem("flychat_token") || "";
@@ -186,7 +184,7 @@ export default function Channels() {
                 const meta = CHANNEL_META[ch];
                 const conn = channelMap[ch];
                 const isActive = conn?.status === "connected";
-                const isComingSoon = ch === "messenger";
+                const isComingSoon = false;
 
                 return (
                   <div key={ch} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isActive ? "border-primary/30" : "border-border"}`}>
