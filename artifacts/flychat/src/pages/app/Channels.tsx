@@ -144,9 +144,9 @@ export default function Channels() {
     }
   };
   const handleDisconnect = async (ch: string) => {
-    if (ch === "instagram") {
+    if (ch === "instagram" || ch === "messenger") {
       const token = localStorage.getItem("flychat_token") || "";
-      await fetch(API_BASE + "/api/instagram/disconnect", {
+      await fetch(`${API_BASE}/api/${ch}/disconnect`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
