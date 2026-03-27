@@ -255,6 +255,15 @@ async function processIncomingInstagramMessage(incoming: {
   const channel = channelRows[0];
   if (!channel) { console.warn(`[Instagram] No channel for IG account: ${incoming.igAccountId}`); return; }
 
+   // Self-heal: if found via metadata match but external_account_id is wrong, fix it
+  if (channel.external_account_id !== incoming.igAccountId) {
+  await pool.query(
+    `UPDATE channel_connections SET external_account_id = $1, updated_at = NOW() WHERE id = $2`,
+    [incoming.igAccountId, channel.id]
+  );
+  console.log(`[Instagram] Self-healed external_account_id to ${incoming.igAccountId}`);
+  }
+
   const { rows: storeRows } = await pool.query(
     `SELECT *, ai_enabled as "aiEnabled", ai_system_prompt as "aiSystemPrompt" FROM stores WHERE id = $1 LIMIT 1`,
     [channel.storeId]
