@@ -134,7 +134,7 @@ if (success === "instagram_connected") {
 
  // Listen for popup close to refresh channels
   const handleConnect = (ch: string) => {
-    if (ch === "instagram" || ch === "messenger") {
+    if (ch === "instagram" || ch === "messenger" || ch === "whatsapp") {
       const token = localStorage.getItem("flychat_token") || "";
       const popup = window.open(
         `${API_BASE}/api/${ch}/oauth/start?token=${token}`,
