@@ -119,6 +119,16 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
 
     const shortToken = tokenData.access_token;
+    // Fetch username using short-lived token (before exchanging for long-lived)
+   let igUsername = "";
+   try {
+  const userRes = await fetch(
+    `https://graph.instagram.com/me?fields=username&access_token=${shortToken}`
+  );
+  const userData = await userRes.json() as any;
+  igUsername = userData.username || "";
+  console.log(`[Instagram OAuth] Username: ${igUsername}`);
+   } catch {}
 
     // Exchange for long-lived token
     const longRes = await fetch(
@@ -148,12 +158,12 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     if (existing.length > 0) {
       await pool.query(
         `UPDATE channel_connections SET status = 'connected', access_token = $1, external_account_id = 'pending', metadata = $2, updated_at = NOW() WHERE store_id = $3 AND channel = 'instagram'`,
-        [accessToken, JSON.stringify({ appScopedId, realIdPending: true }), storeId]
+        [accessToken, JSON.stringify({ appScopedId, username: igUsername, realIdPending: true }), storeId]
       );
     } else {
       await pool.query(
         `INSERT INTO channel_connections (id, store_id, channel, status, access_token, external_account_id, metadata, created_at, updated_at) VALUES ($1, $2, 'instagram', 'connected', $3, 'pending', $4, NOW(), NOW())`,
-        [generateId("ch"), storeId, accessToken, JSON.stringify({ appScopedId, realIdPending: true })]
+        [generateId("ch"), storeId, accessToken, JSON.stringify({ appScopedId, username: igUsername, realIdPending: true })]
       );
     }
 

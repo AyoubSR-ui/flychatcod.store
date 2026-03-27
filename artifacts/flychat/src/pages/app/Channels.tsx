@@ -303,13 +303,18 @@ export default function Channels() {
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
 
   // Extract connected account label per channel
-function getAccountLabel(ch: string, conn: any): string | null {
+  function getAccountLabel(ch: string, conn: any): string | null {
   if (!conn || conn.status !== "connected") return null;
   const meta = (conn.metadata ?? {}) as Record<string, unknown>;
   if (ch === "messenger") return meta.pageName as string || null;
-  if (ch === "whatsapp") return conn.externalAccountId ? `+${conn.externalAccountId}` : null;
-  if (ch === "instagram") return conn.externalAccountId && conn.externalAccountId !== "pending"
-    ? `ID: ${conn.externalAccountId}` : "Pending first message";
+  if (ch === "whatsapp") return conn.externalAccountId
+    ? `Phone ID: ${conn.externalAccountId}` : null;
+  if (ch === "instagram") {
+    const username = meta.username as string;
+    if (username) return `@${username}`;
+    return conn.externalAccountId && conn.externalAccountId !== "pending"
+      ? `ID: ${conn.externalAccountId}` : "Pending first message";
+  }
   if (ch === "widget") return "Embedded on your website";
   return null;
 }
