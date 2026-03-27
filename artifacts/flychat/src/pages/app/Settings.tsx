@@ -1,154 +1,266 @@
-import { Router } from "express";
-import { db, storesTable, usersTable, channelConnectionsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { AppLayout } from "@/components/AppLayout";
+import { useState, useEffect } from "react";
+import { useGetStoreSettings, useUpdateStoreSettings } from "@workspace/api-client-react";
+import { useI18n } from "@/hooks/use-i18n";
+import { Store, Globe, MapPin, Bot, Check } from "lucide-react";
 
-const router = Router();
+const TABS = ["profile", "language", "shipping", "autopilot"] as const;
+const WILAYAS = ["Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar","Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger","Djelfa","Jijel","Sétif","Saïda","Skikda","Sidi Bel Abbès","Annaba","Guelma","Constantine","Médéa","Mostaganem","M'Sila","Mascara","Ouargla","Oran","El Bayadh","Illizi","Bordj Bou Arréridj","Boumerdès","El Tarf","Tindouf","Tissemsilt","El Oued","Khenchela","Souk Ahras","Tipaza","Mila","Aïn Defla","Naâma","Aïn Témouchent","Ghardaïa","Relizane"];
 
-router.get("/store", requireAuth, async (req, res) => {
-  try {
-    const user = req.user!;
-    if (!user.storeId) { res.status(404).json({ error: "not_found", message: "No store found" }); return; }
-    const [store] = await db.select().from(storesTable).where(eq(storesTable.id, user.storeId)).limit(1);
-    if (!store) { res.status(404).json({ error: "not_found", message: "Store not found" }); return; }
-    res.json({
-      id: store.id, name: store.name, description: store.description,
-      phone: store.phone, logoUrl: store.logoUrl, websiteUrl: store.websiteUrl,
-      defaultLanguage: store.defaultLanguage, widgetLanguage: store.widgetLanguage,
-      shippingWilayas: store.shippingWilayas || [],
+const CHANNEL_META = {
+  whatsapp:  { label: "WhatsApp",           color: "text-green-700",  bg: "bg-green-50",  border: "border-green-200", dot: "bg-green-500"  },
+  instagram: { label: "Instagram DMs",      color: "text-pink-700",   bg: "bg-pink-50",   border: "border-pink-200",  dot: "bg-pink-500"   },
+  messenger: { label: "Facebook Messenger", color: "text-blue-700",   bg: "bg-blue-50",   border: "border-blue-200",  dot: "bg-blue-500"   },
+  widget:    { label: "Website Widget",     color: "text-violet-700", bg: "bg-violet-50", border: "border-violet-200",dot: "bg-violet-500" },
+} as const;
+
+const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+
+type Channel = keyof typeof CHANNEL_META;
+type AiModes = Record<Channel, "human" | "ai_autopilot">;
+
+export default function Settings() {
+  const [tab, setTab] = useState<typeof TABS[number]>("profile");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const { data: store, isLoading, refetch } = useGetStoreSettings();
+  const updateStore = useUpdateStoreSettings();
+  const { t, language, setLanguage } = useI18n();
+
+  const [form, setForm] = useState({
+    name: "", description: "", phone: "", logoUrl: "", websiteUrl: "",
+    defaultLanguage: "fr", widgetLanguage: "fr", shippingWilayas: [] as string[],
+  });
+
+  const [aiModes, setAiModes] = useState<AiModes>({
+    whatsapp: "human", instagram: "human", messenger: "human", widget: "human",
+  });
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiSaved, setAiSaved] = useState(false);
+
+  useEffect(() => {
+    if (store) setForm({
+      name: store.name || "", description: store.description || "",
+      phone: store.phone || "", logoUrl: store.logoUrl || "",
+      websiteUrl: store.websiteUrl || "", defaultLanguage: store.defaultLanguage || "fr",
+      widgetLanguage: store.widgetLanguage || "fr", shippingWilayas: store.shippingWilayas || [],
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to fetch store settings" });
-  }
-});
+  }, [store]);
 
-router.patch("/store", requireAuth, async (req, res) => {
-  try {
-    const user = req.user!;
-    if (!user.storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
-    const { name, description, phone, logoUrl, websiteUrl, defaultLanguage, widgetLanguage, shippingWilayas } = req.body;
-    const updates: Partial<typeof storesTable.$inferSelect> = { updatedAt: new Date() };
-    if (name) updates.name = name;
-    if (description !== undefined) updates.description = description;
-    if (phone !== undefined) updates.phone = phone;
-    if (logoUrl !== undefined) updates.logoUrl = logoUrl;
-    if (websiteUrl !== undefined) updates.websiteUrl = websiteUrl;
-    if (defaultLanguage) updates.defaultLanguage = defaultLanguage;
-    if (widgetLanguage) updates.widgetLanguage = widgetLanguage;
-    if (shippingWilayas) updates.shippingWilayas = shippingWilayas;
-    const [updated] = await db.update(storesTable).set(updates).where(eq(storesTable.id, user.storeId)).returning();
-    if (!updated) { res.status(404).json({ error: "not_found", message: "Store not found" }); return; }
-    if (defaultLanguage) await db.update(usersTable).set({ language: defaultLanguage }).where(eq(usersTable.id, user.id));
-    res.json({
-      id: updated.id, name: updated.name, description: updated.description,
-      phone: updated.phone, logoUrl: updated.logoUrl, websiteUrl: updated.websiteUrl,
-      defaultLanguage: updated.defaultLanguage, widgetLanguage: updated.widgetLanguage,
-      shippingWilayas: updated.shippingWilayas || [],
+  useEffect(() => {
+    if (tab !== "autopilot") return;
+    const token = localStorage.getItem("flychat_token") || "";
+    fetch(`${API_BASE}/api/settings/channels-ai`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(data => { if (data && typeof data === "object") setAiModes(prev => ({ ...prev, ...data })); })
+      .catch(console.error);
+  }, [tab]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await updateStore.mutateAsync({ data: form as any });
+    if (form.defaultLanguage !== language) setLanguage(form.defaultLanguage as "en" | "fr");
+    setSaving(false); setSaved(true); refetch();
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSaveAiModes = async () => {
+    setAiSaving(true);
+    const token = localStorage.getItem("flychat_token") || "";
+    await fetch(`${API_BASE}/api/settings/channels-ai`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(aiModes),
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to update store settings" });
-  }
-});
+    setAiSaving(false); setAiSaved(true);
+    setTimeout(() => setAiSaved(false), 2000);
+  };
 
-router.get("/ai", requireAuth, async (req, res) => {
-  try {
-    const user = req.user!;
-    if (user.role !== "owner" && user.role !== "admin") { res.status(403).json({ error: "forbidden" }); return; }
-    if (!user.storeId) { res.status(404).json({ error: "not_found" }); return; }
-    const [store] = await db.select().from(storesTable).where(eq(storesTable.id, user.storeId)).limit(1);
-    if (!store) { res.status(404).json({ error: "not_found" }); return; }
-    res.json({ aiEnabled: store.aiEnabled, aiSystemPrompt: store.aiSystemPrompt || "", aiFallbackToHuman: store.aiFallbackToHuman });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to fetch AI settings" });
-  }
-});
+  const toggleWilaya = (w: string) => {
+    setForm(f => ({ ...f, shippingWilayas: f.shippingWilayas.includes(w) ? f.shippingWilayas.filter(x => x !== w) : [...f.shippingWilayas, w] }));
+  };
 
-router.patch("/ai", requireAuth, async (req, res) => {
-  try {
-    const user = req.user!;
-    if (user.role !== "owner" && user.role !== "admin") { res.status(403).json({ error: "forbidden" }); return; }
-    if (!user.storeId) { res.status(400).json({ error: "no_store" }); return; }
-    const { aiEnabled, aiSystemPrompt, aiFallbackToHuman } = req.body;
-    const updates: Partial<typeof storesTable.$inferSelect> = { updatedAt: new Date() };
-    if (typeof aiEnabled === "boolean") updates.aiEnabled = aiEnabled;
-    if (typeof aiSystemPrompt === "string") updates.aiSystemPrompt = aiSystemPrompt;
-    if (typeof aiFallbackToHuman === "boolean") updates.aiFallbackToHuman = aiFallbackToHuman;
-    const [updated] = await db.update(storesTable).set(updates).where(eq(storesTable.id, user.storeId)).returning();
-    if (!updated) { res.status(404).json({ error: "not_found" }); return; }
-    res.json({ aiEnabled: updated.aiEnabled, aiSystemPrompt: updated.aiSystemPrompt || "", aiFallbackToHuman: updated.aiFallbackToHuman });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to update AI settings" });
-  }
-});
+  const TAB_LABELS = { profile: "Store Profile", language: "Language", shipping: "Shipping Zones", autopilot: "Autopilot" };
 
-// ─── GET per-channel default AI mode ─────────────────────────────────────────
-router.get("/channels-ai", requireAuth, async (req, res) => {
-  try {
-    const user = req.user!;
-    if (!user.storeId) { res.status(404).json({ error: "not_found" }); return; }
+  if (isLoading) return (
+    <AppLayout><div className="p-10 flex justify-center"><div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" /></div></AppLayout>
+  );
 
-    const channels = await db.select().from(channelConnectionsTable)
-      .where(eq(channelConnectionsTable.storeId, user.storeId));
+  return (
+    <AppLayout>
+      <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <div>
+            <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.settings")}</h1>
+            <p className="text-muted-foreground mt-1">Configure your store profile and preferences.</p>
+          </div>
 
-    const result: Record<string, string> = {
-      whatsapp: "human",
-      instagram: "human",
-      messenger: "human",
-      widget: "human",
-    };
+          <div className="flex gap-1 bg-secondary/50 p-1 rounded-xl border border-border w-fit">
+            {TABS.map(tb => (
+              <button key={tb} onClick={() => setTab(tb)}
+                className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === tb ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                {TAB_LABELS[tb]}
+              </button>
+            ))}
+          </div>
 
-    for (const ch of channels) {
-      const meta = (ch.metadata ?? {}) as Record<string, unknown>;
-      if (typeof meta.defaultAiMode === "string") {
-        result[ch.channel] = meta.defaultAiMode;
-      }
-    }
+          {tab === "profile" && (
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
+              <div className="flex items-center gap-3 pb-4 border-b border-border">
+                <Store className="w-5 h-5 text-primary" />
+                <h3 className="font-bold text-foreground">Store Profile</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Store Name *</label>
+                  <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Business Phone</label>
+                  <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Store Description</label>
+                <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={3} className="w-full border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Website URL</label>
+                <input value={form.websiteUrl} onChange={e => setForm({...form, websiteUrl: e.target.value})} placeholder="https://" className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Logo URL</label>
+                <input value={form.logoUrl} onChange={e => setForm({...form, logoUrl: e.target.value})} placeholder="https://..." className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+              </div>
+              <button onClick={handleSave} disabled={saving}
+                className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
+                {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
+              </button>
+            </div>
+          )}
 
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to fetch channel AI modes" });
-  }
-});
+          {tab === "language" && (
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 pb-4 border-b border-border">
+                <Globe className="w-5 h-5 text-primary" />
+                <h3 className="font-bold text-foreground">Language Preferences</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="border border-border rounded-xl p-5 space-y-3">
+                  <div>
+                    <p className="font-semibold text-foreground">Interface Language</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Language of the seller dashboard</p>
+                  </div>
+                  <select value={form.defaultLanguage} onChange={e => setForm({...form, defaultLanguage: e.target.value})}
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
+                    <option value="fr">🇫🇷 Français</option>
+                    <option value="en">🇬🇧 English</option>
+                  </select>
+                </div>
+                <div className="border border-border rounded-xl p-5 space-y-3">
+                  <div>
+                    <p className="font-semibold text-foreground">Widget Language</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Default language shown to visitors on your widget</p>
+                  </div>
+                  <select value={form.widgetLanguage} onChange={e => setForm({...form, widgetLanguage: e.target.value})}
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
+                    <option value="fr">🇫🇷 Français</option>
+                    <option value="en">🇬🇧 English</option>
+                  </select>
+                </div>
+              </div>
+              <div className="bg-secondary/50 border border-border rounded-xl p-4">
+                <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">Arabic/Darija support</span> is planned for a future release. The architecture already supports adding new locales.</p>
+              </div>
+              <button onClick={handleSave} disabled={saving}
+                className={`px-5 py-2.5 rounded-xl font-bold text-sm ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
+                {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
+              </button>
+            </div>
+          )}
 
-// ─── PATCH per-channel default AI mode ───────────────────────────────────────
-router.patch("/channels-ai", requireAuth, async (req, res) => {
-  try {
-    const user = req.user!;
-    if (user.role !== "owner" && user.role !== "admin") { res.status(403).json({ error: "forbidden" }); return; }
-    if (!user.storeId) { res.status(400).json({ error: "no_store" }); return; }
+          {tab === "shipping" && (
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
+              <div className="flex items-center gap-3 pb-4 border-b border-border">
+                <MapPin className="w-5 h-5 text-primary" />
+                <h3 className="font-bold text-foreground">Shipping Wilayas</h3>
+                <span className="ml-auto text-sm text-muted-foreground">{form.shippingWilayas.length} selected</span>
+              </div>
+              <div className="flex gap-3 mb-3">
+                <button onClick={() => setForm({...form, shippingWilayas: [...WILAYAS]})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Select All</button>
+                <button onClick={() => setForm({...form, shippingWilayas: []})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Clear All</button>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto pr-1">
+                {WILAYAS.map(w => (
+                  <label key={w} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-all ${form.shippingWilayas.includes(w) ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-secondary"}`}>
+                    <input type="checkbox" checked={form.shippingWilayas.includes(w)} onChange={() => toggleWilaya(w)} className="w-3.5 h-3.5 accent-primary" />
+                    {w}
+                  </label>
+                ))}
+              </div>
+              <button onClick={handleSave} disabled={saving}
+                className={`px-5 py-2.5 rounded-xl font-bold text-sm ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
+                {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
+              </button>
+            </div>
+          )}
 
-    // body: { whatsapp: "ai_autopilot", instagram: "human", ... }
-    const validChannels = ["whatsapp", "instagram", "messenger", "widget"] as const;
-    const validModes = ["human", "ai_autopilot"];
+          {tab === "autopilot" && (
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 pb-4 border-b border-border">
+                <Bot className="w-5 h-5 text-primary" />
+                <div>
+                  <h3 className="font-bold text-foreground">Channel Autopilot</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Set the default mode for new conversations on each channel.</p>
+                </div>
+              </div>
 
-    for (const ch of validChannels) {
-      const mode = req.body[ch];
-      if (!mode || !validModes.includes(mode)) continue;
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-sm text-violet-800">
+                <p><span className="font-bold">How it works:</span> When a new message arrives on a channel, the conversation starts in the mode you set here. You can always switch per-conversation inside the Inbox.</p>
+              </div>
 
-      const [existing] = await db.select().from(channelConnectionsTable)
-        .where(and(
-          eq(channelConnectionsTable.storeId, user.storeId),
-          eq(channelConnectionsTable.channel, ch)
-        )).limit(1);
+              <div className="space-y-3">
+                {(Object.entries(CHANNEL_META) as [Channel, typeof CHANNEL_META[Channel]][]).map(([ch, meta]) => {
+                  const isAi = aiModes[ch] === "ai_autopilot";
+                  return (
+                    <div key={ch} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isAi ? `${meta.bg} ${meta.border}` : "bg-secondary/30 border-border"}`}>
+                      <div className="flex items-center gap-3">
+                        <span className={`w-2.5 h-2.5 rounded-full ${isAi ? meta.dot : "bg-gray-300"}`} />
+                        <div>
+                          <p className={`font-semibold text-sm ${isAi ? meta.color : "text-foreground"}`}>{meta.label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {isAi ? "AI handles new messages automatically" : "Agent handles new messages manually"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-medium ${!isAi ? "text-foreground" : "text-muted-foreground"}`}>Human</span>
+                        <button
+                          onClick={() => setAiModes(prev => ({ ...prev, [ch]: isAi ? "human" : "ai_autopilot" }))}
+                          className={`relative w-11 h-6 rounded-full transition-colors ${isAi ? "bg-violet-600" : "bg-gray-200"}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isAi ? "translate-x-5" : "translate-x-0"}`} />
+                        </button>
+                        <span className={`text-xs font-medium ${isAi ? "text-violet-700" : "text-muted-foreground"}`}>AI</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-      if (existing) {
-        const currentMeta = (existing.metadata ?? {}) as Record<string, unknown>;
-        await db.update(channelConnectionsTable)
-          .set({ metadata: { ...currentMeta, defaultAiMode: mode }, updatedAt: new Date() })
-          .where(eq(channelConnectionsTable.id, existing.id));
-      }
-    }
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800">
+                <span className="font-bold">Note:</span> AI autopilot only activates if your store AI is enabled in <span className="font-semibold">AI settings</span>.
+              </div>
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to update channel AI modes" });
-  }
-});
-
-export default router;
+              <button onClick={handleSaveAiModes} disabled={aiSaving}
+                className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${aiSaved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
+                {aiSaved ? <><Check className="w-4 h-4" /> Saved!</> : aiSaving ? "Saving..." : t("common.save")}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </AppLayout>
+  );
+}
