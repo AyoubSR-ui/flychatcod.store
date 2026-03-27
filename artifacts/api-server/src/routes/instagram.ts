@@ -246,8 +246,11 @@ async function processIncomingInstagramMessage(incoming: {
   console.log(`[Instagram] Message from ${incoming.senderId}`);
 
   const { rows: channelRows } = await pool.query(
-    `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections WHERE channel = 'instagram' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
-    [incoming.igAccountId]
+  `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections 
+   WHERE channel = 'instagram' AND status = 'connected' 
+   AND (external_account_id = $1 OR metadata->>'igUserId' = $1)
+   LIMIT 1`,
+  [incoming.igAccountId]
   );
   const channel = channelRows[0];
   if (!channel) { console.warn(`[Instagram] No channel for IG account: ${incoming.igAccountId}`); return; }
