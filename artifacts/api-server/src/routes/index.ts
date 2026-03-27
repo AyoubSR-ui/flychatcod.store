@@ -19,6 +19,10 @@ import { whatsappRouter } from "./whatsapp.js";
 import { instagramRouter } from "./instagram.js";
 import { messengerRouter } from "./messenger.js";
 
+
+
+
+
 const router = Router();
 
 router.use("/", healthRouter);
