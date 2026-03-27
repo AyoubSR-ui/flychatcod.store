@@ -309,6 +309,15 @@ async function processIncomingInstagramMessage(incoming: {
 
   console.log(`[Instagram] Message saved: conv=${conversation.id}`);
 
+  try {
+    const { getIO } = await import("../socket.js");
+    const io = getIO();
+    io.to(`store:${store.id}`).emit("new_conversation_message", {
+      conversationId: conversation.id,
+      storeId: store.id,
+    });
+  } catch {}
+
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const rawProducts = await db.select().from(productsTable).where(eq(productsTable.storeId, store.id));
     const products = rawProducts.map(p => ({ ...p, price: parseFloat(String(p.price)) || 0, stock: p.stock ?? 0 }));
