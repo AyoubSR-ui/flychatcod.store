@@ -276,7 +276,12 @@ async function processIncomingInstagramMessage(incoming: {
     await db.insert(conversationsTable).values({
       id: convId, storeId: store.id, customerId: customer!.id,
       customerName: "Instagram User", channel: "instagram", status: "open",
-      aiMode: store.aiEnabled ? "ai_autopilot" : "human",
+      aiMode: (() => {
+    const meta = (channel.metadata ?? {}) as Record<string, unknown>;
+    const defaultMode = meta.defaultAiMode as string | undefined;
+    if (defaultMode === "ai_autopilot" && store.aiEnabled) return "ai_autopilot";
+    return "human";
+    })(),
       createdAt: new Date(), updatedAt: new Date(),
     });
     const { rows: newRows } = await pool.query(

@@ -195,7 +195,12 @@ async function processIncomingWhatsAppMessage(incoming: {
       customerName: customer!.name ?? incoming.from,
       channel: "whatsapp",
       status: "open",
-      aiMode: store.aiEnabled ? "ai_autopilot" : "human",
+      aiMode: (() => {
+    const meta = (channel.metadata ?? {}) as Record<string, unknown>;
+    const defaultMode = meta.defaultAiMode as string | undefined;
+    if (defaultMode === "ai_autopilot" && store.aiEnabled) return "ai_autopilot";
+    return "human";
+    })(),  
       createdAt: new Date(),
       updatedAt: new Date(),
     });
