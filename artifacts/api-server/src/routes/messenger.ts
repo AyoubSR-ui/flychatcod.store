@@ -33,7 +33,7 @@ messengerRouter.get("/oauth/start", async (req, res) => {
   if (queryToken) {
     try {
       const secret = process.env.JWT_SECRET || "";
-      const decoded = jwt.verify(queryToken, secret) as any;
+     const decoded = jwt.verify(queryToken, secret) as any;
       storeId = decoded.storeId;
       if (!storeId && decoded.userId) {
         const { rows } = await pool.query(
