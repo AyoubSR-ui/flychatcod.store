@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, conversationsTable, messagesTable, ordersTable, customersTable } from "@workspace/db";
+import { db, pool, conversationsTable, messagesTable, ordersTable, customersTable } from "@workspace/db";
 import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
@@ -90,7 +90,6 @@ router.get("/:id", requireAuth, async (req, res) => {
       .where(eq(messagesTable.conversationId, conv.id))
       .orderBy(messagesTable.createdAt);
 
-    // Fetch orders linked to this conversation
     const relatedOrders = await db
       .select({
         id: ordersTable.id,
@@ -105,7 +104,6 @@ router.get("/:id", requireAuth, async (req, res) => {
       .orderBy(sql`${ordersTable.createdAt} desc`)
       .limit(10);
 
-    // Fetch linked customer
     let customer = null;
     if (conv.customerId) {
       const [c] = await db.select().from(customersTable)
@@ -151,7 +149,6 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
 
-    // Verify conversation belongs to this store, then reset unread count
     const [conv] = await db
       .select({ id: conversationsTable.id })
       .from(conversationsTable)
@@ -211,6 +208,54 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
           message: { id: msg.id, content: msg.content, sender: msg.sender, metadata: msg.metadata, createdAt: msg.createdAt },
         });
       } catch {}
+    }
+
+    // Send to external channel if not internal
+    if (!isInternal) {
+      try {
+        const [conv] = await db.select().from(conversationsTable)
+          .where(eq(conversationsTable.id, req.params.id)).limit(1);
+
+        if (conv && conv.channel !== "widget") {
+          const { rows: channelRows } = await pool.query(
+            `SELECT access_token as "accessToken", external_account_id as "externalAccountId" FROM channel_connections WHERE store_id = $1 AND channel = $2 AND status = 'connected' LIMIT 1`,
+            [conv.storeId, conv.channel]
+          );
+          const channelConn = channelRows[0];
+
+          if (channelConn) {
+            const [customer] = await db.select().from(customersTable)
+              .where(eq(customersTable.id, conv.customerId!)).limit(1);
+
+            const recipientId = customer?.phone;
+            if (recipientId && channelConn.accessToken) {
+              if (conv.channel === "whatsapp") {
+                const phoneNumberId = channelConn.externalAccountId;
+                await fetch(`https://graph.facebook.com/v18.0/${phoneNumberId}/messages`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${channelConn.accessToken}` },
+                  body: JSON.stringify({ messaging_product: "whatsapp", to: recipientId, type: "text", text: { body: content } }),
+                });
+              } else if (conv.channel === "instagram") {
+                await fetch(`https://graph.instagram.com/v18.0/me/messages?access_token=${channelConn.accessToken}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ recipient: { id: recipientId }, message: { text: content } }),
+                });
+              } else if (conv.channel === "messenger") {
+                await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${channelConn.accessToken}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ recipient: { id: recipientId }, message: { text: content }, messaging_type: "RESPONSE" }),
+                });
+              }
+              console.log(`[Conversations] Message sent to ${conv.channel} recipient ${recipientId}`);
+            }
+          }
+        }
+      } catch (channelErr) {
+        console.error("[Conversations] Channel send error:", channelErr);
+      }
     }
 
     res.status(201).json(responseMsg);
