@@ -302,6 +302,18 @@ export default function Channels() {
 
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
 
+  // Extract connected account label per channel
+function getAccountLabel(ch: string, conn: any): string | null {
+  if (!conn || conn.status !== "connected") return null;
+  const meta = (conn.metadata ?? {}) as Record<string, unknown>;
+  if (ch === "messenger") return meta.pageName as string || null;
+  if (ch === "whatsapp") return conn.externalAccountId ? `+${conn.externalAccountId}` : null;
+  if (ch === "instagram") return conn.externalAccountId && conn.externalAccountId !== "pending"
+    ? `ID: ${conn.externalAccountId}` : "Pending first message";
+  if (ch === "widget") return "Embedded on your website";
+  return null;
+}
+
   return (
     <AppLayout>
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
@@ -342,9 +354,14 @@ export default function Channels() {
                           <div className="shrink-0">{meta.icon}</div>
                           <div>
                             <h3 className="font-bold text-foreground">{meta.name}</h3>
-                            <div className="mt-1">
-                              <StatusBadge status={conn?.status || "disconnected"} />
-                            </div>
+                            <div className="mt-1 flex flex-col gap-1">
+                             <StatusBadge status={conn?.status || "disconnected"} />
+                              {getAccountLabel(ch, conn) && (
+                              <span className="text-xs text-muted-foreground font-medium truncate max-w-[160px]">
+                              {getAccountLabel(ch, conn)}
+                              </span>
+                                  )}
+                           </div>
                           </div>
                         </div>
                       </div>
