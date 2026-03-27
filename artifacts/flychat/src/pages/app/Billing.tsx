@@ -1,14 +1,17 @@
 import { AppLayout } from "@/components/AppLayout";
-import { CreditCard, Check, Zap, ArrowUpRight, FileText, Bot, AlertTriangle, Sparkles } from "lucide-react";
+import { CreditCard, Check, Zap, ArrowUpRight, FileText, Bot, AlertTriangle, Sparkles, X } from "lucide-react";
 import { useGetSubscription, useGetPlans, useGetBillingAiStatus } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 
-const TOP_UP_OPTIONS = [
-  { credits: 50000, label: "50K", price: "1,500 DZD" },
-  { credits: 100000, label: "100K", price: "2,800 DZD" },
-  { credits: 500000, label: "500K", price: "12,000 DZD" },
-];
+const PLAN_COLORS: Record<string, string> = {
+  free: "from-gray-400 to-gray-500",
+  starter: "from-blue-500 to-cyan-500",
+  pro: "from-primary to-blue-600",
+  agency: "from-violet-500 to-purple-600",
+};
+
+const PLAN_ORDER = ["free", "starter", "pro", "agency"];
 
 export default function Billing() {
   const { data: sub } = useGetSubscription();
@@ -17,7 +20,10 @@ export default function Billing() {
   const { data: aiStatusData } = useGetBillingAiStatus();
   const aiStatus = aiStatusData ?? null;
 
-  const planColors: Record<string, string> = { basic: "from-slate-500 to-slate-600", pro: "from-primary to-blue-600", ai_addon: "from-violet-500 to-purple-600" };
+  const plans = plansData?.plans ?? [];
+  const topUps = (plansData as any)?.topUps ?? [];
+
+  const currentPlanIndex = PLAN_ORDER.indexOf(sub?.plan ?? "free");
 
   const aiStatusColor = aiStatus?.statusLabel === "active" ? "text-green-700 bg-green-100"
     : aiStatus?.statusLabel === "low_credits" ? "text-amber-700 bg-amber-100"
@@ -42,6 +48,7 @@ export default function Billing() {
             <p className="text-muted-foreground mt-1">Manage your subscription and usage.</p>
           </div>
 
+          {/* Current plan */}
           {sub && (
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -51,25 +58,34 @@ export default function Billing() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">{t("billing.current_plan")}</p>
-                    <h3 className="text-xl font-display font-bold text-foreground capitalize">{sub.plan === "ai_addon" ? "AI Add-on" : sub.plan}</h3>
+                    <h3 className="text-xl font-display font-bold text-foreground capitalize">
+                      {plans.find(p => p.id === sub.plan)?.name ?? sub.plan}
+                    </h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${sub.status === "active" ? "bg-green-100 text-green-800" : sub.status === "trialing" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600"}`}>
-                        {sub.status}
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                        sub.status === "active" ? "bg-green-100 text-green-800"
+                        : sub.status === "trialing" ? "bg-blue-100 text-blue-800"
+                        : "bg-gray-100 text-gray-600"
+                      }`}>
+                        {sub.status === "trialing" ? "Trial" : sub.status}
                       </span>
                       {sub.currentPeriodEnd && (
-                        <span className="text-xs text-muted-foreground">Renews {format(new Date(sub.currentPeriodEnd), 'MMM dd, yyyy')}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {sub.status === "trialing" ? "Trial ends" : "Renews"} {format(new Date(sub.currentPeriodEnd), 'MMM dd, yyyy')}
+                        </span>
                       )}
                     </div>
                   </div>
                 </div>
                 <button disabled className="px-4 py-2 border border-border rounded-xl text-sm font-medium opacity-50 cursor-not-allowed flex items-center gap-2">
                   {t("billing.manage_subscription")}
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-secondary rounded-full text-muted-foreground">{t("billing.coming_soon_badge")}</span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-secondary rounded-full text-muted-foreground">Soon</span>
                 </button>
               </div>
             </div>
           )}
 
+          {/* AI Credits & Usage */}
           {aiStatus && (
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
               <div className="flex items-center gap-3 mb-5">
@@ -77,19 +93,17 @@ export default function Billing() {
                 <h2 className="text-xl font-display font-bold text-foreground">{t("billing.ai_section")}</h2>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
                 <div className="bg-secondary/50 rounded-xl p-4">
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{t("billing.ai_status")}</p>
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${aiStatusColor}`}>
-                      {aiStatusIcon}
-                      {aiStatus.statusLabel === "active" ? t("billing.ai_active") :
-                       aiStatus.statusLabel === "low_credits" ? t("billing.ai_low") :
-                       aiStatus.statusLabel === "paused" ? t("billing.ai_paused") :
-                       aiStatus.statusLabel === "disabled" ? t("billing.ai_disabled") :
-                       t("billing.ai_not_included")}
-                    </span>
-                  </div>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${aiStatusColor}`}>
+                    {aiStatusIcon}
+                    {aiStatus.statusLabel === "active" ? "Active"
+                     : aiStatus.statusLabel === "low_credits" ? "Low credits"
+                     : aiStatus.statusLabel === "paused" ? "Paused"
+                     : aiStatus.statusLabel === "disabled" ? "Disabled"
+                     : "Not included"}
+                  </span>
                 </div>
                 <div className="bg-secondary/50 rounded-xl p-4">
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{t("billing.ai_used")}</p>
@@ -106,9 +120,9 @@ export default function Billing() {
               </div>
 
               {(aiStatus.creditsIncluded + aiStatus.creditsExtra) > 0 && (
-                <div className="mb-5">
-                  <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                    <span>{t("billing.ai_usage")}</span>
+                <div className="mb-6">
+                  <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                    <span>Usage this period</span>
                     <span>{usagePercent.toFixed(0)}%</span>
                   </div>
                   <div className="w-full bg-secondary rounded-full h-2.5">
@@ -118,65 +132,99 @@ export default function Billing() {
                     />
                   </div>
                   {aiStatus.resetAt && (
-                    <p className="text-xs text-muted-foreground mt-1">{t("billing.ai_resets")} {format(new Date(aiStatus.resetAt), 'MMM dd, yyyy')}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Resets on {format(new Date(aiStatus.resetAt), 'MMM dd, yyyy')}</p>
                   )}
                 </div>
               )}
 
+              {/* Top-up options */}
               <div>
-                <p className="text-sm font-bold text-foreground mb-3">{t("billing.ai_topup_title")}</p>
+                <p className="text-sm font-bold text-foreground mb-3">
+                  <Zap className="w-4 h-4 inline mr-1 text-violet-600" />
+                  Top Up Credits
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {TOP_UP_OPTIONS.map(opt => (
-                    <div key={opt.credits} className="bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-200 rounded-xl p-4 text-center">
+                  {topUps.map((opt: any) => (
+                    <div key={opt.id} className="bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-200 rounded-xl p-4 text-center">
                       <p className="text-2xl font-display font-black text-violet-700">{opt.label}</p>
-                      <p className="text-xs text-muted-foreground mb-1">{t("billing.ai_credits")}</p>
-                      <p className="text-sm font-bold text-violet-600 mb-3">{opt.price}</p>
+                      <p className="text-xs text-muted-foreground mb-1">credits</p>
+                      <p className="text-sm font-bold text-violet-600 mb-3">${opt.price} USD</p>
                       <button disabled className="w-full py-2 bg-violet-200 text-violet-700 rounded-xl text-xs font-bold cursor-not-allowed opacity-70">
-                        {t("billing.ai_coming_soon")}
+                        Coming Soon
                       </button>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2 text-center">{t("billing.ai_topup_contact")}</p>
+                <p className="text-xs text-muted-foreground mt-2 text-center">Contact support for custom credit packages.</p>
               </div>
             </div>
           )}
 
+          {/* Available Plans */}
           <div>
             <h2 className="text-xl font-display font-bold text-foreground mb-5">{t("billing.available_plans")}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {plansData?.plans.map((plan) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {plans.map((plan: any) => {
                 const isCurrent = sub?.plan === plan.id;
-                const gradient = planColors[plan.id] || "from-gray-500 to-gray-600";
+                const planIndex = PLAN_ORDER.indexOf(plan.id);
+                const isUpgrade = planIndex > currentPlanIndex;
+                const isDowngrade = planIndex < currentPlanIndex;
+                const gradient = PLAN_COLORS[plan.id] || "from-gray-500 to-gray-600";
+
                 return (
-                  <div key={plan.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden flex flex-col ${isCurrent ? "border-primary ring-2 ring-primary/20" : "border-border"}`}>
-                    <div className={`h-2 bg-gradient-to-r ${gradient}`} />
-                    <div className="p-6 flex-1">
+                  <div key={plan.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden flex flex-col ${
+                    isCurrent ? "border-primary ring-2 ring-primary/20" : "border-border"
+                  }`}>
+                    <div className={`h-1.5 bg-gradient-to-r ${gradient}`} />
+                    <div className="p-5 flex-1">
                       <div className="flex items-center justify-between mb-1">
-                        <h3 className="font-display font-bold text-foreground text-lg">{plan.name}</h3>
-                        {isCurrent && <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded-full">{t("billing.current_badge")}</span>}
-                      </div>
-                      <div className="mt-2 mb-5">
-                        {plan.price === 0 ? (
-                          <p className="text-3xl font-display font-black text-foreground">Free</p>
-                        ) : (
-                          <p className="text-3xl font-display font-black text-foreground">
-                            DZD {plan.price.toLocaleString()}<span className="text-sm font-normal text-muted-foreground">/mo</span>
-                          </p>
+                        <h3 className="font-bold text-foreground">{plan.name}</h3>
+                        {isCurrent && (
+                          <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">Current</span>
+                        )}
+                        {plan.badge && !isCurrent && (
+                          <span className="px-2 py-0.5 bg-accent text-accent-foreground text-[10px] font-bold rounded-full">{plan.badge}</span>
                         )}
                       </div>
-                      <ul className="space-y-2.5">
-                        {plan.features.map((f) => (
-                          <li key={f} className="flex items-start gap-2.5 text-sm">
-                            <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+
+                      <div className="mb-4">
+                        {plan.price === 0 ? (
+                          <p className="text-2xl font-extrabold text-foreground">Free</p>
+                        ) : (
+                          <div className="flex items-baseline gap-0.5">
+                            <span className="text-2xl font-extrabold text-foreground">${plan.price}</span>
+                            <span className="text-xs text-muted-foreground">/mo</span>
+                          </div>
+                        )}
+                        {plan.trial && (
+                          <p className="text-[10px] text-muted-foreground">{plan.trial}-day free trial</p>
+                        )}
+                      </div>
+
+                      <ul className="space-y-2">
+                        {plan.features.slice(0, 5).map((f: string, i: number) => (
+                          <li key={i} className="flex items-start gap-2 text-xs">
+                            <Check className="w-3.5 h-3.5 text-green-500 mt-0.5 shrink-0" />
                             <span className="text-muted-foreground">{f}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
-                    <div className="p-4 border-t border-border">
-                      <button disabled={isCurrent} className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${isCurrent ? "bg-secondary text-muted-foreground cursor-default" : "bg-primary text-white hover:bg-primary/90"}`}>
-                        {isCurrent ? t("billing.current_badge") : (<><ArrowUpRight className="w-4 h-4" /> {t("billing.upgrade")}</>)}
+
+                    <div className="p-4 pt-0">
+                      <button
+                        disabled={isCurrent}
+                        className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 transition-all ${
+                          isCurrent
+                            ? "bg-secondary text-muted-foreground cursor-default"
+                            : isDowngrade
+                              ? "border border-border text-muted-foreground hover:bg-secondary"
+                              : "bg-primary text-white hover:bg-primary/90"
+                        }`}
+                      >
+                        {isCurrent ? "Current Plan"
+                          : isUpgrade ? <><ArrowUpRight className="w-4 h-4" /> Upgrade</>
+                          : "Downgrade"}
                       </button>
                     </div>
                   </div>
@@ -185,6 +233,7 @@ export default function Billing() {
             </div>
           </div>
 
+          {/* Invoice history */}
           <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-5">
               <FileText className="w-5 h-5 text-primary" />
