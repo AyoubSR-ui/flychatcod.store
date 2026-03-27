@@ -102,6 +102,7 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
 
   try {
     // Exchange code for short-lived token
+   // Exchange code for short-lived token
     const tokenBody = new URLSearchParams({
       client_id: IG_APP_ID,
       client_secret: IG_APP_SECRET,
@@ -122,7 +123,14 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
 
     const shortToken = tokenData.access_token;
-    const igUserId = tokenData.user_id;
+
+    // Fetch real IG Business Account ID (tokenData.user_id is app-scoped, not the webhook ID)
+    const meRes = await fetch(
+      `https://graph.instagram.com/me?fields=id,username&access_token=${shortToken}`
+    );
+    const meData = await meRes.json() as any;
+    const igUserId = meData.id || tokenData.user_id;
+    const igUsername = meData.username || "";
 
     // Exchange for long-lived token
     const longRes = await fetch(
@@ -136,7 +144,7 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     const longData = await longRes.json() as any;
     const accessToken = longData.access_token || shortToken;
 
-    console.log(`[Instagram OAuth] Connected IG user ${igUserId} for store ${storeId}`);
+    console.log(`[Instagram OAuth] Connected IG user ${igUserId} (${igUsername}) for store ${storeId}`);;
 
     // Save to channel_connections
     const { rows: existing } = await pool.query(
