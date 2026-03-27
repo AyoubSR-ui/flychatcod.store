@@ -21,7 +21,22 @@ import { getAiStatus } from "../lib/ai-credits.js";
 
 export const whatsappRouter = Router();
 
-// Webhook verification
+// ─── Helper: resolve storeId from request ─────────────────────────────────────
+async function resolveStoreId(req: any): Promise<string | null> {
+  // Prefer storeId directly on user (set by requireAuth from JWT)
+  if (req.user?.storeId) return req.user.storeId;
+  // Fallback: look up from users table by userId
+  if (req.user?.id) {
+    const { rows } = await pool.query(
+      `SELECT store_id FROM users WHERE id = $1 LIMIT 1`,
+      [req.user.id]
+    );
+    return rows[0]?.store_id ?? null;
+  }
+  return null;
+}
+
+// ─── Webhook Verification ─────────────────────────────────────────────────────
 whatsappRouter.get("/webhook", (req, res) => {
   const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
   const mode = req.query["hub.mode"];
@@ -38,10 +53,12 @@ whatsappRouter.get("/webhook", (req, res) => {
 
 // ─── Connect WhatsApp ─────────────────────────────────────────────────────────
 whatsappRouter.post("/connect", requireAuth, async (req, res) => {
-  const storeId = req.user?.storeId;
+  const storeId = await resolveStoreId(req);
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
+
   const { accessToken, phoneNumberId } = req.body;
   if (!accessToken) { res.status(400).json({ error: "accessToken required" }); return; }
+
   try {
     const { rows: existing } = await pool.query(
       `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'whatsapp' LIMIT 1`,
@@ -58,6 +75,7 @@ whatsappRouter.post("/connect", requireAuth, async (req, res) => {
         [generateId("ch"), storeId, accessToken, phoneNumberId || null]
       );
     }
+    console.log(`[WhatsApp] Connected store ${storeId} with phoneNumberId ${phoneNumberId}`);
     res.json({ success: true });
   } catch (err) {
     console.error("[WhatsApp] Connect error:", err);
@@ -67,16 +85,23 @@ whatsappRouter.post("/connect", requireAuth, async (req, res) => {
 
 // ─── Disconnect WhatsApp ──────────────────────────────────────────────────────
 whatsappRouter.post("/disconnect", requireAuth, async (req, res) => {
-  const storeId = req.user?.storeId;
+  const storeId = await resolveStoreId(req);
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
-  await pool.query(
-    `UPDATE channel_connections SET status = 'disconnected', access_token = NULL, updated_at = NOW() WHERE store_id = $1 AND channel = 'whatsapp'`,
-    [storeId]
-  );
-  res.json({ success: true });
+
+  try {
+    await pool.query(
+      `UPDATE channel_connections SET status = 'disconnected', access_token = NULL, updated_at = NOW() WHERE store_id = $1 AND channel = 'whatsapp'`,
+      [storeId]
+    );
+    console.log(`[WhatsApp] Disconnected store ${storeId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[WhatsApp] Disconnect error:", err);
+    res.status(500).json({ error: "Failed to disconnect" });
+  }
 });
 
-// Incoming messages
+// ─── Webhook Incoming Messages ────────────────────────────────────────────────
 whatsappRouter.post("/webhook", async (req, res) => {
   res.status(200).send("OK");
 
@@ -85,7 +110,6 @@ whatsappRouter.post("/webhook", async (req, res) => {
     if (body.object !== "whatsapp_business_account") return;
 
     const incomingMessages = parseWhatsAppWebhook(body);
-
     for (const incoming of incomingMessages) {
       await processIncomingWhatsAppMessage(incoming).catch((err) =>
         console.error("[WhatsApp] Processing error:", err)
@@ -96,6 +120,7 @@ whatsappRouter.post("/webhook", async (req, res) => {
   }
 });
 
+// ─── Process Incoming Message ─────────────────────────────────────────────────
 async function processIncomingWhatsAppMessage(incoming: {
   phoneNumberId: string;
   from: string;
@@ -103,47 +128,36 @@ async function processIncomingWhatsAppMessage(incoming: {
   text: string;
   timestamp: Date;
 }) {
-  console.log("[WhatsApp] Processing message from:", incoming.from);
-  console.log("[WhatsApp] Looking for channel with phoneNumberId:", incoming.phoneNumberId);
+  console.log(`[WhatsApp] Incoming message from ${incoming.from}, phoneNumberId: ${incoming.phoneNumberId}`);
 
   // 1. Find channel by phoneNumberId
-  const { rows: debugRows } = await pool.query(
-    `SELECT COUNT(*) as total FROM channel_connections`
-  );
-  console.log("[WhatsApp] Total channel_connections rows:", debugRows[0].total);
-
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", external_account_id as "externalAccountId", store_id as "storeId", webhook_secret as "webhookSecret" FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
     [incoming.phoneNumberId]
   );
-  console.log("[WhatsApp] Raw SQL result:", JSON.stringify(channelRows));
   const channel = channelRows[0];
 
   if (!channel) {
-    console.warn(`[WhatsApp] No channel for phoneNumberId: ${incoming.phoneNumberId}`);
+    console.warn(`[WhatsApp] No connected channel for phoneNumberId: ${incoming.phoneNumberId}`);
     return;
   }
 
-  // 2. Load store
+  // 2. Load store — use channel.storeId (aliased in SQL above)
   const { rows: storeRows } = await pool.query(
     `SELECT *, ai_enabled as "aiEnabled", ai_system_prompt as "aiSystemPrompt" FROM stores WHERE id = $1 LIMIT 1`,
-    [channel.store_id]
+    [channel.storeId]
   );
   const store = storeRows[0];
-
-  console.log("[WhatsApp] Store found:", store?.id);
-  if (!store) return;
+  if (!store) {
+    console.warn(`[WhatsApp] No store found for storeId: ${channel.storeId}`);
+    return;
+  }
 
   // 3. Find or create customer
   let customer = await db
     .select()
     .from(customersTable)
-    .where(
-      and(
-        eq(customersTable.storeId, store.id),
-        eq(customersTable.phone, incoming.from)
-      )
-    )
+    .where(and(eq(customersTable.storeId, store.id), eq(customersTable.phone, incoming.from)))
     .limit(1)
     .then((r) => r[0] ?? null);
 
@@ -164,8 +178,6 @@ async function processIncomingWhatsAppMessage(incoming: {
       .limit(1)
       .then((r) => r[0]);
   }
-
-  console.log("[WhatsApp] Customer found/created:", customer?.id);
 
   // 4. Find or create open conversation
   const { rows: convFindRows } = await pool.query(
@@ -194,7 +206,6 @@ async function processIncomingWhatsAppMessage(incoming: {
     conversation = convRows[0];
   }
 
-  console.log("[WhatsApp] Conversation found/created:", conversation?.id);
   if (!conversation) return;
 
   // 5. Dedup check
@@ -204,7 +215,6 @@ async function processIncomingWhatsAppMessage(incoming: {
     .where(eq(messagesTable.externalId, incoming.messageId))
     .limit(1)
     .then((r) => r[0] ?? null);
-
   if (existing) return;
 
   // 6. Save message
@@ -227,17 +237,23 @@ async function processIncomingWhatsAppMessage(incoming: {
     })
     .where(eq(conversationsTable.id, conversation.id));
 
-  console.log("[WhatsApp] Message saved successfully");
   console.log(`[WhatsApp] Message saved: conv=${conversation.id}`);
 
-  // 7. AI reply
-  console.log("[WhatsApp] AI check - aiMode:", conversation.aiMode, "aiEnabled:", store.aiEnabled, "accessToken:", !!channel.accessToken);
+  // 7. Emit socket event
+  try {
+    const { getIO } = await import("../socket.js");
+    const io = getIO();
+    io.to(`store:${store.id}`).emit("new_conversation_message", {
+      conversationId: conversation.id,
+      storeId: store.id,
+    });
+  } catch {}
 
+  // 8. AI reply
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const accessToken = channel.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN ?? "";
     const phoneNumberId = channel.externalAccountId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
 
-    // Fetch products — price comes as string from DB, convert to number for AI bridge
     const rawProducts = await db
       .select()
       .from(productsTable)
@@ -249,7 +265,6 @@ async function processIncomingWhatsAppMessage(incoming: {
       stock: p.stock ?? 0,
     }));
 
-    // Fetch recent orders
     const recentOrders = await db
       .select()
       .from(ordersTable)
@@ -257,7 +272,7 @@ async function processIncomingWhatsAppMessage(incoming: {
       .orderBy(desc(ordersTable.createdAt))
       .limit(20);
 
-    console.log(`[WhatsApp] Passing ${products.length} products and ${recentOrders.length} orders to AI`);
+    console.log(`[WhatsApp] Calling AI with ${products.length} products, ${recentOrders.length} orders`);
 
     await callAiBridge({
       messageId: msgId,
@@ -268,30 +283,20 @@ async function processIncomingWhatsAppMessage(incoming: {
       products,
       recentOrders,
       emitNewMessage: async (_convId, _sId, _replyMsgId, replyText) => {
-        // Detect human handoff keywords in AI reply
         const handoffKeywords = [
           "agent humain", "transfer", "hand off",
-          "n3awd nwasl", "ndir transfer", "responsable"
+          "n3awd nwasl", "ndir transfer", "responsable",
         ];
         const isHandoff = handoffKeywords.some((kw) =>
           replyText.toLowerCase().includes(kw)
         );
-
         if (isHandoff) {
-          await handleHumanHandoff(
-            store.id,
-            store.name,
-            conversation.id,
-            incoming.from
-          );
+          await handleHumanHandoff(store.id, store.name, conversation.id, incoming.from);
         }
-
         await sendWhatsAppMessage(phoneNumberId, accessToken, incoming.from, replyText);
         console.log(`[WhatsApp] AI reply sent to ${incoming.from}`);
       },
-      consumeCredits: async () => {
-        // Credit tracking handled by external agent
-      },
+      consumeCredits: async () => {},
       checkCredits: async () => {
         const status = await getAiStatus(store.id);
         return status.eligible;
@@ -300,14 +305,13 @@ async function processIncomingWhatsAppMessage(incoming: {
   }
 }
 
-// Send email via Resend
+// ─── Send Email via Resend ────────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, html: string) {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   if (!RESEND_API_KEY) {
     console.warn("[Email] RESEND_API_KEY not set, skipping email");
     return;
   }
-
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -321,16 +325,14 @@ async function sendEmail(to: string, subject: string, html: string) {
       html,
     }),
   });
-
   if (!res.ok) {
-    const err = await res.text();
-    console.error("[Email] Failed to send:", err);
+    console.error("[Email] Failed to send:", await res.text());
   } else {
     console.log(`[Email] Sent to ${to}`);
   }
 }
 
-// Human handoff — switch to human mode + email all active agents
+// ─── Human Handoff ────────────────────────────────────────────────────────────
 async function handleHumanHandoff(
   storeId: string,
   storeName: string,
@@ -340,34 +342,22 @@ async function handleHumanHandoff(
   try {
     console.log(`[WhatsApp] Human handoff for conv: ${conversationId}`);
 
-    // Switch conversation to human mode
     await db
       .update(conversationsTable)
       .set({ aiMode: "human", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
 
-    // Get all active team members for this store
     const activeAgents = await db
-      .select({
-        id: teamMembersTable.id,
-        name: teamMembersTable.name,
-        email: teamMembersTable.email,
-      })
+      .select({ id: teamMembersTable.id, name: teamMembersTable.name, email: teamMembersTable.email })
       .from(teamMembersTable)
-      .where(
-        and(
-          eq(teamMembersTable.storeId, storeId),
-          eq(teamMembersTable.status, "active")
-        )
-      );
+      .where(and(eq(teamMembersTable.storeId, storeId), eq(teamMembersTable.status, "active")));
 
-    console.log(`[WhatsApp] Found ${activeAgents.length} active agents to notify`);
+    console.log(`[WhatsApp] Notifying ${activeAgents.length} agents for handoff`);
 
     const inboxUrl = `https://flychatcod.store/inbox/${conversationId}`;
 
     for (const agent of activeAgents) {
       if (!agent.email) continue;
-
       const html = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2563eb;">🔔 FlyChat — Human Agent Requested</h2>
@@ -388,12 +378,7 @@ async function handleHumanHandoff(
           <p style="color:#6b7280; font-size:12px; margin-top:24px;">FlyChat COD — AI Customer Support</p>
         </div>
       `;
-
-      await sendEmail(
-        agent.email,
-        `🔔 ${storeName} — Customer requesting human agent`,
-        html
-      );
+      await sendEmail(agent.email, `🔔 ${storeName} — Customer requesting human agent`, html);
     }
   } catch (err) {
     console.error("[WhatsApp] Human handoff error:", err);
