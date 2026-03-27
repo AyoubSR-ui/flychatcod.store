@@ -69,13 +69,11 @@ instagramRouter.get("/oauth/start", async (req, res) => {
     state: stateKey,
   });
 
-  console.log("[Instagram OAuth] Start redirect_uri:", CALLBACK_URL);
   res.redirect(`https://www.instagram.com/oauth/authorize?${params.toString()}`);
 });
 
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
 instagramRouter.get("/oauth/callback", async (req, res) => {
-  console.log("[Instagram OAuth] Callback received:", JSON.stringify(req.query));
   const { code, state, error } = req.query as Record<string, string>;
 
   if (error) {
@@ -114,7 +112,6 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
       body: tokenBody,
     });
     const tokenData = await tokenRes.json() as any;
-    console.log("[Instagram OAuth] Token response:", JSON.stringify(tokenData));
 
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
 
@@ -127,7 +124,6 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
   );
   const userData = await userRes.json() as any;
   igUsername = userData.username || "";
-  console.log(`[Instagram OAuth] Username: ${igUsername}`);
    } catch {}
 
     // Exchange for long-lived token
@@ -246,7 +242,6 @@ async function processIncomingInstagramMessage(incoming: {
   text: string;
   timestamp: Date;
 }) {
-  console.log(`[Instagram] Message from ${incoming.senderId} to account ${incoming.igAccountId}`);
 
   // Look up channel by:
   // 1. exact external_account_id match (already healed)

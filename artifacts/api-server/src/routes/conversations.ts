@@ -249,7 +249,6 @@ router.post("/:id/messages", requireAuth, async (req, res) => {
                   body: JSON.stringify({ recipient: { id: recipientId }, message: { text: content }, messaging_type: "RESPONSE" }),
                 });
               }
-              console.log(`[Conversations] Message sent to ${conv.channel} recipient ${recipientId}`);
             }
           }
         }

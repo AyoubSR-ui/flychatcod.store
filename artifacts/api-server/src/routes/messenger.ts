@@ -74,7 +74,6 @@ messengerRouter.get("/oauth/start", async (req, res) => {
 
 // ─── OAuth Callback ───────────────────────────────────────────────────────────
 messengerRouter.get("/oauth/callback", async (req, res) => {
-  console.log("[Messenger OAuth] Callback received:", JSON.stringify(req.query));
   const { code, state, error } = req.query as Record<string, string>;
 
   if (error) {
@@ -109,7 +108,6 @@ messengerRouter.get("/oauth/callback", async (req, res) => {
       })
     );
     const tokenData = await tokenRes.json() as any;
-    console.log("[Messenger OAuth] Token response:", JSON.stringify(tokenData));
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
 
     // Exchange for long-lived token
@@ -251,7 +249,6 @@ async function processIncomingMessengerMessage(incoming: {
   text: string;
   timestamp: Date;
 }) {
-  console.log(`[Messenger] Message from ${incoming.senderId} on page ${incoming.pageId}`);
 
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections WHERE channel = 'messenger' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
@@ -343,7 +340,6 @@ async function processIncomingMessengerMessage(incoming: {
       .where(eq(ordersTable.storeId, store.id))
       .orderBy(desc(ordersTable.createdAt)).limit(20);
 
-    console.log(`[Messenger] Passing ${products.length} products and ${recentOrders.length} orders to AI`);
 
     await callAiBridge({
       messageId: msgId, conversationId: conversation.id,

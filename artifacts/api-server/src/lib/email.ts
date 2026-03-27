@@ -16,7 +16,6 @@ export async function sendInviteEmail(params: InviteEmailParams): Promise<boolea
   const apiKey = getResendApiKey();
   if (!apiKey) {
     console.warn("[Email] RESEND_API_KEY not set — invite email NOT sent to", params.to);
-    console.log("[Email] Accept URL (for manual testing):", params.acceptUrl);
     return false;
   }
 

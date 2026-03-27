@@ -128,7 +128,6 @@ async function processIncomingWhatsAppMessage(incoming: {
   text: string;
   timestamp: Date;
 }) {
-  console.log(`[WhatsApp] Incoming message from ${incoming.from}, phoneNumberId: ${incoming.phoneNumberId}`);
 
   // 1. Find channel by phoneNumberId
   const { rows: channelRows } = await pool.query(
@@ -277,7 +276,6 @@ async function processIncomingWhatsAppMessage(incoming: {
       .orderBy(desc(ordersTable.createdAt))
       .limit(20);
 
-    console.log(`[WhatsApp] Calling AI with ${products.length} products, ${recentOrders.length} orders`);
 
     await callAiBridge({
       messageId: msgId,

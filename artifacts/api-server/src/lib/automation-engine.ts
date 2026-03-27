@@ -422,7 +422,6 @@ async function runOrderExtractionFlow(
   // Skip extraction entirely for intents the AI reply already handled.
   // This prevents "product inquiry → cancellation lookup" and "thanks → cancel" bugs.
   if (dominantIntent === "thanks_closing" || dominantIntent === "product_inquiry") {
-    console.log(`[AI] conv=${conversationId} extraction skipped: intent=${dominantIntent}`);
     return;
   }
 
@@ -451,7 +450,6 @@ async function runOrderExtractionFlow(
 
     const texts = customerMessages.map(m => m.content);
     const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
-    console.log(`[AI] conv=${conversationId} new_order extraction: canCreate=${extraction.canAutoCreate} tokens=${totalTokens}`);
     if (totalTokens > 0) {
       consumeCredits(storeId, conversationId, null, null, "gpt-4o-mini", inputTokens, outputTokens, totalTokens)
         .catch(err => console.error("[AI] extraction credit error:", err));
@@ -482,7 +480,6 @@ async function runOrderExtractionFlow(
 
     const texts = customerMessages.map(m => m.content);
     const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
-    console.log(`[AI] conv=${conversationId} cancel extraction: phone=${extraction.cancelPhone} tokens=${totalTokens}`);
     if (totalTokens > 0) {
       consumeCredits(storeId, conversationId, null, null, "gpt-4o-mini", inputTokens, outputTokens, totalTokens)
         .catch(err => console.error("[AI] extraction credit error:", err));
@@ -505,12 +502,10 @@ async function runOrderExtractionFlow(
       .limit(1);
 
     if (lastMsg && isNewCycleSignal(lastMsg.content)) {
-      console.log(`[AI] conv=${conversationId} new cycle signal: resetting from ${currentFlowState}`);
       await db.update(conversationsTable).set({ aiFlowState: null })
         .where(eq(conversationsTable.id, conversationId));
       // Fall through to full extraction
     } else {
-      console.log(`[AI] conv=${conversationId} extraction skipped: flow state=${currentFlowState}`);
       return;
     }
   }
@@ -527,7 +522,6 @@ async function runOrderExtractionFlow(
       .limit(1);
 
     if (lastPendMsg && isNewCycleSignal(lastPendMsg.content)) {
-      console.log(`[AI] conv=${conversationId} new cycle during pending_cancel_choice, resetting`);
       await db.update(conversationsTable).set({ aiFlowState: null })
         .where(eq(conversationsTable.id, conversationId));
       // Fall through to full extraction
@@ -552,7 +546,6 @@ async function runOrderExtractionFlow(
   const texts = customerMessages.map(m => m.content);
   const { result: extraction, inputTokens, outputTokens, totalTokens } = await extractOrderState(texts, storeName);
 
-  console.log(`[AI] conv=${conversationId} extraction: canCreate=${extraction.canAutoCreate} cancelIntent=${extraction.cancelIntent} intent=${dominantIntent} tokens=${totalTokens}`);
 
   if (totalTokens > 0) {
     consumeCredits(storeId, conversationId, null, null, "gpt-4o-mini", inputTokens, outputTokens, totalTokens)
@@ -613,7 +606,6 @@ async function handlePendingCancelChoice(
   }
 
   if (!targetOrderNumber) {
-    console.log(`[AI] conv=${conversationId} pending_cancel_choice: no order number found in last message`);
     return;
   }
 
@@ -635,7 +627,6 @@ async function handlePendingCancelChoice(
   }
 
   if (!customerNormalizedPhone) {
-    console.log(`[AI] conv=${conversationId} pending_cancel_choice: no phone found in recent messages`);
     return;
   }
 
@@ -671,7 +662,6 @@ async function handlePendingCancelChoice(
   });
 
   if (!order) {
-    console.log(`[AI] conv=${conversationId} pending_cancel_choice: order #${targetOrderNumber} not found in phone-bound eligible orders for ${customerNormalizedPhone}`);
     return;
   }
 
@@ -704,13 +694,11 @@ async function handleAiCancellation(
 ): Promise<void> {
   if (!cancelPhone) {
     // Phone number missing — the AI's conversational reply should have asked for it
-    console.log(`[AI] conv=${conversationId} cancel intent but no phone — waiting for customer reply`);
     return;
   }
 
   const normalizedPhone = normalizePhone(cancelPhone);
   if (!normalizedPhone || normalizedPhone.length < 8) {
-    console.log(`[AI] conv=${conversationId} cancel: phone too short, skip`);
     return;
   }
 
@@ -742,7 +730,6 @@ async function handleAiCancellation(
   if (eligibleOrders.length === 0) {
     // No cancellable order found
     confirmationMessage = buildNoOrderMessage(language);
-    console.log(`[AI] conv=${conversationId} cancel: no eligible orders for phone ${normalizedPhone}`);
     // No flow state change — let customer retry with correct phone
   } else if (eligibleOrders.length === 1) {
     // Exactly one — cancel it
@@ -768,7 +755,6 @@ async function handleAiCancellation(
     await db.update(conversationsTable).set({ aiFlowState: "pending_cancel_choice" })
       .where(eq(conversationsTable.id, conversationId));
 
-    console.log(`[AI] conv=${conversationId} cancel: multiple eligible orders, asking clarification`);
   }
 
   await emitBotMessage(storeId, conversationId, confirmationMessage, { aiGenerated: true, aiAction: "cancel" });
@@ -820,7 +806,6 @@ async function handleAiOrderCreation(
     !orderData.phone ||
     !orderData.wilaya
   ) {
-    console.log(`[AI] conv=${conversationId} auto-create blocked: missing required fields`);
     return;
   }
 
@@ -991,7 +976,6 @@ async function emitBotMessage(
   if (lastBotMsg) {
     const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
     if (normalize(lastBotMsg.content) === normalize(content)) {
-      console.log(`[AI] conv=${conversationId} emitBotMessage: suppressed near-duplicate bot message`);
       return;
     }
   }
@@ -1238,7 +1222,6 @@ async function fireInactivityRule(
       .limit(1);
 
     if (recentBotMessages.length > 0) {
-      console.log(`[AutoEngine] Inactivity rule ${rule.id} skipped — bot message already sent within delay window`);
       return;
     }
 
@@ -1248,6 +1231,5 @@ async function fireInactivityRule(
       triggerType: "inactivity",
     });
   } catch (err) {
-    console.error("[AutoEngine] Inactivity rule execution failed:", err);
   }
 }
