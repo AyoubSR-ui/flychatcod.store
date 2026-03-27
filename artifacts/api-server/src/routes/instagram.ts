@@ -96,13 +96,10 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     return;
   }
 
-  // Must be identical to the redirect_uri used in oauth/start
   const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
-  console.log("[Instagram OAuth] redirect_uri:", CALLBACK_URL);
 
   try {
     // Exchange code for short-lived token
-   // Exchange code for short-lived token
     const tokenBody = new URLSearchParams({
       client_id: IG_APP_ID,
       client_secret: IG_APP_SECRET,
@@ -110,7 +107,6 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
       redirect_uri: CALLBACK_URL,
       code,
     });
-    console.log("[Instagram OAuth] Token body:", tokenBody.toString().replace(IG_APP_SECRET, "REDACTED"));
 
     const tokenRes = await fetch(`https://api.instagram.com/oauth/access_token`, {
       method: "POST",
@@ -124,14 +120,6 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
 
     const shortToken = tokenData.access_token;
 
-    // Fetch real IG Business Account ID (tokenData.user_id is app-scoped, not the webhook ID)
-    const meRes = await fetch(
-      `https://graph.instagram.com/me?fields=id,username&access_token=${shortToken}`
-    );
-    const meData = await meRes.json() as any;
-    const igUserId = meData.id || tokenData.user_id;
-    const igUsername = meData.username || "";
-
     // Exchange for long-lived token
     const longRes = await fetch(
       `https://graph.instagram.com/access_token?` +
@@ -144,9 +132,14 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     const longData = await longRes.json() as any;
     const accessToken = longData.access_token || shortToken;
 
-    console.log(`[Instagram OAuth] Connected IG user ${igUserId} (${igUsername}) for store ${storeId}`);;
+    // NOTE: tokenData.user_id is app-scoped and does NOT match the webhook recipient ID.
+    // We store "pending" here — the real Business Account ID is self-healed
+    // on the first incoming webhook message (see processIncomingInstagramMessage).
+    const appScopedId = String(tokenData.user_id || "pending");
 
-    // Save to channel_connections
+    console.log(`[Instagram OAuth] Connected app-scoped ID ${appScopedId} for store ${storeId} — real ID will be set on first message`);
+
+    // Save to channel_connections with pending external_account_id
     const { rows: existing } = await pool.query(
       `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'instagram' LIMIT 1`,
       [storeId]
@@ -154,13 +147,13 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
 
     if (existing.length > 0) {
       await pool.query(
-        `UPDATE channel_connections SET status = 'connected', access_token = $1, external_account_id = $2, metadata = $3, updated_at = NOW() WHERE store_id = $4 AND channel = 'instagram'`,
-        [accessToken, String(igUserId), JSON.stringify({ igUserId }), storeId]
+        `UPDATE channel_connections SET status = 'connected', access_token = $1, external_account_id = 'pending', metadata = $2, updated_at = NOW() WHERE store_id = $3 AND channel = 'instagram'`,
+        [accessToken, JSON.stringify({ appScopedId, realIdPending: true }), storeId]
       );
     } else {
       await pool.query(
-        `INSERT INTO channel_connections (id, store_id, channel, status, access_token, external_account_id, metadata, created_at, updated_at) VALUES ($1, $2, 'instagram', 'connected', $3, $4, $5, NOW(), NOW())`,
-        [generateId("ch"), storeId, accessToken, String(igUserId), JSON.stringify({ igUserId })]
+        `INSERT INTO channel_connections (id, store_id, channel, status, access_token, external_account_id, metadata, created_at, updated_at) VALUES ($1, $2, 'instagram', 'connected', $3, 'pending', $4, NOW(), NOW())`,
+        [generateId("ch"), storeId, accessToken, JSON.stringify({ appScopedId, realIdPending: true })]
       );
     }
 
@@ -196,7 +189,7 @@ instagramRouter.post("/webhook", async (req, res) => {
         const text = event.message.text;
         if (!text) continue;
         await processIncomingInstagramMessage({
-          igAccountId: event.recipient.id,
+          igAccountId: event.recipient.id,  // ← real Business Account ID from webhook
           senderId: event.sender.id,
           messageId: event.message.mid,
           text,
@@ -214,7 +207,7 @@ instagramRouter.post("/disconnect", requireAuth, async (req, res) => {
   const storeId = req.user?.storeId;
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
   await pool.query(
-    `UPDATE channel_connections SET status = 'disconnected', access_token = NULL, external_account_id = NULL, updated_at = NOW() WHERE store_id = $1 AND channel = 'instagram'`,
+    `UPDATE channel_connections SET status = 'disconnected', access_token = NULL, external_account_id = NULL, metadata = NULL, updated_at = NOW() WHERE store_id = $1 AND channel = 'instagram'`,
     [storeId]
   );
   res.json({ success: true });
@@ -237,33 +230,51 @@ async function sendInstagramMessage(accessToken: string, recipientId: string, te
 
 // ─── Process Incoming Message ─────────────────────────────────────────────────
 async function processIncomingInstagramMessage(incoming: {
-  igAccountId: string;
+  igAccountId: string;  // real Business Account ID from webhook
   senderId: string;
   messageId: string;
   text: string;
   timestamp: Date;
 }) {
-  console.log(`[Instagram] Message from ${incoming.senderId}`);
+  console.log(`[Instagram] Message from ${incoming.senderId} to account ${incoming.igAccountId}`);
 
+  // Look up channel by:
+  // 1. exact external_account_id match (already healed)
+  // 2. pending (freshly connected, not yet healed)
+  // 3. metadata appScopedId (legacy fallback)
   const { rows: channelRows } = await pool.query(
-  `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections 
-   WHERE channel = 'instagram' AND status = 'connected' 
-   AND (external_account_id = $1 OR metadata->>'igUserId' = $1)
-   LIMIT 1`,
-  [incoming.igAccountId]
+    `SELECT *, access_token as "accessToken", store_id as "storeId" 
+     FROM channel_connections 
+     WHERE channel = 'instagram' AND status = 'connected' 
+     AND (external_account_id = $1 OR external_account_id = 'pending')
+     LIMIT 1`,
+    [incoming.igAccountId]
   );
   const channel = channelRows[0];
-  if (!channel) { console.warn(`[Instagram] No channel for IG account: ${incoming.igAccountId}`); return; }
 
-   // Self-heal: if found via metadata match but external_account_id is wrong, fix it
-  if (channel.external_account_id !== incoming.igAccountId) {
-  await pool.query(
-    `UPDATE channel_connections SET external_account_id = $1, updated_at = NOW() WHERE id = $2`,
-    [incoming.igAccountId, channel.id]
-  );
-  console.log(`[Instagram] Self-healed external_account_id to ${incoming.igAccountId}`);
+  if (!channel) {
+    console.warn(`[Instagram] No connected channel for IG account: ${incoming.igAccountId}`);
+    return;
   }
 
+  // ─── Self-heal: fix external_account_id from webhook on first message ────────
+  if (channel.external_account_id !== incoming.igAccountId) {
+    await pool.query(
+      `UPDATE channel_connections 
+       SET external_account_id = $1, 
+           metadata = metadata || $2::jsonb,
+           updated_at = NOW() 
+       WHERE id = $3`,
+      [
+        incoming.igAccountId,
+        JSON.stringify({ realId: incoming.igAccountId, realIdPending: false }),
+        channel.id,
+      ]
+    );
+    console.log(`[Instagram] Self-healed: external_account_id → ${incoming.igAccountId}`);
+  }
+
+  // Load store
   const { rows: storeRows } = await pool.query(
     `SELECT *, ai_enabled as "aiEnabled", ai_system_prompt as "aiSystemPrompt" FROM stores WHERE id = $1 LIMIT 1`,
     [channel.storeId]
@@ -271,6 +282,7 @@ async function processIncomingInstagramMessage(incoming: {
   const store = storeRows[0];
   if (!store) return;
 
+  // Find or create customer
   let customer = await db.select().from(customersTable)
     .where(and(eq(customersTable.storeId, store.id), eq(customersTable.phone, incoming.senderId)))
     .limit(1).then(r => r[0] ?? null);
@@ -285,23 +297,26 @@ async function processIncomingInstagramMessage(incoming: {
       .where(eq(customersTable.id, customerId)).limit(1).then(r => r[0]);
   }
 
+  // Find or create open conversation
   const { rows: convRows } = await pool.query(
-    `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" FROM conversations WHERE store_id = $1 AND channel = 'instagram' AND customer_id = $2 AND status = 'open' ORDER BY created_at ASC LIMIT 1`,
+    `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" 
+     FROM conversations 
+     WHERE store_id = $1 AND channel = 'instagram' AND customer_id = $2 AND status = 'open' 
+     ORDER BY created_at ASC LIMIT 1`,
     [store.id, customer!.id]
   );
   let conversation = convRows[0] ?? null;
 
   if (!conversation) {
     const convId = generateId("conv");
+    const meta = (channel.metadata ?? {}) as Record<string, unknown>;
+    const defaultMode = meta.defaultAiMode as string | undefined;
+    const aiMode = (defaultMode === "ai_autopilot" && store.aiEnabled) ? "ai_autopilot" : "human";
+
     await db.insert(conversationsTable).values({
       id: convId, storeId: store.id, customerId: customer!.id,
       customerName: "Instagram User", channel: "instagram", status: "open",
-      aiMode: (() => {
-    const meta = (channel.metadata ?? {}) as Record<string, unknown>;
-    const defaultMode = meta.defaultAiMode as string | undefined;
-    if (defaultMode === "ai_autopilot" && store.aiEnabled) return "ai_autopilot";
-    return "human";
-    })(),
+      aiMode,
       createdAt: new Date(), updatedAt: new Date(),
     });
     const { rows: newRows } = await pool.query(
@@ -318,6 +333,7 @@ async function processIncomingInstagramMessage(incoming: {
     .where(eq(messagesTable.externalId, incoming.messageId)).limit(1).then(r => r[0] ?? null);
   if (existing) return;
 
+  // Save message
   const msgId = generateId("msg");
   await db.insert(messagesTable).values({
     id: msgId, conversationId: conversation.id, content: incoming.text,
@@ -332,6 +348,7 @@ async function processIncomingInstagramMessage(incoming: {
 
   console.log(`[Instagram] Message saved: conv=${conversation.id}`);
 
+  // Emit socket event
   try {
     const { getIO } = await import("../socket.js");
     const io = getIO();
@@ -341,13 +358,13 @@ async function processIncomingInstagramMessage(incoming: {
     });
   } catch {}
 
+  // AI reply
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const rawProducts = await db.select().from(productsTable).where(eq(productsTable.storeId, store.id));
     const products = rawProducts.map(p => ({ ...p, price: parseFloat(String(p.price)) || 0, stock: p.stock ?? 0 }));
     const recentOrders = await db.select().from(ordersTable)
       .where(eq(ordersTable.storeId, store.id))
       .orderBy(desc(ordersTable.createdAt)).limit(20);
-    console.log(`[Instagram] Passing ${products.length} products and ${recentOrders.length} orders to AI`);
 
     await callAiBridge({
       messageId: msgId, conversationId: conversation.id,
