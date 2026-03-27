@@ -36,11 +36,11 @@ messengerRouter.get("/oauth/start", async (req, res) => {
      const decoded = jwt.verify(queryToken, secret) as any;
       storeId = decoded.storeId;
       if (!storeId && decoded.userId) {
-        const { rows } = await pool.query(
-          `SELECT s.id FROM stores s JOIN team_members tm ON tm.store_id = s.id WHERE tm.user_id = $1 LIMIT 1`,
-          [decoded.userId]
-        );
-        storeId = rows[0]?.id;
+      const { rows } = await pool.query(
+     `SELECT store_id FROM users WHERE id = $1 LIMIT 1`,
+     [decoded.userId]
+    );
+     storeId = rows[0]?.store_id; 
       }
     } catch (err) {
       console.error("[Messenger OAuth] Token verification failed:", err);
