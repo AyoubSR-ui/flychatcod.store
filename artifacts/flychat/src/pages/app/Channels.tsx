@@ -1,12 +1,14 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X, Loader2 } from "lucide-react";
 import { useGetChannels } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 import WidgetGuideVideo from "@/components/WidgetGuideVideo";
 
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
 const WidgetIcon = () => (
-  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
     <rect width="40" height="40" rx="10" fill="#2563EB" />
     <path d="M28 12H12C10.9 12 10 12.9 10 14V30L14 26H28C29.1 26 30 25.1 30 24V14C30 12.9 29.1 12 28 12Z" fill="white" />
     <circle cx="16" cy="19" r="1.5" fill="#2563EB" />
@@ -16,7 +18,7 @@ const WidgetIcon = () => (
 );
 
 const WhatsAppIcon = () => (
-  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
     <rect width="40" height="40" rx="10" fill="#25D366" />
     <path d="M20 8C13.373 8 8 13.373 8 20C8 22.286 8.674 24.42 9.84 26.222L8.292 31.708L13.908 30.19C15.636 31.232 17.748 31.838 20 31.838C26.627 31.838 32 26.627 32 20C32 13.373 26.627 8 20 8Z" fill="white" />
     <path d="M20 9.5C14.201 9.5 9.5 14.201 9.5 20C9.5 22.127 10.16 24.104 11.28 25.754L10.08 29.92L14.356 28.74C15.938 29.734 17.81 30.338 20 30.338C25.799 30.338 30.5 25.799 30.5 20C30.5 14.201 25.799 9.5 20 9.5Z" fill="#25D366" />
@@ -25,7 +27,7 @@ const WhatsAppIcon = () => (
 );
 
 const InstagramIcon = () => (
-  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
     <defs>
       <linearGradient id="ig-grad" x1="5" y1="35" x2="35" y2="5" gradientUnits="userSpaceOnUse">
         <stop offset="0%" stopColor="#FED373" />
@@ -44,7 +46,7 @@ const InstagramIcon = () => (
 );
 
 const MessengerIcon = () => (
-  <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
     <defs>
       <linearGradient id="msg-grad" x1="20" y1="4" x2="20" y2="36" gradientUnits="userSpaceOnUse">
         <stop offset="0%" stopColor="#00B2FF" />
@@ -57,6 +59,8 @@ const MessengerIcon = () => (
   </svg>
 );
 
+// ─── Channel metadata ─────────────────────────────────────────────────────────
+
 const CHANNEL_META: Record<string, { name: string; icon: ReactNode; description: string; color: string; hasGuide: boolean }> = {
   widget: {
     name: "Website Widget",
@@ -68,7 +72,7 @@ const CHANNEL_META: Record<string, { name: string; icon: ReactNode; description:
   whatsapp: {
     name: "WhatsApp",
     icon: <WhatsAppIcon />,
-    description: "Connect your WhatsApp Business account to receive and respond to customer messages. Requires Meta Business verification.",
+    description: "Connect your WhatsApp Business account to receive and respond to customer messages. Requires a permanent WhatsApp Cloud API token.",
     color: "from-green-500 to-green-600",
     hasGuide: false,
   },
@@ -88,6 +92,8 @@ const CHANNEL_META: Record<string, { name: string; icon: ReactNode; description:
   },
 };
 
+// ─── Status badge ─────────────────────────────────────────────────────────────
+
 const StatusBadge = ({ status }: { status: string }) => {
   const map: Record<string, { label: string; color: string; icon: any }> = {
     connected: { label: "Connected", color: "bg-green-100 text-green-800 border-green-200", icon: CheckCircle2 },
@@ -104,10 +110,134 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
+// ─── WhatsApp Connect Modal ───────────────────────────────────────────────────
+
+function WhatsAppModal({ onClose, onSuccess, apiBase }: {
+  onClose: () => void;
+  onSuccess: () => void;
+  apiBase: string;
+}) {
+  const [accessToken, setAccessToken] = useState("");
+  const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async () => {
+    if (!accessToken.trim()) { setError("Access token is required."); return; }
+    if (!phoneNumberId.trim()) { setError("Phone Number ID is required."); return; }
+    setError("");
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("flychat_token") || "";
+      const res = await fetch(`${apiBase}/api/whatsapp/connect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ accessToken: accessToken.trim(), phoneNumberId: phoneNumberId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Connection failed");
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Failed to connect WhatsApp.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <WhatsAppIcon />
+            <div>
+              <h2 className="font-bold text-foreground text-lg">Connect WhatsApp</h2>
+              <p className="text-xs text-muted-foreground">WhatsApp Cloud API</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+
+        {/* Fields */}
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">Permanent Access Token</label>
+            <input
+              type="password"
+              value={accessToken}
+              onChange={e => setAccessToken(e.target.value)}
+              placeholder="EAAxxxxxxxxxxxxxxx..."
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            />
+            <p className="text-xs text-muted-foreground">
+              Get this from Meta Business Suite → WhatsApp → API Setup → Permanent Token.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">Phone Number ID</label>
+            <input
+              type="text"
+              value={phoneNumberId}
+              onChange={e => setPhoneNumberId(e.target.value)}
+              placeholder="989761010895675"
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+            />
+            <p className="text-xs text-muted-foreground">
+              Found in Meta Business Suite → WhatsApp → API Setup → Phone Number ID.
+            </p>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {loading ? "Connecting..." : "Connect"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function Channels() {
   const { data, isLoading, refetch } = useGetChannels();
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
+  const [waModalOpen, setWaModalOpen] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -116,25 +246,29 @@ export default function Channels() {
   // Handle OAuth callback result from URL params
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-   const success = params.get("success");
-const error = params.get("error");
-if (success === "instagram_connected") {
-  setSuccessMsg("Instagram DMs connected successfully!");
-  refetch();
-  window.history.replaceState({}, "", window.location.pathname);
-} else if (success === "messenger_connected") {
-  setSuccessMsg("Facebook Messenger connected successfully!");
-  refetch();
-  window.history.replaceState({}, "", window.location.pathname);
-} else if (error) {
-  setErrorMsg("Connection failed. Please try again.");
-  window.history.replaceState({}, "", window.location.pathname);
-}
+    const success = params.get("success");
+    const error = params.get("error");
+    if (success === "instagram_connected") {
+      setSuccessMsg("Instagram DMs connected successfully!");
+      refetch();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (success === "messenger_connected") {
+      setSuccessMsg("Facebook Messenger connected successfully!");
+      refetch();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (error) {
+      setErrorMsg("Connection failed. Please try again.");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, [refetch]);
 
- // Listen for popup close to refresh channels
+  // ─── Connect ───────────────────────────────────────────────────────────────
   const handleConnect = (ch: string) => {
-    if (ch === "instagram" || ch === "messenger" || ch === "whatsapp") {
+    if (ch === "whatsapp") {
+      setWaModalOpen(true);
+      return;
+    }
+    if (ch === "instagram" || ch === "messenger") {
       const token = localStorage.getItem("flychat_token") || "";
       const popup = window.open(
         `${API_BASE}/api/${ch}/oauth/start?token=${token}`,
@@ -149,14 +283,20 @@ if (success === "instagram_connected") {
       }, 500);
     }
   };
+
+  // ─── Disconnect ────────────────────────────────────────────────────────────
   const handleDisconnect = async (ch: string) => {
-    if (ch === "instagram" || ch === "messenger") {
-      const token = localStorage.getItem("flychat_token") || "";
+    if (ch === "widget") return;
+    const token = localStorage.getItem("flychat_token") || "";
+    try {
       await fetch(`${API_BASE}/api/${ch}/disconnect`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      setSuccessMsg(`${CHANNEL_META[ch]?.name || ch} disconnected.`);
       refetch();
+    } catch {
+      setErrorMsg("Failed to disconnect. Please try again.");
     }
   };
 
@@ -174,11 +314,13 @@ if (success === "instagram_connected") {
           {successMsg && (
             <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-sm font-medium">
               <CheckCircle2 className="w-4 h-4" /> {successMsg}
+              <button onClick={() => setSuccessMsg("")} className="ml-auto"><X className="w-3.5 h-3.5" /></button>
             </div>
           )}
           {errorMsg && (
             <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm font-medium">
               <AlertCircle className="w-4 h-4" /> {errorMsg}
+              <button onClick={() => setErrorMsg("")} className="ml-auto"><X className="w-3.5 h-3.5" /></button>
             </div>
           )}
 
@@ -186,11 +328,10 @@ if (success === "instagram_connected") {
             <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {(["widget","whatsapp","instagram","messenger"] as const).map((ch) => {
+              {(["widget", "whatsapp", "instagram", "messenger"] as const).map((ch) => {
                 const meta = CHANNEL_META[ch];
                 const conn = channelMap[ch];
                 const isActive = conn?.status === "connected";
-                const isComingSoon = false;
 
                 return (
                   <div key={ch} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isActive ? "border-primary/30" : "border-border"}`}>
@@ -206,40 +347,27 @@ if (success === "instagram_connected") {
                             </div>
                           </div>
                         </div>
-                        {isComingSoon && (
-                          <span className="px-2.5 py-1 bg-secondary text-muted-foreground text-xs font-bold rounded-full border border-border">Coming Soon</span>
-                        )}
                       </div>
 
                       <p className="text-sm text-muted-foreground">{meta.description}</p>
 
-                      {isComingSoon && (
-                        <div className="bg-secondary/50 border border-border rounded-xl p-3">
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-semibold text-foreground">Integration ready</span> — The architecture for {meta.name} is in place. Full OAuth connection will be available in a future update.
-                          </p>
-                        </div>
-                      )}
-
                       <div className="flex gap-3 pt-2 border-t border-border">
                         <button
-                          disabled={isComingSoon}
                           onClick={() => {
                             if (isActive && ch !== "widget") handleDisconnect(ch);
-                            else if (!isActive && !isComingSoon) handleConnect(ch);
+                            else if (!isActive) handleConnect(ch);
                           }}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
                             isActive
                               ? ch === "widget"
                                 ? "bg-secondary text-foreground hover:bg-secondary/80"
                                 : "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
-                              : isComingSoon
-                              ? "bg-secondary/50 text-muted-foreground cursor-not-allowed"
                               : "bg-primary text-white hover:bg-primary/90"
                           }`}
                         >
-                          {isActive ? (ch === "widget" ? "Manage" : "Disconnect") : isComingSoon ? "Not Available Yet" : "Connect"}
+                          {isActive ? (ch === "widget" ? "Manage" : "Disconnect") : "Connect"}
                         </button>
+
                         <button
                           onClick={() => meta.hasGuide && setGuideOpen(true)}
                           className={`px-3 py-2 border rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
@@ -250,11 +378,10 @@ if (success === "instagram_connected") {
                         >
                           <Play className="w-3 h-3" /> Guide
                         </button>
-                        {!isComingSoon && (
-                          <button className="px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">
-                            <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        )}
+
+                        <button className="px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">
+                          <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -265,6 +392,19 @@ if (success === "instagram_connected") {
         </div>
       </div>
 
+      {/* WhatsApp connect modal */}
+      {waModalOpen && (
+        <WhatsAppModal
+          apiBase={API_BASE}
+          onClose={() => setWaModalOpen(false)}
+          onSuccess={() => {
+            setSuccessMsg("WhatsApp connected successfully!");
+            refetch();
+          }}
+        />
+      )}
+
+      {/* Widget guide modal */}
       {guideOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
