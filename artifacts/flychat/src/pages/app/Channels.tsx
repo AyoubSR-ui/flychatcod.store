@@ -116,14 +116,20 @@ export default function Channels() {
   // Handle OAuth callback result from URL params
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("success") === "instagram_connected") {
-      setSuccessMsg("Instagram DMs connected successfully!");
-      refetch();
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (params.get("error")) {
-      setErrorMsg("Instagram connection failed. Please try again.");
-      window.history.replaceState({}, "", window.location.pathname);
-    }
+   const success = params.get("success");
+const error = params.get("error");
+if (success === "instagram_connected") {
+  setSuccessMsg("Instagram DMs connected successfully!");
+  refetch();
+  window.history.replaceState({}, "", window.location.pathname);
+} else if (success === "messenger_connected") {
+  setSuccessMsg("Facebook Messenger connected successfully!");
+  refetch();
+  window.history.replaceState({}, "", window.location.pathname);
+} else if (error) {
+  setErrorMsg("Connection failed. Please try again.");
+  window.history.replaceState({}, "", window.location.pathname);
+}
   }, [refetch]);
 
  // Listen for popup close to refresh channels

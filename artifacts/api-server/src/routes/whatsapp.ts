@@ -16,6 +16,7 @@ import {
   type WhatsAppWebhookPayload,
 } from "../lib/whatsapp-service.js";
 import { callAiBridge } from "../lib/ai-agent-bridge.js";
+import { requireAuth } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 
 export const whatsappRouter = Router();
@@ -33,6 +34,46 @@ whatsappRouter.get("/webhook", (req, res) => {
   } else {
     res.status(403).send("Forbidden");
   }
+});
+
+// ─── Connect WhatsApp ─────────────────────────────────────────────────────────
+whatsappRouter.post("/connect", requireAuth, async (req, res) => {
+  const storeId = req.user?.storeId;
+  if (!storeId) { res.status(400).json({ error: "No store" }); return; }
+  const { accessToken, phoneNumberId } = req.body;
+  if (!accessToken) { res.status(400).json({ error: "accessToken required" }); return; }
+  try {
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'whatsapp' LIMIT 1`,
+      [storeId]
+    );
+    if (existing.length > 0) {
+      await pool.query(
+        `UPDATE channel_connections SET status = 'connected', access_token = $1, external_account_id = $2, updated_at = NOW() WHERE store_id = $3 AND channel = 'whatsapp'`,
+        [accessToken, phoneNumberId || null, storeId]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO channel_connections (id, store_id, channel, status, access_token, external_account_id, created_at, updated_at) VALUES ($1, $2, 'whatsapp', 'connected', $3, $4, NOW(), NOW())`,
+        [generateId("ch"), storeId, accessToken, phoneNumberId || null]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[WhatsApp] Connect error:", err);
+    res.status(500).json({ error: "Failed to connect" });
+  }
+});
+
+// ─── Disconnect WhatsApp ──────────────────────────────────────────────────────
+whatsappRouter.post("/disconnect", requireAuth, async (req, res) => {
+  const storeId = req.user?.storeId;
+  if (!storeId) { res.status(400).json({ error: "No store" }); return; }
+  await pool.query(
+    `UPDATE channel_connections SET status = 'disconnected', access_token = NULL, updated_at = NOW() WHERE store_id = $1 AND channel = 'whatsapp'`,
+    [storeId]
+  );
+  res.json({ success: true });
 });
 
 // Incoming messages
