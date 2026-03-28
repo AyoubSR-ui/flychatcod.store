@@ -7,6 +7,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { Building2 } from "lucide-react";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
@@ -18,6 +19,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   }
 
   const navItems = [
+    { href: "/organization", label: "Organization", icon: Building2, raw: true },
     { href: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
     { href: "/inbox", label: "nav.inbox", icon: MessageSquare },
     { href: "/orders", label: "nav.orders", icon: ShoppingBag },
@@ -28,6 +30,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { href: "/channels", label: "nav.channels", icon: Plug },
     { href: "/team", label: "nav.team", icon: Users2 },
     { href: "/billing", label: "nav.billing", icon: CreditCard },
+    { href: "/organization", label: "Organization", icon: Building2 },
     { href: "/settings", label: "nav.settings", icon: Settings },
   ];
 

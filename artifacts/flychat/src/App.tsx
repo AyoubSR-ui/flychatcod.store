@@ -19,6 +19,7 @@ import Onboarding from "@/pages/auth/Onboarding";
 import AcceptInvite from "@/pages/auth/AcceptInvite";
 
 // App pages
+import Organization from "@/pages/app/Organization";
 import Dashboard from "@/pages/app/Dashboard";
 import Inbox from "@/pages/app/Inbox";
 import Orders from "@/pages/app/Orders";
@@ -75,6 +76,7 @@ function Router() {
       <Route path="/accept-invite" component={AcceptInvite} />
 
       {/* App — protected */}
+      <Route path="/organization">{() => <ProtectedRoute component={Organization} />}</Route>
       <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/inbox">{() => <ProtectedRoute component={Inbox} />}</Route>
       <Route path="/orders">{() => <ProtectedRoute component={Orders} />}</Route>
