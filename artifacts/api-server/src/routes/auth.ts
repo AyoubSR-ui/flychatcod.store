@@ -281,14 +281,16 @@ router.post("/onboarding", requireAuth, async (req, res) => {
     // Create subscription
     const now = new Date();
     const trialEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-    await db.insert(subscriptionsTable).values({
-      id: generateId("sub"),
-      organizationId: orgId,
-      plan: "free",
-      status: "trialing",
-      currentPeriodStart: now,
-      currentPeriodEnd: trialEnd,
-    });
+  await db.insert(subscriptionsTable).values({
+  id: generateId("sub"),
+  organizationId: orgId,
+  plan: "free",
+  status: "trialing",
+  currentPeriodStart: now,
+  currentPeriodEnd: trialEnd,
+  aiMonthlyCreditsIncluded: 50, // free plan
+  aiCreditsResetAt: trialEnd,
+  });
 
     // Add owner as team member
     await db.insert(teamMembersTable).values({

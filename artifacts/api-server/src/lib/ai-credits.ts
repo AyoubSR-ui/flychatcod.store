@@ -25,19 +25,25 @@ export async function getAiStatus(storeId: string): Promise<AiStatus> {
     return { eligible: false, aiEnabled: store.aiEnabled, creditsIncluded: 0, creditsExtra: 0, creditsUsed: 0, creditsRemaining: 0, statusLabel: "not_included", resetAt: null };
   }
 
-  const totalCredits = sub.aiMonthlyCreditsIncluded + sub.aiExtraCreditsPurchased;
-  const creditsRemaining = Math.max(0, totalCredits - sub.aiCreditsUsedCurrentPeriod);
+  // Get credits from plan definition — subscription table may not have been updated
+ const PLAN_AI_CREDITS: Record<string, number> = {
+  free: 50, starter: 2000, pro: 10000, agency: 30000,
+  };
+ const planCredits = PLAN_AI_CREDITS[sub.plan] ?? 0;
+ const monthlyCredits = Math.max(sub.aiMonthlyCreditsIncluded, planCredits);
+ const totalCredits = monthlyCredits + sub.aiExtraCreditsPurchased;
+ const creditsRemaining = Math.max(0, totalCredits - sub.aiCreditsUsedCurrentPeriod);
 
   if (totalCredits === 0) {
-    return { eligible: false, aiEnabled: store.aiEnabled, creditsIncluded: sub.aiMonthlyCreditsIncluded, creditsExtra: sub.aiExtraCreditsPurchased, creditsUsed: sub.aiCreditsUsedCurrentPeriod, creditsRemaining: 0, statusLabel: "not_included", resetAt: sub.aiCreditsResetAt };
+    return { eligible: false, aiEnabled: store.aiEnabled, creditsIncluded: monthlyCredits, creditsExtra: sub.aiExtraCreditsPurchased, creditsUsed: sub.aiCreditsUsedCurrentPeriod, creditsRemaining: 0, statusLabel: "not_included", resetAt: sub.aiCreditsResetAt };
   }
 
   if (!store.aiEnabled) {
-    return { eligible: false, aiEnabled: false, creditsIncluded: sub.aiMonthlyCreditsIncluded, creditsExtra: sub.aiExtraCreditsPurchased, creditsUsed: sub.aiCreditsUsedCurrentPeriod, creditsRemaining, statusLabel: "disabled", resetAt: sub.aiCreditsResetAt };
+    return { eligible: false, aiEnabled: false, creditsIncluded: monthlyCredits, creditsExtra: sub.aiExtraCreditsPurchased, creditsUsed: sub.aiCreditsUsedCurrentPeriod, creditsRemaining, statusLabel: "disabled", resetAt: sub.aiCreditsResetAt };
   }
 
   if (creditsRemaining <= 0) {
-    return { eligible: false, aiEnabled: true, creditsIncluded: sub.aiMonthlyCreditsIncluded, creditsExtra: sub.aiExtraCreditsPurchased, creditsUsed: sub.aiCreditsUsedCurrentPeriod, creditsRemaining: 0, statusLabel: "paused", resetAt: sub.aiCreditsResetAt };
+    return { eligible: false, aiEnabled: true, creditsIncluded: monthlyCredits, creditsExtra: sub.aiExtraCreditsPurchased, creditsUsed: sub.aiCreditsUsedCurrentPeriod, creditsRemaining: 0, statusLabel: "paused", resetAt: sub.aiCreditsResetAt };
   }
 
   const lowThreshold = totalCredits * 0.1;

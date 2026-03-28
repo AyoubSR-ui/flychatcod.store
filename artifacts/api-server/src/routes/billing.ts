@@ -135,3 +135,32 @@ router.get("/ai-status", requireAuth, async (req, res) => {
 });
 
 export default router;
+router.post("/top-up", requireAuth, async (req, res) => {
+  try {
+    const user = req.user!;
+    if (!user.organizationId) { res.status(400).json({ error: "no_org" }); return; }
+
+    const TOP_UP_OPTIONS: Record<string, { credits: number; price: number }> = {
+      topup_5k:  { credits: 5000,  price: 9  },
+      topup_15k: { credits: 15000, price: 24 },
+      topup_50k: { credits: 50000, price: 69 },
+    };
+
+    const { topUpId } = req.body;
+    const option = TOP_UP_OPTIONS[topUpId];
+    if (!option) { res.status(400).json({ error: "invalid_topup" }); return; }
+
+    // TODO: integrate payment gateway (Stripe etc.)
+    // For now return payment_required with amount
+    res.status(402).json({
+      error: "payment_required",
+      message: "Payment integration coming soon.",
+      amount: option.price,
+      credits: option.credits,
+      currency: "USD",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
