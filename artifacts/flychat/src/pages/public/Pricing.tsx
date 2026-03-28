@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { PublicLayout } from "@/components/PublicLayout";
 import { Link } from "wouter";
 import { Check, Zap, X } from "lucide-react";
+
+const DISCOUNT = 0.19;
 
 const PLANS = [
   {
@@ -91,14 +94,25 @@ const TOP_UPS = [
   { label: "50K", credits: "50,000", price: "$69" },
 ];
 
+function getPrice(price: number, annual: boolean) {
+  if (price === 0) return 0;
+  return annual ? Math.round(price * (1 - DISCOUNT)) : price;
+}
+
+function getAnnualTotal(price: number) {
+  return Math.round(price * (1 - DISCOUNT) * 12);
+}
+
 export default function Pricing() {
+  const [annual, setAnnual] = useState(false);
+
   return (
     <PublicLayout>
       <div className="bg-background py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
           {/* Header */}
-          <div className="text-center max-w-3xl mx-auto mb-16">
+          <div className="text-center max-w-3xl mx-auto mb-10">
             <h1 className="text-4xl md:text-5xl font-display font-bold text-foreground mb-6">
               Simple, transparent pricing
             </h1>
@@ -107,81 +121,117 @@ export default function Pricing() {
             </p>
           </div>
 
+          {/* Billing toggle */}
+          <div className="flex items-center justify-center gap-4 mb-14">
+            <span className={`text-sm font-semibold ${!annual ? "text-foreground" : "text-muted-foreground"}`}>
+              Monthly
+            </span>
+            <button
+              onClick={() => setAnnual(a => !a)}
+              className={`relative w-14 h-7 rounded-full transition-colors ${annual ? "bg-primary" : "bg-border"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-sm transition-transform ${annual ? "translate-x-7" : "translate-x-0"}`} />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-semibold ${annual ? "text-foreground" : "text-muted-foreground"}`}>
+                Annually
+              </span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                Save 19%
+              </span>
+            </div>
+          </div>
+
           {/* Plans grid */}
           <div className="grid md:grid-cols-4 gap-6 max-w-6xl mx-auto mb-20">
-            {PLANS.map((plan) => (
-              <div key={plan.id} className={`rounded-3xl border flex flex-col relative ${
-                plan.highlight
-                  ? "bg-primary border-primary shadow-2xl shadow-primary/20 md:-translate-y-4"
-                  : "bg-card border-border shadow-sm"
-              }`}>
-                {plan.badge && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                    <span className="bg-accent text-accent-foreground px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide whitespace-nowrap shadow-md">
-                      {plan.badge}
-                    </span>
+            {PLANS.map((plan) => {
+              const displayPrice = getPrice(plan.price, annual);
+              return (
+                <div key={plan.id} className={`rounded-3xl border flex flex-col relative ${
+                  plan.highlight
+                    ? "bg-primary border-primary shadow-2xl shadow-primary/20 md:-translate-y-4"
+                    : "bg-card border-border shadow-sm"
+                }`}>
+                  {plan.badge && (
+                    <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                      <span className="bg-accent text-accent-foreground px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide whitespace-nowrap shadow-md">
+                        {plan.badge}
+                      </span>
+                    </div>
+                  )}
+                  <div className="p-7 flex-1">
+                    <h3 className={`text-lg font-bold mb-1 ${plan.highlight ? "text-primary-foreground" : "text-foreground"}`}>
+                      {plan.name}
+                    </h3>
+                    <p className={`text-xs mb-5 ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                      {plan.description}
+                    </p>
+                    <div className="mb-2">
+                      {plan.price === 0 ? (
+                        <span className={`text-4xl font-extrabold ${plan.highlight ? "text-primary-foreground" : "text-foreground"}`}>Free</span>
+                      ) : (
+                        <div>
+                          <div className="flex items-baseline gap-1">
+                            {annual && (
+                              <span className={`text-lg line-through mr-1 ${plan.highlight ? "text-primary-foreground/40" : "text-muted-foreground/50"}`}>
+                                ${plan.price}
+                              </span>
+                            )}
+                            <span className={`text-4xl font-extrabold ${plan.highlight ? "text-primary-foreground" : "text-foreground"}`}>
+                              ${displayPrice}
+                            </span>
+                            <span className={`text-sm ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>/mo</span>
+                          </div>
+                          {annual && (
+                            <p className={`text-xs mt-1 font-medium ${plan.highlight ? "text-green-300" : "text-green-600"}`}>
+                              ${getAnnualTotal(plan.price)}/year — save ${plan.price * 12 - getAnnualTotal(plan.price)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {plan.trial && (
+                        <p className={`text-xs mt-1 ${plan.highlight ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
+                          {plan.trial}-day free trial
+                        </p>
+                      )}
+                    </div>
+
+                    <div className={`my-5 border-t ${plan.highlight ? "border-primary-foreground/20" : "border-border"}`} />
+
+                    <ul className="space-y-3">
+                      {plan.features.map((f, i) => (
+                        <li key={i} className="flex items-start gap-2.5">
+                          {f.included ? (
+                            <Check className={`w-4 h-4 mt-0.5 shrink-0 ${plan.highlight ? "text-accent" : "text-green-500"}`} />
+                          ) : (
+                            <X className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground/40" />
+                          )}
+                          <span className={`text-sm ${f.included
+                            ? plan.highlight ? "text-primary-foreground" : "text-foreground"
+                            : "text-muted-foreground/50 line-through"
+                          }`}>
+                            {f.text}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                )}
-                <div className="p-7 flex-1">
-                  <h3 className={`text-lg font-bold mb-1 ${plan.highlight ? "text-primary-foreground" : "text-foreground"}`}>
-                    {plan.name}
-                  </h3>
-                  <p className={`text-xs mb-5 ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                    {plan.description}
-                  </p>
-                  <div className="mb-2">
-                    {plan.price === 0 ? (
-                      <span className={`text-4xl font-extrabold ${plan.highlight ? "text-primary-foreground" : "text-foreground"}`}>Free</span>
-                    ) : (
-                      <div className="flex items-baseline gap-1">
-                        <span className={`text-4xl font-extrabold ${plan.highlight ? "text-primary-foreground" : "text-foreground"}`}>
-                          ${plan.price}
-                        </span>
-                        <span className={`text-sm ${plan.highlight ? "text-primary-foreground/70" : "text-muted-foreground"}`}>/mo</span>
-                      </div>
-                    )}
-                    {plan.trial && (
-                      <p className={`text-xs mt-1 ${plan.highlight ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
-                        {plan.trial}-day free trial
-                      </p>
-                    )}
+
+                  <div className="p-6 pt-0">
+                    <Link href={plan.ctaLink}
+                      className={`w-full block text-center py-3 rounded-xl font-bold text-sm transition-colors ${
+                        plan.highlight
+                          ? "bg-white text-primary hover:bg-gray-50 shadow-lg"
+                          : plan.price === 0
+                            ? "border-2 border-primary text-primary hover:bg-primary/5"
+                            : "bg-primary text-white hover:bg-primary/90"
+                      }`}>
+                      {plan.cta}
+                    </Link>
                   </div>
-
-                  <div className={`my-5 border-t ${plan.highlight ? "border-primary-foreground/20" : "border-border"}`} />
-
-                  <ul className="space-y-3">
-                    {plan.features.map((f, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        {f.included ? (
-                          <Check className={`w-4 h-4 mt-0.5 shrink-0 ${plan.highlight ? "text-accent" : "text-green-500"}`} />
-                        ) : (
-                          <X className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground/40" />
-                        )}
-                        <span className={`text-sm ${f.included
-                          ? plan.highlight ? "text-primary-foreground" : "text-foreground"
-                          : "text-muted-foreground/50 line-through"
-                        }`}>
-                          {f.text}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
-
-                <div className="p-6 pt-0">
-                  <Link href={plan.ctaLink}
-                    className={`w-full block text-center py-3 rounded-xl font-bold text-sm transition-colors ${
-                      plan.highlight
-                        ? "bg-white text-primary hover:bg-gray-50 shadow-lg"
-                        : plan.price === 0
-                          ? "border-2 border-primary text-primary hover:bg-primary/5"
-                          : "bg-primary text-white hover:bg-primary/90"
-                    }`}>
-                    {plan.cta}
-                  </Link>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Pay-as-you-go top-ups */}
@@ -224,7 +274,9 @@ export default function Pricing() {
                 </thead>
                 <tbody>
                   {[
-                    { feature: "Price", values: ["Free", "$19/mo", "$49/mo", "$99/mo"] },
+                    { feature: "Price", values: annual
+                      ? ["Free", `$${getPrice(19, true)}/mo`, `$${getPrice(49, true)}/mo`, `$${getPrice(99, true)}/mo`]
+                      : ["Free", "$19/mo", "$49/mo", "$99/mo"] },
                     { feature: "Channels", values: ["Widget only", "3 channels", "All 4", "All 4"] },
                     { feature: "AI messages/mo", values: ["50", "2,000", "10,000", "30,000"] },
                     { feature: "Orders/mo", values: ["50", "Unlimited", "Unlimited", "Unlimited"] },
@@ -258,7 +310,7 @@ export default function Pricing() {
             </div>
           </div>
 
-          {/* FAQ / CTA */}
+          {/* CTA */}
           <div className="text-center mt-16">
             <p className="text-muted-foreground mb-4">Questions? We're here to help.</p>
             <Link href="/contact" className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-colors">
