@@ -61,11 +61,13 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase())).limit(1);
-    if (!user || !verifyPassword(password, user.passwordHash)) {
-      res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
-      return;
-    }
+    // Find all accounts with this email (user may have multiple — own store + invited stores)
+   const users = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
+   const user = users.find(u => verifyPassword(password, u.passwordHash));
+   if (!user) {
+   res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
+   return;
+  }
 
     const token = createToken({ userId: user.id, email: user.email, storeId: user.storeId });
 
@@ -119,16 +121,14 @@ router.get("/validate-invite", async (req, res) => {
       return;
     }
 
-    const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
-    const [existingUser] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, invite.email.toLowerCase())).limit(1);
-
-    res.json({
-      valid: true,
-      email: invite.email,
-      role: invite.role,
-      storeName: store?.name || "Store",
-      isExistingUser: !!existingUser,
-    });
+  const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
+   res.json({
+  valid: true,
+  email: invite.email,
+  role: invite.role,
+  storeName: store?.name || "Store",
+  isExistingUser: false, // always create new account scoped to invited store
+  });
   } catch (err) {
     console.error("Validate invite error:", err);
     res.status(500).json({ error: "internal_error", message: "Failed to validate invite" });
@@ -156,42 +156,30 @@ router.post("/accept-invite", async (req, res) => {
       return;
     }
 
-    let userId: string;
-    const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.email, invite.email.toLowerCase())).limit(1);
+    // Always require password — each invitation creates a new account scoped to the invited store
+  if (!password || password.length < 8) {
+  res.status(400).json({ error: "validation_error", message: "Password must be at least 8 characters" });
+  return;
+   }
 
-    if (!existingUser && (!password || password.length < 8)) {
-      res.status(400).json({ error: "validation_error", message: "Password must be at least 8 characters" });
-      return;
-    }
+   const [store] = await db.select({ organizationId: storesTable.organizationId })
+  .from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
 
-    if (existingUser) {
-      userId = existingUser.id;
-      if (!existingUser.storeId) {
-        await db.update(usersTable).set({
-          storeId: invite.storeId,
-          name: name || existingUser.name,
-          onboardingCompleted: true,
-        }).where(eq(usersTable.id, userId));
-      }
-    } else {
-      userId = generateId("usr");
-      const passwordHash = hashPassword(password);
+  const userId = generateId("usr");
+  const passwordHash = hashPassword(password);
 
-      const [store] = await db.select({ organizationId: storesTable.organizationId }).from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
-
-      await db.insert(usersTable).values({
-        id: userId,
-        email: invite.email.toLowerCase(),
-        passwordHash,
-        name,
-        role: invite.role === "admin" ? "admin" : "agent",
-        language: "fr",
-        storeId: invite.storeId,
-        organizationId: store?.organizationId || null,
-        onboardingCompleted: true,
-      });
-    }
-
+  await db.insert(usersTable).values({
+  id: userId,
+  email: invite.email.toLowerCase(),
+  passwordHash,
+  name,
+  role: invite.role === "admin" ? "admin" : "agent",
+  language: "fr",
+  storeId: invite.storeId,
+  organizationId: store?.organizationId || null,
+  onboardingCompleted: true,
+  });
+   
     await db.update(teamMembersTable).set({
       userId,
       name,
