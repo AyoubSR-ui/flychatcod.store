@@ -56,7 +56,7 @@ router.post("/members", requireAuth, async (req, res) => {
     const limit = PLAN_LIMITS[plan] ?? 1;
     if (limit !== -1) {
       const currentMembers = await db.select().from(teamMembersTable)
-        .where(eq(teamMembersTable.storeId, storeId));
+        .where(eq(teamMembersTable.storeId, String(storeId)));
       if (currentMembers.length >= limit) {
         res.status(403).json({
           error: "plan_limit_reached",
@@ -89,7 +89,7 @@ router.post("/members", requireAuth, async (req, res) => {
     });
 
     const [store] = await db.select({ name: storesTable.name })
-      .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+      .from(storesTable).where(eq(storesTable.id, String(storeId))).limit(1);
     const storeName = store?.name || "Your Store";
     const inviterName = req.user!.name || req.user!.email;
     const acceptUrl = buildAcceptUrl(token);
@@ -110,7 +110,7 @@ router.post("/members/:id/resend-invite", requireAuth, async (req, res) => {
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
 
     const [member] = await db.select().from(teamMembersTable)
-      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, storeId)))
+      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, String(storeId))))
       .limit(1);
 
     if (!member) { res.status(404).json({ error: "not_found", message: "Team member not found" }); return; }
@@ -124,7 +124,7 @@ router.post("/members/:id/resend-invite", requireAuth, async (req, res) => {
       .set({ usedAt: new Date() })
       .where(and(
         eq(inviteTokensTable.teamMemberId, member.id),
-        eq(inviteTokensTable.storeId, storeId),
+        eq(inviteTokensTable.storeId, String(storeId)),
       ));
 
     const token = randomBytes(32).toString("hex");
@@ -141,7 +141,7 @@ router.post("/members/:id/resend-invite", requireAuth, async (req, res) => {
     });
 
     const [store] = await db.select({ name: storesTable.name })
-      .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+      .from(storesTable).where(eq(storesTable.id, String(storeId))).limit(1);
     const storeName = store?.name || "Your Store";
     const inviterName = req.user!.name || req.user!.email;
     const acceptUrl = buildAcceptUrl(token);
@@ -167,7 +167,7 @@ router.patch("/members/:id", requireAuth, async (req, res) => {
     if (status) updates.status = status;
 
     const [updated] = await db.update(teamMembersTable).set(updates)
-      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, storeId)))
+      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, String(storeId))))
       .returning();
 
     if (!updated) { res.status(404).json({ error: "not_found", message: "Team member not found" }); return; }
@@ -185,12 +185,12 @@ router.delete("/members/:id", requireAuth, async (req, res) => {
     await db.delete(inviteTokensTable)
       .where(and(
         eq(inviteTokensTable.teamMemberId, String(req.params.id)),
-        eq(inviteTokensTable.storeId, storeId)
+        eq(inviteTokensTable.storeId, String(storeId))
       ));
     await db.delete(teamMembersTable)
       .where(and(
         eq(teamMembersTable.id, String(req.params.id)),
-        eq(teamMembersTable.storeId, storeId)
+        eq(teamMembersTable.storeId, String(storeId))
       ));
     res.json({ success: true, message: "Team member removed" });
   } catch (err) {
