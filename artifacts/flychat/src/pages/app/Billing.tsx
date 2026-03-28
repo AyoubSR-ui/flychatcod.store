@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { CreditCard, Check, Zap, ArrowUpRight, FileText, Bot, AlertTriangle, Sparkles, X } from "lucide-react";
 import { useGetSubscription, useGetPlans, useGetBillingAiStatus } from "@workspace/api-client-react";
@@ -12,14 +13,20 @@ const PLAN_COLORS: Record<string, string> = {
 };
 
 const PLAN_ORDER = ["free", "starter", "pro", "agency"];
+const DISCOUNT = 0.19;
+function getPrice(price: number, annual: boolean) {
+  if (price === 0) return 0;
+  return annual ? Math.round(price * (1 - DISCOUNT)) : price;
+}
 
 export default function Billing() {
   const { data: sub } = useGetSubscription();
+  const [annual, setAnnual] = useState(false);
   const { data: plansData } = useGetPlans();
   const { t } = useI18n();
   const { data: aiStatusData } = useGetBillingAiStatus();
   const aiStatus = aiStatusData ?? null;
-
+  
   const plans = plansData?.plans ?? [];
   const topUps = (plansData as any)?.topUps ?? [];
 
@@ -161,8 +168,21 @@ export default function Billing() {
           )}
 
           {/* Available Plans */}
-          <div>
-            <h2 className="text-xl font-display font-bold text-foreground mb-5">{t("billing.available_plans")}</h2>
+              <div>
+            <div className="flex items-center justify-between mb-5">
+          <h2 className="text-xl font-display font-bold text-foreground">{t("billing.available_plans")}</h2>
+         <div className="flex items-center gap-3">
+         <span className={`text-sm font-medium ${!annual ? "text-foreground" : "text-muted-foreground"}`}>Monthly</span>
+         <button onClick={() => setAnnual(a => !a)}
+        className={`relative w-12 h-6 rounded-full transition-colors ${annual ? "bg-primary" : "bg-border"}`}>
+           <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${annual ? "translate-x-6" : "translate-x-0"}`} />
+         </button>
+         <div className="flex items-center gap-1.5">
+        <span className={`text-sm font-medium ${annual ? "text-foreground" : "text-muted-foreground"}`}>Annually</span>
+        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">-19%</span>
+         </div>
+       </div>
+         </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {plans.map((plan: any) => {
                 const isCurrent = sub?.plan === plan.id;
@@ -190,20 +210,28 @@ export default function Billing() {
                       <div className="mb-4">
                         {plan.price === 0 ? (
                           <p className="text-2xl font-extrabold text-foreground">Free</p>
-                        ) : (
-                          <div className="flex items-baseline gap-0.5">
-                            <span className="text-2xl font-extrabold text-foreground">${plan.price}</span>
-                            <span className="text-xs text-muted-foreground">/mo</span>
-                          </div>
-                        )}
-                        {plan.trial && (
-                          <p className="text-[10px] text-muted-foreground">{plan.trial}-day free trial</p>
-                        )}
-                      </div>
+                            ) : (
+                             <div>
+                              <div className="flex items-baseline gap-0.5">
+                                 {annual && <span className="text-sm line-through text-muted-foreground/50 mr-1">${plan.price}</span>}
+                                  <span className="text-2xl font-extrabold text-foreground">${getPrice(plan.price, annual)}</span>
+                                   <span className="text-xs text-muted-foreground">/mo</span>
+                                 </div>
+                                      {annual && plan.price > 0 && (
+                                  <p className="text-[10px] text-green-600 font-medium">
+                               ${Math.round(getPrice(plan.price, annual) * 12)}/year
+                                    </p>
+                                      )}
+                                        </div>
+                                       )}
+                                         {plan.trial && (
+                                          <p className="text-[10px] text-muted-foreground">{plan.trial}-day free trial</p>
+                                              )}
+                                           </div>
 
-                      <ul className="space-y-2">
-                        {plan.features.slice(0, 5).map((f: string, i: number) => (
-                          <li key={i} className="flex items-start gap-2 text-xs">
+                                       <ul className="space-y-2">
+                                 {plan.features.slice(0, 5).map((f: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2 text-xs">
                             <Check className="w-3.5 h-3.5 text-green-500 mt-0.5 shrink-0" />
                             <span className="text-muted-foreground">{f}</span>
                           </li>
