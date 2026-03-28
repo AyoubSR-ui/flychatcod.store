@@ -240,20 +240,22 @@ export default function Inbox() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: convsData, isLoading: isLoadingConvs } = useGetConversations({ status: "open" });
-  const { data: msgsData } = useGetMessages(activeConvId || "", { query: { enabled: !!activeConvId } });
+ const { data: msgsData } = useGetMessages(activeConvId || "", { query: { enabled: !!activeConvId, queryKey: ["messages", activeConvId] } });
+
   const sendMutation = useSendMessage();
   const createOrderMutation = useCreateOrder();
 
   const activeConv = convsData?.conversations?.find(c => c.id === activeConvId) as ConversationWithWidget | undefined;
 
   const { data: customerData } = useGetCustomer(activeConv?.customerId || "", {
-    query: { enabled: !!activeConv?.customerId },
-  });
+  query: { enabled: !!activeConv?.customerId, queryKey: ["customer", activeConv?.customerId] },
+ }); 
+
 
   const { data: productsData } = useGetProducts(
-    { search: productSearch, limit: 8 },
-    { query: { enabled: productSearch.length >= 1 } }
-  );
+  { search: productSearch, limit: 8 },
+  { query: { enabled: productSearch.length >= 1, queryKey: ["products", productSearch] } }
+);
 
   // Filtered conversations
   const allConvs = convsData?.conversations ?? [];
@@ -486,7 +488,7 @@ export default function Inbox() {
       setIsUploading(false);
     }
     const content = msgInput.trim() || (attachment ? `📎 ${attachment.name}` : "");
-    sendMutation.mutate({ id: activeConvId, data: { content, attachment } }, {
+    sendMutation.mutate({ id: activeConvId, data: { content } as any }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(activeConvId) });
         queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
