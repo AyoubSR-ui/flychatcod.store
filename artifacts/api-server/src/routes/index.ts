@@ -2,6 +2,7 @@ import { Router } from "express";
 import healthRouter from "./health.js";
 import authRouter from "./auth.js";
 import storageRouter from "./storage.js";
+import organizationRouter from "./organization.js";
 import dashboardRouter from "./dashboard.js";
 import conversationsRouter from "./conversations.js";
 import ordersRouter from "./orders.js";
@@ -18,15 +19,17 @@ import aiRouter from "./ai.js";
 import { whatsappRouter } from "./whatsapp.js";
 import { instagramRouter } from "./instagram.js";
 import { messengerRouter } from "./messenger.js";
-
+import stripeRouter from "./stripe.js";
 
 
 
 
 const router = Router();
 
+
 router.use("/", healthRouter);
 router.use("/auth", authRouter);
+router.use("/organization", organizationRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/conversations", conversationsRouter);
 router.use("/orders", ordersRouter);
@@ -43,6 +46,7 @@ router.use("/ai", aiRouter);
 router.use("/whatsapp", whatsappRouter);
 router.use("/instagram", instagramRouter);
 router.use("/messenger", messengerRouter);
+router.use("/stripe", stripeRouter);
 router.use("/", storageRouter);
 
 export default router;
