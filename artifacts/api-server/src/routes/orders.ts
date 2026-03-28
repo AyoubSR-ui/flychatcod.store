@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { db, ordersTable, orderItemsTable, customersTable, conversationsTable } from "@workspace/db";
+import { db, pool, ordersTable, orderItemsTable, customersTable, conversationsTable } from "@workspace/db";
 import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
+
 
 const router = Router();
 
@@ -17,7 +18,7 @@ router.get("/", requireAuth, async (req, res) => {
     const limitNum = Math.min(100, parseInt(limit));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions = [eq(ordersTable.storeId, storeId)];
+    const conditions = [eq(ordersTable.storeId, String(storeId))];
     if (status) conditions.push(eq(ordersTable.status, status as any));
     if (search) conditions.push(ilike(ordersTable.customerName, `%${search}%`));
 
@@ -50,6 +51,21 @@ router.post("/", requireAuth, async (req, res) => {
       res.status(400).json({ error: "validation_error", message: "customerName, customerPhone, wilaya, and items are required" });
       return;
     }
+
+    // ─── Plan order limit check ────────────────────────────────────────────
+   const { getPlanLimits, planLimitError } = await import("../lib/plan-limits.js");
+   const limits = await getPlanLimits(storeId);  
+   if (limits.ordersPerMonth !== -1) {
+   const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0,0,0,0);
+   const { rows } = await pool.query(
+    `SELECT COUNT(*) as count FROM orders WHERE store_id = $1 AND created_at >= $2`,
+    [storeId, startOfMonth]
+    );
+    if (parseInt(rows[0].count) >= limits.ordersPerMonth) {
+    res.status(403).json(planLimitError("orders", limits.plan, `${limits.ordersPerMonth} orders/month`));
+    return;
+   }
+   }
 
     // ── Customer linking: find or create, always scoped to this store ──
     let finalCustomerId: string | undefined = customerId;
@@ -141,7 +157,7 @@ router.post("/", requireAuth, async (req, res) => {
       const [{ cnt }] = await db
         .select({ cnt: sql<number>`count(*)` })
         .from(ordersTable)
-        .where(and(eq(ordersTable.customerId, finalCustomerId), eq(ordersTable.storeId, storeId)));
+        .where(and(eq(ordersTable.customerId, finalCustomerId), eq(ordersTable.storeId, String(storeId))));
 
       const totalOrders = Number(cnt);
       await db.update(customersTable).set({
@@ -180,7 +196,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const [order] = await db.select().from(ordersTable)
-      .where(and(eq(ordersTable.id, req.params.id), eq(ordersTable.storeId, storeId!))).limit(1);
+      .where(and(eq(ordersTable.id, String(req.params.id)), eq(ordersTable.storeId, String(storeId)))).limit(1);
 
     if (!order) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
 
@@ -210,7 +226,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (address !== undefined) updates.address = address;
 
     const [updated] = await db.update(ordersTable).set(updates)
-      .where(and(eq(ordersTable.id, req.params.id), eq(ordersTable.storeId, storeId!)))
+      .where(and(eq(ordersTable.id, String(req.params.id)), eq(ordersTable.storeId, String(storeId))))
       .returning();
 
     if (!updated) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }

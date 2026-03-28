@@ -10,7 +10,7 @@ router.get("/rules", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ rules: [] }); return; }
-    const rules = await db.select().from(automationRulesTable).where(eq(automationRulesTable.storeId, storeId));
+    const rules = await db.select().from(automationRulesTable).where(eq(automationRulesTable.storeId, String(storeId)));
     res.json({ rules });
   } catch (err) {
     console.error(err);
@@ -27,6 +27,20 @@ router.post("/rules", requireAuth, async (req, res) => {
     if (!name || !trigger || !action) {
       res.status(400).json({ error: "validation_error", message: "name, trigger, and action are required" });
       return;
+    }
+    // ─── Plan automation limit check ──────────────────────────────────────
+    const { getPlanLimits, planLimitError } = await import("../lib/plan-limits.js");
+    const limits = await getPlanLimits(storeId);
+    if (limits.automationRules === 0) {
+  res.status(403).json(planLimitError("automation", limits.plan, "No automation rules"));
+  return;
+  }
+    if (limits.automationRules !== -1) {
+    const existing = await db.select().from(automationRulesTable).where(eq(automationRulesTable.storeId, String(storeId)));
+    if (existing.length >= limits.automationRules) {
+    res.status(403).json(planLimitError("automation", limits.plan, `${limits.automationRules} rules`));
+    return;
+    }
     }
 
     const [rule] = await db.insert(automationRulesTable).values({
@@ -56,7 +70,7 @@ router.patch("/rules/:id", requireAuth, async (req, res) => {
     if (config) updates.config = config;
 
     const [updated] = await db.update(automationRulesTable).set(updates)
-      .where(and(eq(automationRulesTable.id, req.params.id), eq(automationRulesTable.storeId, storeId!)))
+      .where(and(eq(automationRulesTable.id, String(req.params.id)), eq(automationRulesTable.storeId, String(storeId))))
       .returning();
 
     if (!updated) { res.status(404).json({ error: "not_found", message: "Rule not found" }); return; }
@@ -70,7 +84,7 @@ router.patch("/rules/:id", requireAuth, async (req, res) => {
 router.delete("/rules/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
-    await db.delete(automationRulesTable).where(and(eq(automationRulesTable.id, req.params.id), eq(automationRulesTable.storeId, storeId!)));
+    await db.delete(automationRulesTable).where(and(eq(automationRulesTable.id, String(req.params.id)), eq(automationRulesTable.storeId, String(storeId))));
     res.json({ success: true, message: "Rule deleted" });
   } catch (err) {
     console.error(err);
