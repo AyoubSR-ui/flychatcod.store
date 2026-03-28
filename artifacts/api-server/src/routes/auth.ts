@@ -275,12 +275,11 @@ router.post("/onboarding", requireAuth, async (req, res) => {
 
     // Create widget channel connection (active)
     await db.insert(channelConnectionsTable).values({
-      id: generateId("ch"),
-      storeId,
-      channel: "widget",
-      status: "connected",
+    id: generateId("ch"),
+    storeId,
+    channel: "widget",
+    status: "disconnected",
     });
-
     // Create other channel connections (disconnected)
     for (const ch of ["whatsapp", "instagram", "messenger"] as const) {
       await db.insert(channelConnectionsTable).values({

@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { db, widgetConfigsTable, widgetSessionsTable, conversationsTable, messagesTable, storesTable } from "@workspace/db";
 import type { InsertWidgetConfig } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { z } from "zod";
 import { getIO } from "../socket.js";
 import { fireTrigger, rescheduleInactivityChecks, handleAiReplyForMessage } from "../lib/automation-engine.js";
+
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.get("/config", requireAuth, async (req, res) => {
 
     const [config] = await db.select().from(widgetConfigsTable).where(eq(widgetConfigsTable.storeId, storeId)).limit(1);
     if (!config) { res.status(404).json({ error: "not_found", message: "Widget config not found" }); return; }
+    await db.execute(sql`UPDATE channel_connections SET status = 'connected', updated_at = NOW() WHERE store_id = ${storeId} AND channel = 'widget' AND status = 'disconnected'`);
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
     const embedCode = `<script>window.FLYCHAT_CONFIG={storeId:"${storeId}"};</script>\n<script src="${baseUrl}/api/widget/widget.js"></script>`;
