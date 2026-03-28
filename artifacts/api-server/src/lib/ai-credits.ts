@@ -52,7 +52,7 @@ export async function getAiStatus(storeId: string): Promise<AiStatus> {
   return {
     eligible: true,
     aiEnabled: true,
-    creditsIncluded: sub.aiMonthlyCreditsIncluded,
+    creditsIncluded: monthlyCredits,
     creditsExtra: sub.aiExtraCreditsPurchased,
     creditsUsed: sub.aiCreditsUsedCurrentPeriod,
     creditsRemaining,
