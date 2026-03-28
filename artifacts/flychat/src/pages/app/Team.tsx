@@ -1,7 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { UserPlus, Trash2, Crown, Shield, Headphones, RotateCw } from "lucide-react";
 import { useState } from "react";
-import { useGetTeamMembers, useInviteTeamMember, useRemoveTeamMember } from "@workspace/api-client-react";
+import { useGetSubscription, useGetTeamMembers, useInviteTeamMember, useRemoveTeamMember } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 
@@ -27,6 +27,12 @@ export default function Team() {
   const [inviteMessage, setInviteMessage] = useState<{ type: "success" | "warning" | "error"; text: string } | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const { t } = useI18n();
+  const { data: subData } = useGetSubscription();
+  const PLAN_LIMITS: Record<string, number> = { free: 1, starter: 3, pro: 10, agency: -1 };
+  const plan = subData?.plan ?? "free";
+  const memberLimit = PLAN_LIMITS[plan] ?? 1;
+  const memberCount = data?.members.length ?? 0;
+  const atLimit = memberLimit !== -1 && memberCount >= memberLimit;
 
   const handleInvite = async () => {
     setInviting(true);
@@ -91,11 +97,26 @@ export default function Team() {
               <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.team")}</h1>
               <p className="text-muted-foreground mt-1">{t("team.manage_desc")}</p>
             </div>
-            <button onClick={() => setShowModal(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">
-              <UserPlus className="w-4 h-4" /> {t("team.invite_member")}
-            </button>
-          </div>
-
+            <div className="flex items-center gap-3">
+  {memberLimit !== -1 && (
+    <span className="text-sm text-muted-foreground">
+      <span className={`font-bold ${atLimit ? "text-red-600" : "text-foreground"}`}>{memberCount}</span>
+      /{memberLimit} members
+    </span>
+  )}
+  <button
+    onClick={() => atLimit ? null : setShowModal(true)}
+     disabled={atLimit}
+      title={atLimit ? `Upgrade your plan to add more than ${memberLimit} members` : undefined}
+       className={`px-5 py-2.5 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-all ${
+        atLimit
+        ? "bg-secondary text-muted-foreground cursor-not-allowed opacity-60"
+        : "bg-primary text-white hover:bg-primary/90"
+            }`}>
+    <UserPlus className="w-4 h-4" /> {t("team.invite_member")}
+     </button>
+       </div>
+       </div>    
           {inviteMessage && (
             <div className={`rounded-xl px-4 py-3 text-sm font-medium flex items-center gap-2 ${
               inviteMessage.type === "success" ? "bg-green-50 text-green-800 border border-green-200" :
@@ -105,6 +126,19 @@ export default function Team() {
               {inviteMessage.text}
             </div>
           )}
+          {atLimit && (
+  <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
+    <div>
+      <p className="text-sm font-bold text-amber-800">Team member limit reached</p>
+      <p className="text-xs text-amber-700 mt-0.5">
+        Your <span className="font-bold capitalize">{plan}</span> plan allows up to {memberLimit} member{memberLimit === 1 ? "" : "s"}.
+      </p>
+    </div>
+    <a href="/billing" className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold hover:bg-amber-700 transition-colors whitespace-nowrap">
+      Upgrade Plan
+    </a>
+      </div>
+        )}
 
           <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-border">
