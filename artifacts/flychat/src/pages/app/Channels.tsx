@@ -376,18 +376,16 @@ export default function Channels() {
                       <div className="flex gap-3 pt-2 border-t border-border">
                         <button
                           onClick={() => {
-                            if (isActive && ch !== "widget") handleDisconnect(ch);
-                            else if (!isActive) handleConnect(ch);
-                          }}
+                          if (isActive) handleDisconnect(ch);
+                            else handleConnect(ch);
+                           }}
                           className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
                             isActive
-                              ? ch === "widget"
-                                ? "bg-secondary text-foreground hover:bg-secondary/80"
-                                : "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+                             ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
                               : "bg-primary text-white hover:bg-primary/90"
                           }`}
                         >
-                          {isActive ? (ch === "widget" ? "Manage" : "Disconnect") : "Connect"}
+                          {isActive ? "Disconnect" : "Connect"}
                         </button>
 
                         <button
