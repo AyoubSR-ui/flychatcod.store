@@ -40,7 +40,7 @@ export default function AcceptInvite() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 8) { setSubmitError("Password must be at least 8 characters."); return; }
+    if (!invite?.isExistingUser && password.length < 8) { setSubmitError("Password must be at least 8 characters."); return; }
     setSubmitting(true);
     setSubmitError("");
 
