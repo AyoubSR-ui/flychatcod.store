@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { CreditCard, Check, Zap, ArrowUpRight, FileText, Bot, AlertTriangle, Sparkles, X } from "lucide-react";
 import { useGetSubscription, useGetPlans, useGetBillingAiStatus } from "@workspace/api-client-react";
@@ -44,12 +44,22 @@ async function handlePortal() {
 export default function Billing() {
   const { data: sub } = useGetSubscription();
   const [annual, setAnnual] = useState(false);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(true);
   const { data: plansData } = useGetPlans();
   const { t } = useI18n();
   const { data: aiStatusData } = useGetBillingAiStatus();
   const aiStatus = aiStatusData ?? null;
   
   const plans = plansData?.plans ?? [];
+
+  useEffect(() => {
+    const token = localStorage.getItem("flychat_token") || "";
+    fetch(`${API_BASE}/api/stripe/invoices`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { setInvoices(data.invoices || []); setLoadingInvoices(false); })
+      .catch(() => setLoadingInvoices(false));
+  }, []);
   const topUps = (plansData as any)?.topUps ?? [];
 
   const currentPlanIndex = PLAN_ORDER.indexOf(sub?.plan ?? "free");
@@ -290,14 +300,39 @@ export default function Billing() {
               <FileText className="w-5 h-5 text-primary" />
               <h2 className="text-xl font-display font-bold text-foreground">{t("billing.invoice_history")}</h2>
             </div>
-            <div className="text-center py-8 border border-dashed border-border rounded-xl">
-              <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-              <p className="font-semibold text-muted-foreground">{t("billing.no_invoices")}</p>
-              <p className="text-sm text-muted-foreground mt-1">{t("billing.no_invoices_desc")}</p>
-            </div>
+            {loadingInvoices ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">Loading invoices...</div>
+            ) : invoices.length === 0 ? (
+              <div className="text-center py-8 border border-dashed border-border rounded-xl">
+                <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
+                <p className="font-semibold text-muted-foreground">{t("billing.no_invoices")}</p>
+                <p className="text-sm text-muted-foreground mt-1">{t("billing.no_invoices_desc")}</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/50">
+                {invoices.map((inv: any) => (
+                  <div key={inv.id} className="flex items-center justify-between py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+                        <FileText className="w-4 h-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{inv.description}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(inv.date * 1000).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}{inv.number && ` · ${inv.number}`}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${inv.status === "paid" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>{inv.status}</span>
+                      <p className="text-sm font-bold text-foreground">${(inv.amount / 100).toFixed(2)} {inv.currency?.toUpperCase()}</p>
+                      {inv.pdfUrl && (<a href={inv.pdfUrl} target="_blank" rel="noreferrer" className="p-2 hover:bg-secondary rounded-lg transition-colors"><ArrowUpRight className="w-4 h-4 text-muted-foreground" /></a>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
     </AppLayout>
-  );
+      );
 }
