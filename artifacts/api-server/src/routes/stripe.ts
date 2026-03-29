@@ -5,13 +5,8 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();
-
 const stripeKey = process.env.STRIPE_SECRET_KEY || "";
-function getStripe() {
-  return new Stripe(stripeKey, { apiVersion: "2026-03-25.dahlia" });
-}
-const stripe = getStripe();
-
+const stripe = new Stripe(stripeKey, { apiVersion: "2026-03-25.dahlia" });
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
 
 // ─── Price IDs from env ───────────────────────────────────────────────────────
@@ -296,13 +291,13 @@ router.get("/invoices", requireAuth, async (req, res) => {
       return;
     }
 
-    const invoices = await getStripe().invoices.list({
-      customer: customerId,
-      limit: 24,
-    });
+    const [invoices, payments] = await Promise.all([
+      stripe.invoices.list({ customer: customerId, limit: 24 }),
+      stripe.paymentIntents.list({ customer: customerId, limit: 24 }),
+    ]);
 
-    res.json({
-      invoices: invoices.data.map(inv => ({
+    const allItems = [
+      ...invoices.data.map((inv: any) => ({
         id: inv.id,
         number: inv.number,
         amount: inv.amount_paid,
@@ -312,8 +307,25 @@ router.get("/invoices", requireAuth, async (req, res) => {
         pdfUrl: inv.invoice_pdf,
         hostedUrl: inv.hosted_invoice_url,
         description: inv.lines.data[0]?.description || "Subscription",
+        type: "invoice",
       })),
-    });
+      ...payments.data
+        .filter((p: any) => p.status === "succeeded" && p.metadata?.priceKey?.startsWith("topup_"))
+        .map((p: any) => ({
+          id: p.id,
+          number: null,
+          amount: p.amount,
+          currency: p.currency,
+          status: "paid",
+          date: p.created,
+          pdfUrl: null,
+          hostedUrl: null,
+          description: `AI Credits Top-up — ${(p.metadata?.priceKey || "").replace("topup_", "").replace("k", "K")} credits`,
+          type: "topup",
+        })),
+    ].sort((a: any, b: any) => b.date - a.date);
+
+    res.json({ invoices: allItems });
   } catch (err: any) {
     console.error("[Stripe] Invoices error:", err);
     res.status(500).json({ error: "stripe_error", message: err.message });
