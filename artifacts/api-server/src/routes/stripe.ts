@@ -166,20 +166,14 @@ router.post("/webhook", async (req, res) => {
         if (isTopUp) {
           // Add credits to subscription
           const credits = TOPUP_CREDITS[priceKey] || 0;
-          await db.update(subscriptionsTable).set({
-            aiExtraCreditsPurchased: db
-              .select({ v: subscriptionsTable.aiExtraCreditsPurchased })
-              .from(subscriptionsTable)
-              .where(eq(subscriptionsTable.organizationId, organizationId))
-              .then(() => 0) as any, // handled below
-            updatedAt: new Date(),
-          }).where(eq(subscriptionsTable.organizationId, organizationId));
-
-          // Use raw SQL for increment
+          if (isTopUp) {
+         const credits = TOPUP_CREDITS[priceKey] || 0;
           await pool.query(
-            `UPDATE subscriptions SET ai_extra_credits_purchased = ai_extra_credits_purchased + $1, updated_at = NOW() WHERE organization_id = $2`,
-            [credits, organizationId]
-          );
+          `UPDATE subscriptions SET ai_extra_credits_purchased = ai_extra_credits_purchased + $1, updated_at = NOW() WHERE organization_id = $2`,
+           [credits, organizationId]
+             );
+          console.log(`[Stripe] Added ${credits} credits to org ${organizationId}`);
+         }
           console.log(`[Stripe] Added ${credits} credits to org ${organizationId}`);
 
         } else if (session.mode === "subscription") {
