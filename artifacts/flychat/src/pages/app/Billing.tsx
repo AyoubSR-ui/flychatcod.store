@@ -19,6 +19,28 @@ function getPrice(price: number, annual: boolean) {
   return annual ? Math.round(price * (1 - DISCOUNT)) : price;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+
+async function handleCheckout(priceKey: string, annual: boolean = false) {
+  const token = localStorage.getItem("flychat_token") || "";
+  const res = await fetch(`${API_BASE}/api/stripe/create-checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ priceKey, annual }),
+  });
+  const data = await res.json();
+  if (data.url) window.location.href = data.url;
+}
+
+async function handlePortal() {
+  const token = localStorage.getItem("flychat_token") || "";
+  const res = await fetch(`${API_BASE}/api/stripe/portal`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  if (data.url) window.location.href = data.url;
+}
+
 export default function Billing() {
   const { data: sub } = useGetSubscription();
   const [annual, setAnnual] = useState(false);
@@ -84,9 +106,9 @@ export default function Billing() {
                     </div>
                   </div>
                 </div>
-                <button disabled className="px-4 py-2 border border-border rounded-xl text-sm font-medium opacity-50 cursor-not-allowed flex items-center gap-2">
-                  {t("billing.manage_subscription")}
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-secondary rounded-full text-muted-foreground">Soon</span>
+                <button onClick={handlePortal} className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-2 transition-colors">
+                   {t("billing.manage_subscription")}
+                <ArrowUpRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -156,8 +178,8 @@ export default function Billing() {
                       <p className="text-2xl font-display font-black text-violet-700">{opt.label}</p>
                       <p className="text-xs text-muted-foreground mb-1">credits</p>
                       <p className="text-sm font-bold text-violet-600 mb-3">${opt.price} USD</p>
-                      <button disabled className="w-full py-2 bg-violet-200 text-violet-700 rounded-xl text-xs font-bold cursor-not-allowed opacity-70">
-                        Coming Soon
+                      <button onClick={() => handleCheckout(opt.id)} className="w-full py-2 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-colors">
+                      Buy Now
                       </button>
                     </div>
                   ))}
@@ -242,6 +264,7 @@ export default function Billing() {
                     <div className="p-4 pt-0">
                       <button
                         disabled={isCurrent}
+                         onClick={() => { if (!isCurrent && isUpgrade) handleCheckout(plan.id, annual); }}
                         className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-1.5 transition-all ${
                           isCurrent
                             ? "bg-secondary text-muted-foreground cursor-default"
