@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { db, pool, subscriptionsTable, storesTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
+import { sendSubscriptionEmail, sendTopUpEmail } from "../lib/email.js";
 
 const router = Router();
 const stripeKey = process.env.STRIPE_SECRET_KEY || "";
@@ -175,6 +176,23 @@ router.post("/webhook", async (req, res) => {
          [credits, organizationId]
       );
        console.log(`[Stripe] Added ${credits} credits to org ${organizationId}`);
+       // Send top-up confirmation email
+    try {
+     const { rows: userRows } = await pool.query(
+    `SELECT email, name FROM users WHERE id = $1 LIMIT 1`,
+    [userId]
+     );
+     const creditsMap: Record<string, string> = { topup_5k: "5,000", topup_15k: "15,000", topup_50k: "50,000" };
+     const amountMap: Record<string, string> = { topup_5k: "$9", topup_15k: "$24", topup_50k: "$69" };
+       if (userRows[0] && priceKey) {
+    await sendTopUpEmail({
+      to: userRows[0].email,
+      name: userRows[0].name || "there",
+      credits: creditsMap[priceKey] || "credits",
+      amount: amountMap[priceKey] || "",
+    });
+    }
+   } catch {}
        } else if (session.mode === "subscription") {
        console.log(`[Stripe] Subscription checkout completed for org ${organizationId}`);
         } 
@@ -185,7 +203,9 @@ router.post("/webhook", async (req, res) => {
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
-      
+        
+
+    
         // Find user by stripe customer id
         const { rows } = await pool.query(
           `SELECT u.organization_id FROM users u WHERE u.stripe_customer_id = $1 LIMIT 1`,
@@ -225,6 +245,23 @@ router.post("/webhook", async (req, res) => {
           [planKey, subscription.status === "active" ? "active" : "trialing", periodStart, periodEnd, monthlyCredits, subscription.id, organizationId]
         );
         console.log(`[Stripe] Updated plan to ${planKey} for org ${organizationId}`);
+        // Send subscription confirmation email
+    try {
+     const { rows: userRows } = await pool.query(
+    `SELECT email, name FROM users WHERE stripe_customer_id = $1 LIMIT 1`,
+    [customerId]
+     );
+     if (userRows[0]) {
+    await sendSubscriptionEmail({
+      to: userRows[0].email,
+      name: userRows[0].name || "there",
+      planName: planKey.charAt(0).toUpperCase() + planKey.slice(1),
+      amount: planKey === "starter" ? "$19" : planKey === "pro" ? "$49" : "$99",
+      nextBillingDate: periodEnd.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+      isUpgrade: true,
+    });
+    }
+     } catch {}
         break;
       }
 
