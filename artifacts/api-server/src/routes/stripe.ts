@@ -6,9 +6,11 @@ import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2026-03-25.dahlia",
-});
+const stripeKey = process.env.STRIPE_SECRET_KEY || "";
+function getStripe() {
+  return new Stripe(stripeKey, { apiVersion: "2026-03-25.dahlia" });
+}
+const stripe = getStripe();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
 
@@ -164,31 +166,23 @@ router.post("/webhook", async (req, res) => {
         const isTopUp = priceKey?.startsWith("topup_");
 
         if (isTopUp) {
-          // Add credits to subscription
-          const credits = TOPUP_CREDITS[priceKey] || 0;
-          if (isTopUp) {
-         const credits = TOPUP_CREDITS[priceKey] || 0;
-          await pool.query(
-          `UPDATE subscriptions SET ai_extra_credits_purchased = ai_extra_credits_purchased + $1, updated_at = NOW() WHERE organization_id = $2`,
-           [credits, organizationId]
-             );
-          console.log(`[Stripe] Added ${credits} credits to org ${organizationId}`);
-         }
-          console.log(`[Stripe] Added ${credits} credits to org ${organizationId}`);
-
-        } else if (session.mode === "subscription") {
-          // Subscription checkout completed — subscription.created will handle plan update
-          console.log(`[Stripe] Subscription checkout completed for org ${organizationId}`);
-        }
+        const credits = TOPUP_CREDITS[priceKey] || 0;
+       await pool.query(
+       `UPDATE subscriptions SET ai_extra_credits_purchased = ai_extra_credits_purchased + $1, updated_at = NOW() WHERE organization_id = $2`,
+         [credits, organizationId]
+      );
+       console.log(`[Stripe] Added ${credits} credits to org ${organizationId}`);
+       } else if (session.mode === "subscription") {
+       console.log(`[Stripe] Subscription checkout completed for org ${organizationId}`);
+        } 
         break;
-      }
-
+        }
       // ── Subscription activated ────────────────────────────────────────────
       case "customer.subscription.created":
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
-
+      
         // Find user by stripe customer id
         const { rows } = await pool.query(
           `SELECT u.organization_id FROM users u WHERE u.stripe_customer_id = $1 LIMIT 1`,
@@ -286,3 +280,42 @@ router.post("/webhook", async (req, res) => {
 });
 
 export default router;
+
+// GET /api/stripe/invoices
+router.get("/invoices", requireAuth, async (req, res) => {
+  try {
+    const user = req.user!;
+    const { rows } = await pool.query(
+      `SELECT stripe_customer_id FROM users WHERE id = $1 LIMIT 1`,
+      [user.id]
+    ).catch(() => ({ rows: [] }));
+
+    const customerId = rows[0]?.stripe_customer_id;
+    if (!customerId) {
+      res.json({ invoices: [] });
+      return;
+    }
+
+    const invoices = await getStripe().invoices.list({
+      customer: customerId,
+      limit: 24,
+    });
+
+    res.json({
+      invoices: invoices.data.map(inv => ({
+        id: inv.id,
+        number: inv.number,
+        amount: inv.amount_paid,
+        currency: inv.currency,
+        status: inv.status,
+        date: inv.created,
+        pdfUrl: inv.invoice_pdf,
+        hostedUrl: inv.hosted_invoice_url,
+        description: inv.lines.data[0]?.description || "Subscription",
+      })),
+    });
+  } catch (err: any) {
+    console.error("[Stripe] Invoices error:", err);
+    res.status(500).json({ error: "stripe_error", message: err.message });
+  }
+});
