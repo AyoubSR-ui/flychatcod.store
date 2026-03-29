@@ -94,11 +94,19 @@ router.post("/create-checkout", requireAuth, async (req, res) => {
         // Annual discount — apply coupon or use annual price ID
         sessionParams.discounts = [];
       }
-    } else {
-      // One-time top-up
-      sessionParams.mode = "payment";
-      sessionParams.line_items = [{ price: priceId, quantity: 1 }];
-    }
+    
+     } else {
+    // One-time top-up
+    sessionParams.mode = "payment";
+    sessionParams.line_items = [{ price: priceId, quantity: 1 }];
+     sessionParams.payment_intent_data = {
+    metadata: {
+      priceKey,
+      organizationId: user.organizationId || "",
+      userId: user.id,
+     },
+    };
+   }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
     res.json({ url: session.url, sessionId: session.id });
