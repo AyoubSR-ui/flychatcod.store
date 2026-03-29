@@ -211,8 +211,13 @@ router.post("/webhook", async (req, res) => {
 
         if (!planKey || planKey.startsWith("topup_")) break;
 
-        const periodEnd = new Date((subscription as any).current_period_end * 1000);
-        const periodStart = new Date((subscription as any).current_period_start * 1000);
+        const periodEnd = subscription.items.data[0]?.current_period_end
+          ? new Date(subscription.items.data[0].current_period_end * 1000)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const periodStart = subscription.items.data[0]?.current_period_start
+         ? new Date(subscription.items.data[0].current_period_start * 1000)
+         : new Date();
+        
         const monthlyCredits = PLAN_CREDITS[planKey] || 0;
 
         await pool.query(
