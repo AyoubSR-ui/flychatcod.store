@@ -254,7 +254,7 @@ async function executeCreateOrderSilent(
   
     console.log(`[AI Bridge] Order ${orderNumber} created for conv ${conversationId}`);
     // Trigger voice confirmation call
-try {
+   try {
   const { triggerOrderConfirmationCall } = await import("./voice-call.js");
   const [store] = await db.select({ name: storesTable.name })
     .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
@@ -263,15 +263,15 @@ try {
     customerPhone: action.customerPhone!,
     customerName: action.customerName!,
     storeName: store?.name || "Notre boutique",
-    agentName: "Sofia",
     productName: firstItem?.productName || "votre produit",
     wilaya: action.wilaya!,
     price: total,
     orderNumber,
     orderId,
+    storeId,
     detectedLanguage,
   });
-} catch (callErr) {
+  } catch (callErr) {
   console.error("[Voice] Call trigger failed:", callErr);
   }
   } catch (err) {
