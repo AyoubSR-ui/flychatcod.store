@@ -1,4 +1,4 @@
-import { db, conversationsTable, messagesTable, ordersTable, orderItemsTable } from "@workspace/db";
+import { db, conversationsTable, messagesTable, ordersTable, orderItemsTable, storesTable } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
 
@@ -187,7 +187,7 @@ export async function callAiBridge(params: {
 
     // DEDUP FIX: only create order if not already created in this conversation
     if (action.type === "create_order" && conv.aiFlowState !== "order_created") {
-      await executeCreateOrderSilent(conversationId, storeId, conv.customerId, action);
+      await executeCreateOrderSilent(conversationId, storeId, conv.customerId, action, detectedLanguage);
     } else if (action.type === "create_order" && conv.aiFlowState === "order_created") {
       console.log(`[AI Bridge] Skipping duplicate order creation for conv ${conversationId} — already created`);
     } else if (action.type === "cancel_order" && action.customerPhone) {
@@ -205,6 +205,7 @@ async function executeCreateOrderSilent(
   storeId: string,
   customerId: string | null | undefined,
   action: AgentResponse["action"],
+  detectedLanguage?: string,
 ): Promise<void> {
   if (!action.customerName || !action.customerPhone || !action.wilaya) return;
   try {
@@ -250,10 +251,32 @@ async function executeCreateOrderSilent(
       .update(conversationsTable)
       .set({ aiFlowState: "order_created", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
-
+  
     console.log(`[AI Bridge] Order ${orderNumber} created for conv ${conversationId}`);
+    // Trigger voice confirmation call
+try {
+  const { triggerOrderConfirmationCall } = await import("./voice-call.js");
+  const [store] = await db.select({ name: storesTable.name })
+    .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+  const firstItem = action.items?.[0];
+  await triggerOrderConfirmationCall({
+    customerPhone: action.customerPhone!,
+    customerName: action.customerName!,
+    storeName: store?.name || "Notre boutique",
+    agentName: "Sofia",
+    productName: firstItem?.productName || "votre produit",
+    wilaya: action.wilaya!,
+    price: total,
+    orderNumber,
+    orderId,
+    detectedLanguage,
+  });
+} catch (callErr) {
+  console.error("[Voice] Call trigger failed:", callErr);
+  }
   } catch (err) {
     console.error("[AI Bridge] Silent order creation failed:", err);
+  
   }
 }
 
