@@ -20,6 +20,7 @@ import voiceRouter from "./voice.js";
 import { whatsappRouter } from "./whatsapp.js";
 import { instagramRouter } from "./instagram.js";
 import { messengerRouter } from "./messenger.js";
+import shopifyRouter from "./shopify.js";
 import stripeRouter from "./stripe.js";
 
 
@@ -48,6 +49,7 @@ router.use("/voice", voiceRouter);
 router.use("/whatsapp", whatsappRouter);
 router.use("/instagram", instagramRouter);
 router.use("/messenger", messengerRouter);
+router.use("/shopify", shopifyRouter);
 router.use("/stripe", stripeRouter);
 router.use("/", storageRouter);
 

@@ -272,13 +272,25 @@ async function executeCreateOrderSilent(
     detectedLanguage,
   });
   } catch (callErr) {
-  console.error("[Voice] Call trigger failed:", callErr);
+    console.error("[Voice] Call trigger failed:", callErr);
   }
+
+  // Push order to Shopify
+  try {
+    const { pushOrderToShopify } = await import("../routes/shopify.js");
+    await pushOrderToShopify(storeId, orderId);
+  } catch (shopifyErr) {
+    console.error("[Shopify] Push order failed:", shopifyErr);
+  }
+
   } catch (err) {
     console.error("[AI Bridge] Silent order creation failed:", err);
   
   }
 }
+
+
+
 
 async function executeCancelOrderSilent(
   conversationId: string,
@@ -316,3 +328,4 @@ async function executeCancelOrderSilent(
     console.error("[AI Bridge] Silent cancellation failed:", err);
   }
 }
+
