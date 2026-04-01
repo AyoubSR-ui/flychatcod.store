@@ -1,11 +1,9 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X, Loader2, Phone, PhoneCall } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X, Loader2, PhoneCall } from "lucide-react";
 import { useGetChannels } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 import WidgetGuideVideo from "@/components/WidgetGuideVideo";
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
 
 const WidgetIcon = () => (
   <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -59,7 +57,12 @@ const MessengerIcon = () => (
   </svg>
 );
 
-// ─── Channel metadata ─────────────────────────────────────────────────────────
+const ShopifyIcon = () => (
+  <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+    <rect width="40" height="40" rx="10" fill="#95BF47" />
+    <text x="20" y="26" textAnchor="middle" fill="white" fontSize="16" fontWeight="bold" fontFamily="Arial">S</text>
+  </svg>
+);
 
 const CHANNEL_META: Record<string, { name: string; icon: ReactNode; description: string; color: string; hasGuide: boolean }> = {
   widget: {
@@ -92,8 +95,6 @@ const CHANNEL_META: Record<string, { name: string; icon: ReactNode; description:
   },
 };
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
-
 const StatusBadge = ({ status }: { status: string }) => {
   const map: Record<string, { label: string; color: string; icon: any }> = {
     connected: { label: "Connected", color: "bg-green-100 text-green-800 border-green-200", icon: CheckCircle2 },
@@ -110,13 +111,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-// ─── WhatsApp Connect Modal ───────────────────────────────────────────────────
-
-function WhatsAppModal({ onClose, onSuccess, apiBase }: {
-  onClose: () => void;
-  onSuccess: () => void;
-  apiBase: string;
-}) {
+function WhatsAppModal({ onClose, onSuccess, apiBase }: { onClose: () => void; onSuccess: () => void; apiBase: string }) {
   const [accessToken, setAccessToken] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -125,8 +120,7 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
   const handleSubmit = async () => {
     if (!accessToken.trim()) { setError("Access token is required."); return; }
     if (!phoneNumberId.trim()) { setError("Phone Number ID is required."); return; }
-    setError("");
-    setLoading(true);
+    setError(""); setLoading(true);
     try {
       const token = localStorage.getItem("flychat_token") || "";
       const res = await fetch(`${apiBase}/api/whatsapp/connect`, {
@@ -136,13 +130,10 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Connection failed");
-      onSuccess();
-      onClose();
+      onSuccess(); onClose();
     } catch (err: any) {
       setError(err.message || "Failed to connect WhatsApp.");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
@@ -151,40 +142,29 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <WhatsAppIcon />
-            <div>
-              <h2 className="font-bold text-foreground text-lg">Connect WhatsApp</h2>
-              <p className="text-xs text-muted-foreground">WhatsApp Cloud API</p>
-            </div>
+            <div><h2 className="font-bold text-foreground text-lg">Connect WhatsApp</h2><p className="text-xs text-muted-foreground">WhatsApp Cloud API</p></div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
-            <X className="w-4 h-4 text-muted-foreground" />
-          </button>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg"><X className="w-4 h-4 text-muted-foreground" /></button>
         </div>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">Permanent Access Token</label>
             <input type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="EAAxxxxxxxxxxxxxxx..."
-              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
             <p className="text-xs text-muted-foreground">Get this from Meta Business Suite → WhatsApp → API Setup → Permanent Token.</p>
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">Phone Number ID</label>
             <input type="text" value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} placeholder="989761010895675"
-              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
             <p className="text-xs text-muted-foreground">Found in Meta Business Suite → WhatsApp → API Setup → Phone Number ID.</p>
           </div>
         </div>
-        {error && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
-          </div>
-        )}
+        {error && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
         <div className="flex gap-3 pt-1">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading}
-            className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? "Connecting..." : "Connect"}
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">Cancel</button>
+          <button onClick={handleSubmit} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-60 flex items-center justify-center gap-2">
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}{loading ? "Connecting..." : "Connect"}
           </button>
         </div>
       </div>
@@ -192,13 +172,7 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
   );
 }
 
-// ─── Voice Calls Modal ────────────────────────────────────────────────────────
-
-function VoiceCallModal({ onClose, onSuccess, apiBase }: {
-  onClose: () => void;
-  onSuccess: (phone: string) => void;
-  apiBase: string;
-}) {
+function VoiceCallModal({ onClose, onSuccess, apiBase }: { onClose: () => void; onSuccess: (phone: string) => void; apiBase: string }) {
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -208,46 +182,34 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: {
 
   const handleSendOtp = async () => {
     if (!phone.trim()) { setError("Phone number is required."); return; }
-    setError("");
-    setLoading(true);
+    setError(""); setLoading(true);
     try {
       const token = localStorage.getItem("flychat_token") || "";
       const res = await fetch(`${apiBase}/api/voice/verify-send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ phone: phone.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to send OTP");
-      setVerifiedPhone(data.phone);
-      setStep("otp");
-    } catch (err: any) {
-      setError(err.message || "Failed to send verification code.");
-    } finally {
-      setLoading(false);
-    }
+      setVerifiedPhone(data.phone); setStep("otp");
+    } catch (err: any) { setError(err.message || "Failed to send verification code."); }
+    finally { setLoading(false); }
   };
 
   const handleConfirmOtp = async () => {
     if (!otp.trim()) { setError("Verification code is required."); return; }
-    setError("");
-    setLoading(true);
+    setError(""); setLoading(true);
     try {
       const token = localStorage.getItem("flychat_token") || "";
       const res = await fetch(`${apiBase}/api/voice/verify-confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ phone: verifiedPhone, code: otp.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Invalid code");
-      onSuccess(verifiedPhone);
-      onClose();
-    } catch (err: any) {
-      setError(err.message || "Invalid verification code.");
-    } finally {
-      setLoading(false);
-    }
+      onSuccess(verifiedPhone); onClose();
+    } catch (err: any) { setError(err.message || "Invalid verification code."); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -258,16 +220,10 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: {
             <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center">
               <PhoneCall className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h2 className="font-bold text-foreground text-lg">AI Voice Calls</h2>
-              <p className="text-xs text-muted-foreground">Verify your caller phone number</p>
-            </div>
+            <div><h2 className="font-bold text-foreground text-lg">AI Voice Calls</h2><p className="text-xs text-muted-foreground">Verify your caller phone number</p></div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
-            <X className="w-4 h-4 text-muted-foreground" />
-          </button>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg"><X className="w-4 h-4 text-muted-foreground" /></button>
         </div>
-
         {step === "phone" ? (
           <>
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-xs">
@@ -276,9 +232,8 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Your Phone Number</label>
-              <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-                placeholder="0555 000 000 or +213555000000"
-                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="0555 000 000 or +213555000000"
+                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
               <p className="text-xs text-muted-foreground">Customers will see this number when AI calls them for order confirmation.</p>
             </div>
           </>
@@ -289,26 +244,17 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: {
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground">Verification Code</label>
-              <input type="text" value={otp} onChange={e => setOtp(e.target.value)}
-                placeholder="123456" maxLength={6}
-                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-center text-xl tracking-widest font-bold" />
+              <input type="text" value={otp} onChange={e => setOtp(e.target.value)} placeholder="123456" maxLength={6}
+                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 text-center text-xl tracking-widest font-bold" />
             </div>
-            <button onClick={() => { setStep("phone"); setError(""); }} className="text-xs text-primary hover:underline">
-              ← Use a different number
-            </button>
+            <button onClick={() => { setStep("phone"); setError(""); }} className="text-xs text-primary hover:underline">← Use a different number</button>
           </>
         )}
-
-        {error && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
-          </div>
-        )}
-
+        {error && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
         <div className="flex gap-3 pt-1">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors">Cancel</button>
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">Cancel</button>
           <button onClick={step === "phone" ? handleSendOtp : handleConfirmOtp} disabled={loading}
-            className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 disabled:opacity-60 flex items-center justify-center gap-2">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {loading ? "Please wait..." : step === "phone" ? "Send Code" : "Verify & Connect"}
           </button>
@@ -318,7 +264,68 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: {
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+function ShopifyModal({ onClose, apiBase, onSuccess }: { onClose: () => void; apiBase: string; onSuccess: (shop: string) => void }) {
+  const [shop, setShop] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleConnect = async () => {
+    if (!shop.trim()) { setError("Store URL is required."); return; }
+    let shopUrl = shop.trim().toLowerCase();
+    if (!shopUrl.includes(".myshopify.com")) shopUrl = `${shopUrl}.myshopify.com`;
+    setError(""); setLoading(true);
+    try {
+      const token = localStorage.getItem("flychat_token") || "";
+      const res = await fetch(`${apiBase}/api/shopify/oauth/start?shop=${shopUrl}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to start OAuth");
+      if (data.url) {
+        const popup = window.open(data.url, "shopify_oauth", "width=600,height=700,scrollbars=yes");
+        const timer = setInterval(() => {
+          if (popup?.closed) { clearInterval(timer); onSuccess(shopUrl); onClose(); }
+        }, 500);
+      }
+    } catch (err: any) { setError(err.message || "Failed to connect Shopify."); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <ShopifyIcon />
+            <div><h2 className="font-bold text-foreground text-lg">Connect Shopify</h2><p className="text-xs text-muted-foreground">Sync products and push orders</p></div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg"><X className="w-4 h-4 text-muted-foreground" /></button>
+        </div>
+        <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-xs">
+          <p className="font-bold mb-1">What happens after connecting:</p>
+          <p>• Products sync from Shopify to FlyChat automatically</p>
+          <p>• COD orders created by AI are pushed to Shopify instantly</p>
+          <p>• New Shopify orders appear in FlyChat via webhook</p>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-foreground">Your Shopify Store URL</label>
+          <input type="text" value={shop} onChange={e => setShop(e.target.value)} placeholder="yourstore.myshopify.com"
+            className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
+          <p className="text-xs text-muted-foreground">Found in your Shopify admin URL bar.</p>
+        </div>
+        {error && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">Cancel</button>
+          <button onClick={handleConnect} disabled={loading}
+            className="flex-1 py-2.5 rounded-xl bg-[#95BF47] text-white text-sm font-bold hover:bg-[#7da33a] disabled:opacity-60 flex items-center justify-center gap-2">
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {loading ? "Connecting..." : "Connect Shopify"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Channels() {
   const { data, isLoading, refetch } = useGetChannels();
@@ -326,9 +333,12 @@ export default function Channels() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [waModalOpen, setWaModalOpen] = useState(false);
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [voiceStatus, setVoiceStatus] = useState<any>(null);
+  const [shopifyStatus, setShopifyStatus] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 
@@ -336,27 +346,23 @@ export default function Channels() {
     const params = new URLSearchParams(window.location.search);
     const success = params.get("success");
     const error = params.get("error");
-    if (success === "instagram_connected") {
-      setSuccessMsg("Instagram DMs connected successfully!");
-      refetch();
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (success === "messenger_connected") {
-      setSuccessMsg("Facebook Messenger connected successfully!");
-      refetch();
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (error) {
-      setErrorMsg("Connection failed. Please try again.");
-      window.history.replaceState({}, "", window.location.pathname);
-    }
+    if (success === "instagram_connected") { setSuccessMsg("Instagram DMs connected successfully!"); refetch(); window.history.replaceState({}, "", window.location.pathname); }
+    else if (success === "messenger_connected") { setSuccessMsg("Facebook Messenger connected successfully!"); refetch(); window.history.replaceState({}, "", window.location.pathname); }
+    else if (success === "shopify_connected") { setSuccessMsg("Shopify connected and products synced!"); fetchShopifyStatus(); window.history.replaceState({}, "", window.location.pathname); }
+    else if (error) { setErrorMsg("Connection failed. Please try again."); window.history.replaceState({}, "", window.location.pathname); }
   }, [refetch]);
 
-  // Fetch voice status
+  const fetchShopifyStatus = () => {
+    const token = localStorage.getItem("flychat_token") || "";
+    fetch(`${API_BASE}/api/shopify/status`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(data => setShopifyStatus(data)).catch(() => {});
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("flychat_token") || "";
     fetch(`${API_BASE}/api/voice/status`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => setVoiceStatus(data))
-      .catch(() => {});
+      .then(r => r.json()).then(data => setVoiceStatus(data)).catch(() => {});
+    fetchShopifyStatus();
   }, []);
 
   const handleConnect = (ch: string) => {
@@ -364,9 +370,7 @@ export default function Channels() {
     if (ch === "instagram" || ch === "messenger") {
       const token = localStorage.getItem("flychat_token") || "";
       const popup = window.open(`${API_BASE}/api/${ch}/oauth/start?token=${token}`, `${ch}_oauth`, "width=600,height=700,scrollbars=yes");
-      const timer = setInterval(() => {
-        if (popup?.closed) { clearInterval(timer); refetch(); }
-      }, 500);
+      const timer = setInterval(() => { if (popup?.closed) { clearInterval(timer); refetch(); } }, 500);
     }
   };
 
@@ -375,11 +379,19 @@ export default function Channels() {
     const token = localStorage.getItem("flychat_token") || "";
     try {
       await fetch(`${API_BASE}/api/${ch}/disconnect`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-      setSuccessMsg(`${CHANNEL_META[ch]?.name || ch} disconnected.`);
-      refetch();
-    } catch {
-      setErrorMsg("Failed to disconnect. Please try again.");
-    }
+      setSuccessMsg(`${CHANNEL_META[ch]?.name || ch} disconnected.`); refetch();
+    } catch { setErrorMsg("Failed to disconnect. Please try again."); }
+  };
+
+  const handleShopifySync = async (type: "products" | "orders") => {
+    setSyncing(true);
+    const token = localStorage.getItem("flychat_token") || "";
+    try {
+      const res = await fetch(`${API_BASE}/api/shopify/sync/${type}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setSuccessMsg(`Synced ${data.synced} ${type} from Shopify ✅`);
+    } catch { setErrorMsg("Sync failed. Please try again."); }
+    finally { setSyncing(false); }
   };
 
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
@@ -427,46 +439,36 @@ export default function Channels() {
             <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
           ) : (
             <>
-              {/* Messaging channels */}
+              {/* ── Messaging Channels ── */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {(["widget", "whatsapp", "instagram", "messenger"] as const).map((ch) => {
                   const meta = CHANNEL_META[ch];
                   const conn = channelMap[ch];
                   const isActive = conn?.status === "connected";
-
                   return (
                     <div key={ch} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isActive ? "border-primary/30" : "border-border"}`}>
                       <div className={`h-2 bg-gradient-to-r ${meta.color}`} />
                       <div className="p-6 space-y-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="shrink-0">{meta.icon}</div>
-                            <div>
-                              <h3 className="font-bold text-foreground">{meta.name}</h3>
-                              <div className="mt-1 flex flex-col gap-1">
-                                <StatusBadge status={conn?.status || "disconnected"} />
-                                {getAccountLabel(ch, conn) && (
-                                  <span className="text-xs text-muted-foreground font-medium truncate max-w-[160px]">
-                                    {getAccountLabel(ch, conn)}
-                                  </span>
-                                )}
-                              </div>
+                        <div className="flex items-center gap-3">
+                          <div className="shrink-0">{meta.icon}</div>
+                          <div>
+                            <h3 className="font-bold text-foreground">{meta.name}</h3>
+                            <div className="mt-1 flex flex-col gap-1">
+                              <StatusBadge status={conn?.status || "disconnected"} />
+                              {getAccountLabel(ch, conn) && (
+                                <span className="text-xs text-muted-foreground font-medium truncate max-w-[160px]">{getAccountLabel(ch, conn)}</span>
+                              )}
                             </div>
                           </div>
                         </div>
                         <p className="text-sm text-muted-foreground">{meta.description}</p>
                         <div className="flex gap-3 pt-2 border-t border-border">
-                          <button
-                            onClick={() => { if (isActive) handleDisconnect(ch); else handleConnect(ch); }}
-                            className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
-                              isActive ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-primary text-white hover:bg-primary/90"
-                            }`}>
+                          <button onClick={() => { if (isActive) handleDisconnect(ch); else handleConnect(ch); }}
+                            className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${isActive ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-primary text-white hover:bg-primary/90"}`}>
                             {isActive ? "Disconnect" : "Connect"}
                           </button>
                           <button onClick={() => meta.hasGuide && setGuideOpen(true)}
-                            className={`px-3 py-2 border rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
-                              meta.hasGuide ? "border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50" : "border-border text-muted-foreground opacity-40 cursor-not-allowed"
-                            }`}>
+                            className={`px-3 py-2 border rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${meta.hasGuide ? "border-primary/30 text-primary hover:bg-primary/5" : "border-border text-muted-foreground opacity-40 cursor-not-allowed"}`}>
                             <Play className="w-3 h-3" /> Guide
                           </button>
                           <button className="px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">
@@ -479,7 +481,7 @@ export default function Channels() {
                 })}
               </div>
 
-              {/* Voice Calls section */}
+              {/* ── AI Voice Calls ── */}
               <div>
                 <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
                   <PhoneCall className="w-5 h-5 text-orange-500" /> AI Voice Confirmation Calls
@@ -487,52 +489,97 @@ export default function Channels() {
                 <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${voiceConnected ? "border-orange-200" : "border-border"}`}>
                   <div className="h-2 bg-gradient-to-r from-orange-400 to-red-500" />
                   <div className="p-6 space-y-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center shrink-0">
-                          <PhoneCall className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                          <h3 className="font-bold text-foreground">AI Voice Calls</h3>
-                          <div className="mt-1 flex flex-col gap-1">
-                            <StatusBadge status={voiceConnected ? "connected" : "disconnected"} />
-                            {voiceConnected && (
-                              <span className="text-xs text-muted-foreground font-medium">{voiceConnected} · {voiceCallsRemaining} calls remaining</span>
-                            )}
-                          </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center shrink-0">
+                        <PhoneCall className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-foreground">AI Voice Calls</h3>
+                        <div className="mt-1 flex flex-col gap-1">
+                          <StatusBadge status={voiceConnected ? "connected" : "disconnected"} />
+                          {voiceConnected && <span className="text-xs text-muted-foreground font-medium">{voiceConnected} · {voiceCallsRemaining} calls remaining</span>}
                         </div>
                       </div>
                     </div>
-
-                    <p className="text-sm text-muted-foreground">
-                      Automatically call customers in Darija or French to confirm COD orders after AI captures them. Saves $0.50 per order vs manual confirmation agents.
-                    </p>
-
+                    <p className="text-sm text-muted-foreground">Automatically call customers in Darija or French to confirm COD orders after AI captures them. Saves $0.50 per order vs manual confirmation agents.</p>
                     {!voiceConnected && (
                       <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 text-xs">
                         <p className="font-bold mb-1">How it works:</p>
                         <p>Verify your Algerian phone number → AI calls customers from your number → Customer presses 1 to confirm, 2 to cancel → Order status updates automatically.</p>
                       </div>
                     )}
-
                     <div className="flex gap-3 pt-2 border-t border-border">
-                      <button
-                        onClick={() => {
-                          if (voiceConnected) {
-                            // Disconnect
-                            const token = localStorage.getItem("flychat_token") || "";
-                            fetch(`${API_BASE}/api/voice/verify-confirm`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
-                              .then(() => setVoiceStatus((prev: any) => ({ ...prev, callerPhone: null })))
-                              .catch(() => {});
-                          } else {
-                            setVoiceModalOpen(true);
-                          }
-                        }}
-                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
-                          voiceConnected ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-orange-500 text-white hover:bg-orange-600"
-                        }`}>
+                      <button onClick={() => {
+                        if (voiceConnected) {
+                          const token = localStorage.getItem("flychat_token") || "";
+                          fetch(`${API_BASE}/api/voice/verify-confirm`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
+                            .then(() => setVoiceStatus((prev: any) => ({ ...prev, callerPhone: null }))).catch(() => {});
+                        } else { setVoiceModalOpen(true); }
+                      }} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${voiceConnected ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-orange-500 text-white hover:bg-orange-600"}`}>
                         {voiceConnected ? "Disconnect" : "Connect Voice Calls"}
                       </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Shopify Integration ── */}
+              <div>
+                <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
+                  <ShopifyIcon /> Shopify Integration
+                </h2>
+                <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${shopifyStatus?.connected ? "border-green-300" : "border-border"}`}>
+                  <div className="h-2 bg-gradient-to-r from-[#95BF47] to-[#5E8E3E]" />
+                  <div className="p-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="shrink-0"><ShopifyIcon /></div>
+                      <div>
+                        <h3 className="font-bold text-foreground">Shopify</h3>
+                        <div className="mt-1 flex flex-col gap-1">
+                          <StatusBadge status={shopifyStatus?.connected ? "connected" : "disconnected"} />
+                          {shopifyStatus?.shop && <span className="text-xs text-muted-foreground font-medium">{shopifyStatus.shop}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Sync products from Shopify and push COD orders automatically. Orders confirmed in FlyChat appear instantly in your Shopify dashboard.
+                    </p>
+                    {shopifyStatus?.connected && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => handleShopifySync("products")} disabled={syncing}
+                          className="py-2 bg-secondary border border-border rounded-xl text-xs font-bold hover:bg-secondary/80 transition-colors flex items-center justify-center gap-1.5">
+                          {syncing && <Loader2 className="w-3 h-3 animate-spin" />} Sync Products
+                        </button>
+                        <button onClick={() => handleShopifySync("orders")} disabled={syncing}
+                          className="py-2 bg-secondary border border-border rounded-xl text-xs font-bold hover:bg-secondary/80 transition-colors flex items-center justify-center gap-1.5">
+                          {syncing && <Loader2 className="w-3 h-3 animate-spin" />} Sync Orders
+                        </button>
+                      </div>
+                    )}
+                    {!shopifyStatus?.connected && (
+                      <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-xs">
+                        <p className="font-bold mb-1">What you get:</p>
+                        <p>• Products auto-synced from Shopify to FlyChat</p>
+                        <p>• AI-created COD orders pushed to Shopify instantly</p>
+                        <p>• New Shopify orders imported to FlyChat automatically</p>
+                      </div>
+                    )}
+                    <div className="flex gap-3 pt-2 border-t border-border">
+                      {shopifyStatus?.connected ? (
+                        <button onClick={async () => {
+                          const token = localStorage.getItem("flychat_token") || "";
+                          await fetch(`${API_BASE}/api/shopify/disconnect`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+                          setShopifyStatus({ connected: false });
+                          setSuccessMsg("Shopify disconnected.");
+                        }} className="flex-1 py-2 rounded-xl text-sm font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all">
+                          Disconnect
+                        </button>
+                      ) : (
+                        <button onClick={() => setShopifyModalOpen(true)}
+                          className="flex-1 py-2 rounded-xl text-sm font-bold bg-[#95BF47] text-white hover:bg-[#7da33a] transition-all">
+                          Connect Shopify
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -542,25 +589,15 @@ export default function Channels() {
         </div>
       </div>
 
-      {waModalOpen && (
-        <WhatsAppModal apiBase={API_BASE} onClose={() => setWaModalOpen(false)}
-          onSuccess={() => { setSuccessMsg("WhatsApp connected successfully!"); refetch(); }} />
-      )}
-
-      {voiceModalOpen && (
-        <VoiceCallModal apiBase={API_BASE} onClose={() => setVoiceModalOpen(false)}
-          onSuccess={(phone) => {
-            setSuccessMsg(`Voice calls connected! AI will call customers from ${phone}`);
-            setVoiceStatus((prev: any) => ({ ...prev, callerPhone: phone }));
-          }} />
-      )}
+      {waModalOpen && <WhatsAppModal apiBase={API_BASE} onClose={() => setWaModalOpen(false)} onSuccess={() => { setSuccessMsg("WhatsApp connected successfully!"); refetch(); }} />}
+      {voiceModalOpen && <VoiceCallModal apiBase={API_BASE} onClose={() => setVoiceModalOpen(false)} onSuccess={(phone) => { setSuccessMsg(`Voice calls connected! AI will call customers from ${phone}`); setVoiceStatus((prev: any) => ({ ...prev, callerPhone: phone })); }} />}
+      {shopifyModalOpen && <ShopifyModal apiBase={API_BASE} onClose={() => setShopifyModalOpen(false)} onSuccess={(shop) => { setShopifyStatus({ connected: true, shop }); setSuccessMsg(`Shopify store ${shop} connected!`); }} />}
 
       {guideOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setGuideOpen(false)}>
           <div className="relative w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ aspectRatio: "16/9" }} onClick={e => e.stopPropagation()}>
             <WidgetGuideVideo />
-            <button onClick={() => setGuideOpen(false)}
-              className="absolute top-3 right-3 z-20 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors backdrop-blur-sm">
+            <button onClick={() => setGuideOpen(false)} className="absolute top-3 right-3 z-20 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors backdrop-blur-sm">
               <X className="w-4 h-4" />
             </button>
           </div>
