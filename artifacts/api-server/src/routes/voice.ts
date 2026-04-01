@@ -156,7 +156,18 @@ router.post("/keypress", async (req, res) => {
 
   res.type("text/xml");
   res.send(twiml);
-});
+ });
+ // DELETE /api/voice/verify-confirm — remove caller phone
+ router.delete("/verify-confirm", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    await saveCallerPhone(storeId, "");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+ });
 
 // ─── POST /api/voice/status — Twilio call status callback ────────────────────
 router.post("/status", async (req, res) => {

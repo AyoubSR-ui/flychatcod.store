@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X, Loader2 } from "lucide-react";
+import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X, Loader2, Phone, PhoneCall } from "lucide-react";
 import { useGetChannels } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 import WidgetGuideVideo from "@/components/WidgetGuideVideo";
@@ -131,10 +131,7 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
       const token = localStorage.getItem("flychat_token") || "";
       const res = await fetch(`${apiBase}/api/whatsapp/connect`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ accessToken: accessToken.trim(), phoneNumberId: phoneNumberId.trim() }),
       });
       const data = await res.json();
@@ -149,15 +146,8 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <WhatsAppIcon />
@@ -170,60 +160,157 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: {
             <X className="w-4 h-4 text-muted-foreground" />
           </button>
         </div>
-
-        {/* Fields */}
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">Permanent Access Token</label>
-            <input
-              type="password"
-              value={accessToken}
-              onChange={e => setAccessToken(e.target.value)}
-              placeholder="EAAxxxxxxxxxxxxxxx..."
-              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-            <p className="text-xs text-muted-foreground">
-              Get this from Meta Business Suite → WhatsApp → API Setup → Permanent Token.
-            </p>
+            <input type="password" value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="EAAxxxxxxxxxxxxxxx..."
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            <p className="text-xs text-muted-foreground">Get this from Meta Business Suite → WhatsApp → API Setup → Permanent Token.</p>
           </div>
-
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground">Phone Number ID</label>
-            <input
-              type="text"
-              value={phoneNumberId}
-              onChange={e => setPhoneNumberId(e.target.value)}
-              placeholder="989761010895675"
-              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
-            <p className="text-xs text-muted-foreground">
-              Found in Meta Business Suite → WhatsApp → API Setup → Phone Number ID.
-            </p>
+            <input type="text" value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} placeholder="989761010895675"
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+            <p className="text-xs text-muted-foreground">Found in Meta Business Suite → WhatsApp → API Setup → Phone Number ID.</p>
           </div>
         </div>
+        {error && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors">Cancel</button>
+          <button onClick={handleSubmit} disabled={loading}
+            className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {loading ? "Connecting..." : "Connect"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        {/* Error */}
+// ─── Voice Calls Modal ────────────────────────────────────────────────────────
+
+function VoiceCallModal({ onClose, onSuccess, apiBase }: {
+  onClose: () => void;
+  onSuccess: (phone: string) => void;
+  apiBase: string;
+}) {
+  const [step, setStep] = useState<"phone" | "otp">("phone");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [verifiedPhone, setVerifiedPhone] = useState("");
+
+  const handleSendOtp = async () => {
+    if (!phone.trim()) { setError("Phone number is required."); return; }
+    setError("");
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("flychat_token") || "";
+      const res = await fetch(`${apiBase}/api/voice/verify-send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone: phone.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to send OTP");
+      setVerifiedPhone(data.phone);
+      setStep("otp");
+    } catch (err: any) {
+      setError(err.message || "Failed to send verification code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmOtp = async () => {
+    if (!otp.trim()) { setError("Verification code is required."); return; }
+    setError("");
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("flychat_token") || "";
+      const res = await fetch(`${apiBase}/api/voice/verify-confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone: verifiedPhone, code: otp.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Invalid code");
+      onSuccess(verifiedPhone);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Invalid verification code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center">
+              <PhoneCall className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="font-bold text-foreground text-lg">AI Voice Calls</h2>
+              <p className="text-xs text-muted-foreground">Verify your caller phone number</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-secondary rounded-lg transition-colors">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
+
+        {step === "phone" ? (
+          <>
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-xs">
+              <p className="font-bold mb-1">How it works:</p>
+              <p>Enter your Algerian phone number. We'll send you an SMS code to verify it. Once verified, the AI will use this number to call your customers for order confirmation.</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Your Phone Number</label>
+              <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                placeholder="0555 000 000 or +213555000000"
+                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+              <p className="text-xs text-muted-foreground">Customers will see this number when AI calls them for order confirmation.</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-700 text-xs">
+              <p>Verification code sent to <strong>{verifiedPhone}</strong>. Enter the code below.</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">Verification Code</label>
+              <input type="text" value={otp} onChange={e => setOtp(e.target.value)}
+                placeholder="123456" maxLength={6}
+                className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary text-center text-xl tracking-widest font-bold" />
+            </div>
+            <button onClick={() => { setStep("phone"); setError(""); }} className="text-xs text-primary hover:underline">
+              ← Use a different number
+            </button>
+          </>
+        )}
+
         {error && (
           <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
             <AlertCircle className="w-4 h-4 shrink-0" /> {error}
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex gap-3 pt-1">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="flex-1 py-2.5 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
-          >
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-secondary transition-colors">Cancel</button>
+          <button onClick={step === "phone" ? handleSendOtp : handleConfirmOtp} disabled={loading}
+            className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? "Connecting..." : "Connect"}
+            {loading ? "Please wait..." : step === "phone" ? "Send Code" : "Verify & Connect"}
           </button>
         </div>
       </div>
@@ -238,12 +325,13 @@ export default function Channels() {
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
   const [waModalOpen, setWaModalOpen] = useState(false);
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [voiceStatus, setVoiceStatus] = useState<any>(null);
 
   const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 
-  // Handle OAuth callback result from URL params
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const success = params.get("success");
@@ -262,37 +350,31 @@ export default function Channels() {
     }
   }, [refetch]);
 
-  // ─── Connect ───────────────────────────────────────────────────────────────
+  // Fetch voice status
+  useEffect(() => {
+    const token = localStorage.getItem("flychat_token") || "";
+    fetch(`${API_BASE}/api/voice/status`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => setVoiceStatus(data))
+      .catch(() => {});
+  }, []);
+
   const handleConnect = (ch: string) => {
-    if (ch === "whatsapp") {
-      setWaModalOpen(true);
-      return;
-    }
+    if (ch === "whatsapp") { setWaModalOpen(true); return; }
     if (ch === "instagram" || ch === "messenger") {
       const token = localStorage.getItem("flychat_token") || "";
-      const popup = window.open(
-        `${API_BASE}/api/${ch}/oauth/start?token=${token}`,
-        `${ch}_oauth`,
-        "width=600,height=700,scrollbars=yes"
-      );
+      const popup = window.open(`${API_BASE}/api/${ch}/oauth/start?token=${token}`, `${ch}_oauth`, "width=600,height=700,scrollbars=yes");
       const timer = setInterval(() => {
-        if (popup?.closed) {
-          clearInterval(timer);
-          refetch();
-        }
+        if (popup?.closed) { clearInterval(timer); refetch(); }
       }, 500);
     }
   };
 
-  // ─── Disconnect ────────────────────────────────────────────────────────────
   const handleDisconnect = async (ch: string) => {
     if (ch === "widget") return;
     const token = localStorage.getItem("flychat_token") || "";
     try {
-      await fetch(`${API_BASE}/api/${ch}/disconnect`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await fetch(`${API_BASE}/api/${ch}/disconnect`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       setSuccessMsg(`${CHANNEL_META[ch]?.name || ch} disconnected.`);
       refetch();
     } catch {
@@ -302,22 +384,22 @@ export default function Channels() {
 
   const channelMap = Object.fromEntries((data?.channels || []).map(c => [c.channel, c]));
 
-  // Extract connected account label per channel
   function getAccountLabel(ch: string, conn: any): string | null {
-  if (!conn || conn.status !== "connected") return null;
-  const meta = (conn.metadata ?? {}) as Record<string, unknown>;
-  if (ch === "messenger") return meta.pageName as string || null;
-  if (ch === "whatsapp") return conn.externalAccountId
-    ? `Phone ID: ${conn.externalAccountId}` : null;
-  if (ch === "instagram") {
-    const username = meta.username as string;
-    if (username) return `@${username}`;
-    return conn.externalAccountId && conn.externalAccountId !== "pending"
-      ? `ID: ${conn.externalAccountId}` : "Pending first message";
+    if (!conn || conn.status !== "connected") return null;
+    const meta = (conn.metadata ?? {}) as Record<string, unknown>;
+    if (ch === "messenger") return meta.pageName as string || null;
+    if (ch === "whatsapp") return conn.externalAccountId ? `Phone ID: ${conn.externalAccountId}` : null;
+    if (ch === "instagram") {
+      const username = meta.username as string;
+      if (username) return `@${username}`;
+      return conn.externalAccountId && conn.externalAccountId !== "pending" ? `ID: ${conn.externalAccountId}` : "Pending first message";
+    }
+    if (ch === "widget") return "Embedded on your website";
+    return null;
   }
-  if (ch === "widget") return "Embedded on your website";
-  return null;
-}
+
+  const voiceConnected = voiceStatus?.callerPhone;
+  const voiceCallsRemaining = voiceStatus?.callsRemaining ?? 0;
 
   return (
     <AppLayout>
@@ -344,102 +426,141 @@ export default function Channels() {
           {isLoading ? (
             <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {(["widget", "whatsapp", "instagram", "messenger"] as const).map((ch) => {
-                const meta = CHANNEL_META[ch];
-                const conn = channelMap[ch];
-                const isActive = conn?.status === "connected";
+            <>
+              {/* Messaging channels */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {(["widget", "whatsapp", "instagram", "messenger"] as const).map((ch) => {
+                  const meta = CHANNEL_META[ch];
+                  const conn = channelMap[ch];
+                  const isActive = conn?.status === "connected";
 
-                return (
-                  <div key={ch} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isActive ? "border-primary/30" : "border-border"}`}>
-                    <div className={`h-2 bg-gradient-to-r ${meta.color}`} />
-                    <div className="p-6 space-y-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="shrink-0">{meta.icon}</div>
-                          <div>
-                            <h3 className="font-bold text-foreground">{meta.name}</h3>
-                            <div className="mt-1 flex flex-col gap-1">
-                             <StatusBadge status={conn?.status || "disconnected"} />
-                              {getAccountLabel(ch, conn) && (
-                              <span className="text-xs text-muted-foreground font-medium truncate max-w-[160px]">
-                              {getAccountLabel(ch, conn)}
-                              </span>
-                                  )}
-                           </div>
+                  return (
+                    <div key={ch} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isActive ? "border-primary/30" : "border-border"}`}>
+                      <div className={`h-2 bg-gradient-to-r ${meta.color}`} />
+                      <div className="p-6 space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="shrink-0">{meta.icon}</div>
+                            <div>
+                              <h3 className="font-bold text-foreground">{meta.name}</h3>
+                              <div className="mt-1 flex flex-col gap-1">
+                                <StatusBadge status={conn?.status || "disconnected"} />
+                                {getAccountLabel(ch, conn) && (
+                                  <span className="text-xs text-muted-foreground font-medium truncate max-w-[160px]">
+                                    {getAccountLabel(ch, conn)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{meta.description}</p>
+                        <div className="flex gap-3 pt-2 border-t border-border">
+                          <button
+                            onClick={() => { if (isActive) handleDisconnect(ch); else handleConnect(ch); }}
+                            className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
+                              isActive ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-primary text-white hover:bg-primary/90"
+                            }`}>
+                            {isActive ? "Disconnect" : "Connect"}
+                          </button>
+                          <button onClick={() => meta.hasGuide && setGuideOpen(true)}
+                            className={`px-3 py-2 border rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
+                              meta.hasGuide ? "border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50" : "border-border text-muted-foreground opacity-40 cursor-not-allowed"
+                            }`}>
+                            <Play className="w-3 h-3" /> Guide
+                          </button>
+                          <button className="px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">
+                            <ExternalLink className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Voice Calls section */}
+              <div>
+                <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
+                  <PhoneCall className="w-5 h-5 text-orange-500" /> AI Voice Confirmation Calls
+                </h2>
+                <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${voiceConnected ? "border-orange-200" : "border-border"}`}>
+                  <div className="h-2 bg-gradient-to-r from-orange-400 to-red-500" />
+                  <div className="p-6 space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center shrink-0">
+                          <PhoneCall className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-foreground">AI Voice Calls</h3>
+                          <div className="mt-1 flex flex-col gap-1">
+                            <StatusBadge status={voiceConnected ? "connected" : "disconnected"} />
+                            {voiceConnected && (
+                              <span className="text-xs text-muted-foreground font-medium">{voiceConnected} · {voiceCallsRemaining} calls remaining</span>
+                            )}
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      <p className="text-sm text-muted-foreground">{meta.description}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Automatically call customers in Darija or French to confirm COD orders after AI captures them. Saves $0.50 per order vs manual confirmation agents.
+                    </p>
 
-                      <div className="flex gap-3 pt-2 border-t border-border">
-                        <button
-                          onClick={() => {
-                          if (isActive) handleDisconnect(ch);
-                            else handleConnect(ch);
-                           }}
-                          className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
-                            isActive
-                             ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
-                              : "bg-primary text-white hover:bg-primary/90"
-                          }`}
-                        >
-                          {isActive ? "Disconnect" : "Connect"}
-                        </button>
-
-                        <button
-                          onClick={() => meta.hasGuide && setGuideOpen(true)}
-                          className={`px-3 py-2 border rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all ${
-                            meta.hasGuide
-                              ? "border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
-                              : "border-border text-muted-foreground opacity-40 cursor-not-allowed"
-                          }`}
-                        >
-                          <Play className="w-3 h-3" /> Guide
-                        </button>
-
-                        <button className="px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">
-                          <ExternalLink className="w-4 h-4 text-muted-foreground" />
-                        </button>
+                    {!voiceConnected && (
+                      <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 text-xs">
+                        <p className="font-bold mb-1">How it works:</p>
+                        <p>Verify your Algerian phone number → AI calls customers from your number → Customer presses 1 to confirm, 2 to cancel → Order status updates automatically.</p>
                       </div>
+                    )}
+
+                    <div className="flex gap-3 pt-2 border-t border-border">
+                      <button
+                        onClick={() => {
+                          if (voiceConnected) {
+                            // Disconnect
+                            const token = localStorage.getItem("flychat_token") || "";
+                            fetch(`${API_BASE}/api/voice/verify-confirm`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
+                              .then(() => setVoiceStatus((prev: any) => ({ ...prev, callerPhone: null })))
+                              .catch(() => {});
+                          } else {
+                            setVoiceModalOpen(true);
+                          }
+                        }}
+                        className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
+                          voiceConnected ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-orange-500 text-white hover:bg-orange-600"
+                        }`}>
+                        {voiceConnected ? "Disconnect" : "Connect Voice Calls"}
+                      </button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* WhatsApp connect modal */}
       {waModalOpen && (
-        <WhatsAppModal
-          apiBase={API_BASE}
-          onClose={() => setWaModalOpen(false)}
-          onSuccess={() => {
-            setSuccessMsg("WhatsApp connected successfully!");
-            refetch();
-          }}
-        />
+        <WhatsAppModal apiBase={API_BASE} onClose={() => setWaModalOpen(false)}
+          onSuccess={() => { setSuccessMsg("WhatsApp connected successfully!"); refetch(); }} />
       )}
 
-      {/* Widget guide modal */}
+      {voiceModalOpen && (
+        <VoiceCallModal apiBase={API_BASE} onClose={() => setVoiceModalOpen(false)}
+          onSuccess={(phone) => {
+            setSuccessMsg(`Voice calls connected! AI will call customers from ${phone}`);
+            setVoiceStatus((prev: any) => ({ ...prev, callerPhone: phone }));
+          }} />
+      )}
+
       {guideOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => setGuideOpen(false)}
-        >
-          <div
-            className="relative w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10"
-            style={{ aspectRatio: "16/9" }}
-            onClick={e => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setGuideOpen(false)}>
+          <div className="relative w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-white/10" style={{ aspectRatio: "16/9" }} onClick={e => e.stopPropagation()}>
             <WidgetGuideVideo />
-            <button
-              onClick={() => setGuideOpen(false)}
-              className="absolute top-3 right-3 z-20 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors backdrop-blur-sm"
-            >
+            <button onClick={() => setGuideOpen(false)}
+              className="absolute top-3 right-3 z-20 w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center transition-colors backdrop-blur-sm">
               <X className="w-4 h-4" />
             </button>
           </div>
