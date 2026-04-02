@@ -272,7 +272,16 @@ function ShopifyModal({ onClose, apiBase, onSuccess }: { onClose: () => void; ap
   const handleConnect = async () => {
     if (!shop.trim()) { setError("Store URL is required."); return; }
     let shopUrl = shop.trim().toLowerCase();
-    if (!shopUrl.includes(".myshopify.com")) shopUrl = `${shopUrl}.myshopify.com`;
+  // Handle all Shopify URL formats
+  if (shopUrl.includes("admin.shopify.com/store/")) {
+  const match = shopUrl.match(/admin\.shopify\.com\/store\/([^\/\?]+)/);
+  if (match) shopUrl = `${match[1]}.myshopify.com`;
+  } else if (shopUrl.includes("myshopify.com")) {
+  const match = shopUrl.match(/([a-zA-Z0-9-]+\.myshopify\.com)/);
+  if (match) shopUrl = match[1];
+  } else {
+  shopUrl = `${shopUrl.replace(/[^a-zA-Z0-9-]/g, "")}.myshopify.com`;
+  } 
     setError(""); setLoading(true);
     try {
       const token = localStorage.getItem("flychat_token") || "";
@@ -309,9 +318,9 @@ function ShopifyModal({ onClose, apiBase, onSuccess }: { onClose: () => void; ap
         </div>
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-foreground">Your Shopify Store URL</label>
-          <input type="text" value={shop} onChange={e => setShop(e.target.value)} placeholder="yourstore.myshopify.com"
+          <input type="text" value={shop} onChange={e => setShop(e.target.value)} placeholder="yourstore or yourstore.myshopify.com"
             className="w-full px-3 py-2 rounded-xl border border-border bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
-          <p className="text-xs text-muted-foreground">Found in your Shopify admin URL bar.</p>
+          <p className="text-xs text-muted-foreground">Enter your store name or paste any Shopify URL — we'll extract the store automatically.</p>
         </div>
         {error && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
         <div className="flex gap-3 pt-1">
