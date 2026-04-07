@@ -294,6 +294,8 @@ export async function handleAiReplyForMessage(
       price: productsTable.price,
       stock: productsTable.stock,
       variants: productsTable.variants,
+      imageUrl: productsTable.imageUrl,
+      description: productsTable.description,
     })
     .from(productsTable)
     .where(and(eq(productsTable.storeId, storeId), eq(productsTable.isActive, true)))
@@ -306,6 +308,8 @@ export async function handleAiReplyForMessage(
     price: Number(p.price),
     stock: p.stock ?? 0,
     variants: p.variants,
+    imageUrl: p.imageUrl ?? undefined,
+    description: p.description ?? undefined,
   }));
 
   const recentOrders: AgentOrder[] = await db

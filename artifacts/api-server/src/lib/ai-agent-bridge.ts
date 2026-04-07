@@ -16,6 +16,8 @@ export interface AgentProduct {
   price: number;
   stock: number;
   variants?: unknown;
+  imageUrl?: string;
+  description?: string;
 }
 
 export interface AgentOrder {
