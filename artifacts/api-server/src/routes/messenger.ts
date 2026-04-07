@@ -194,15 +194,21 @@ messengerRouter.post("/webhook", async (req, res) => {
     for (const entry of body.entry || []) {
       const pageId = entry.id;
       for (const event of entry.messaging || []) {
-        if (!event.message || event.message.is_echo) continue;
-        const text = event.message.text;
-        if (!text) continue;
-        await processIncomingMessengerMessage({
-          pageId,
-          senderId: event.sender.id,
-          messageId: event.message.mid,
-          text,
-          timestamp: new Date(event.timestamp),
+              if (!event.message || event.message.is_echo) continue;
+      const text = event.message.text;
+      if (!text) continue;
+      // Capture ad referral data
+      const referral = event.referral || event.message.referral || null;
+      const adRef = referral?.ref || null;
+      const adId = referral?.ad_id || null;
+      await processIncomingMessengerMessage({
+        pageId,
+        senderId: event.sender.id,
+        messageId: event.message.mid,
+        text,
+        timestamp: new Date(event.timestamp),
+        adRef,
+        adId,
         }).catch(err => console.error("[Messenger] Processing error:", err));
       }
     }
@@ -248,6 +254,8 @@ async function processIncomingMessengerMessage(incoming: {
   messageId: string;
   text: string;
   timestamp: Date;
+  adRef?: string | null;
+  adId?: string | null;
 }) {
 
   const { rows: channelRows } = await pool.query(
@@ -341,10 +349,22 @@ async function processIncomingMessengerMessage(incoming: {
       .orderBy(desc(ordersTable.createdAt)).limit(20);
 
 
+    // Match product from ad referral
+    let adProduct = null;
+    if (incoming.adRef) {
+      adProduct = rawProducts.find(p =>
+        p.name.toLowerCase().includes(incoming.adRef!.toLowerCase()) ||
+        p.id === incoming.adRef
+      ) || null;
+    }
+    const aiSystemPromptWithAd = adProduct
+      ? `${store.aiSystemPrompt || ""}\n\nIMPORTANT: The customer came from an ad for this specific product: "${adProduct.name}" (Price: ${adProduct.price} DZD). Focus your conversation on this product first.`
+      : store.aiSystemPrompt ?? undefined;
+
     await callAiBridge({
       messageId: msgId, conversationId: conversation.id,
       storeId: store.id, storeName: store.name,
-      aiSystemPrompt: store.aiSystemPrompt ?? undefined,
+      aiSystemPrompt: aiSystemPromptWithAd,
       products, recentOrders,
       emitNewMessage: async (_c, _s, _r, replyText) => {
         await sendMessengerMessage(channel.accessToken, incoming.senderId, replyText);
