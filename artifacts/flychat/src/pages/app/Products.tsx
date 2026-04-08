@@ -72,6 +72,9 @@ async function uploadImage(file: File): Promise<string | null> {
       body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
     });
     const { uploadURL, objectPath } = await urlRes.json();
+    // DEBUG — remove after testing
+    console.log("[Upload] objectPath:", objectPath);
+    console.log("[Upload] uploadURL prefix:", uploadURL?.slice(0, 80));
     if (!uploadURL || !objectPath) return null;
 
     // Upload directly to GCS
