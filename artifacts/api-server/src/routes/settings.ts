@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, storesTable, usersTable } from "@workspace/db";
+import { db, pool, storesTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 
@@ -132,6 +132,37 @@ router.patch("/ai", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to update AI settings" });
+  }
+});
+
+// GET /api/settings/shipping-options
+router.get("/shipping-options", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { rows } = await pool.query(
+      `SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    res.json(rows[0]?.shipping_options || {
+      homeDeliveryEnabled: true, homeDeliveryPrice: 0,
+      pickupEnabled: false, pickupPrice: 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// PATCH /api/settings/shipping-options
+router.patch("/shipping-options", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    await pool.query(
+      `UPDATE stores SET shipping_options = $1, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(req.body), storeId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
   }
 });
 

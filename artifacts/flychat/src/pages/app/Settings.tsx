@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useState, useEffect } from "react";
 import { useGetStoreSettings, useUpdateStoreSettings } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
-import { Store, Globe, MapPin, Bot, Check } from "lucide-react";
+import { Store, Globe, MapPin, Bot, Check, Truck, Package } from "lucide-react";
 
 const TABS = ["profile", "language", "shipping", "autopilot"] as const;
 const WILAYAS = ["Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar","Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger","Djelfa","Jijel","Sétif","Saïda","Skikda","Sidi Bel Abbès","Annaba","Guelma","Constantine","Médéa","Mostaganem","M'Sila","Mascara","Ouargla","Oran","El Bayadh","Illizi","Bordj Bou Arréridj","Boumerdès","El Tarf","Tindouf","Tissemsilt","El Oued","Khenchela","Souk Ahras","Tipaza","Mila","Aïn Defla","Naâma","Aïn Témouchent","Ghardaïa","Relizane"];
@@ -19,6 +19,13 @@ const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-product
 type Channel = keyof typeof CHANNEL_META;
 type AiModes = Record<Channel, "human" | "ai_autopilot">;
 
+interface ShippingOptions {
+  homeDeliveryEnabled: boolean;
+  homeDeliveryPrice: number;
+  pickupEnabled: boolean;
+  pickupPrice: number;
+}
+
 export default function Settings() {
   const [tab, setTab] = useState<typeof TABS[number]>("profile");
   const [saving, setSaving] = useState(false);
@@ -31,6 +38,15 @@ export default function Settings() {
     name: "", description: "", phone: "", logoUrl: "", websiteUrl: "",
     defaultLanguage: "fr", widgetLanguage: "fr", shippingWilayas: [] as string[],
   });
+
+  const [shippingOptions, setShippingOptions] = useState<ShippingOptions>({
+    homeDeliveryEnabled: true,
+    homeDeliveryPrice: 0,
+    pickupEnabled: false,
+    pickupPrice: 0,
+  });
+  const [shippingSaving, setShippingSaving] = useState(false);
+  const [shippingSaved, setShippingSaved] = useState(false);
 
   const [aiModes, setAiModes] = useState<AiModes>({
     whatsapp: "human", instagram: "human", messenger: "human", widget: "human",
@@ -46,6 +62,25 @@ export default function Settings() {
       widgetLanguage: store.widgetLanguage || "fr", shippingWilayas: store.shippingWilayas || [],
     });
   }, [store]);
+
+  // Fetch shipping options
+  useEffect(() => {
+    if (tab !== "shipping") return;
+    const token = localStorage.getItem("flychat_token") || "";
+    fetch(`${API_BASE}/api/settings/shipping-options`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data) setShippingOptions({
+          homeDeliveryEnabled: data.homeDeliveryEnabled ?? true,
+          homeDeliveryPrice: data.homeDeliveryPrice ?? 0,
+          pickupEnabled: data.pickupEnabled ?? false,
+          pickupPrice: data.pickupPrice ?? 0,
+        });
+      })
+      .catch(() => {});
+  }, [tab]);
 
   useEffect(() => {
     if (tab !== "autopilot") return;
@@ -66,6 +101,23 @@ export default function Settings() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const handleSaveShipping = async () => {
+    setShippingSaving(true);
+    const token = localStorage.getItem("flychat_token") || "";
+    try {
+      await fetch(`${API_BASE}/api/settings/shipping-options`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(shippingOptions),
+      });
+      // Also save wilayas
+      await updateStore.mutateAsync({ data: { shippingWilayas: form.shippingWilayas } as any });
+      setShippingSaved(true);
+      setTimeout(() => setShippingSaved(false), 2000);
+    } catch {}
+    setShippingSaving(false);
+  };
+
   const handleSaveAiModes = async () => {
     setAiSaving(true);
     const token = localStorage.getItem("flychat_token") || "";
@@ -82,7 +134,7 @@ export default function Settings() {
     setForm(f => ({ ...f, shippingWilayas: f.shippingWilayas.includes(w) ? f.shippingWilayas.filter(x => x !== w) : [...f.shippingWilayas, w] }));
   };
 
-  const TAB_LABELS = { profile: "Store Profile", language: "Language", shipping: "Shipping Zones", autopilot: "Autopilot" };
+  const TAB_LABELS = { profile: "Store Profile", language: "Language", shipping: "Shipping", autopilot: "Autopilot" };
 
   if (isLoading) return (
     <AppLayout><div className="p-10 flex justify-center"><div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" /></div></AppLayout>
@@ -171,9 +223,6 @@ export default function Settings() {
                   </select>
                 </div>
               </div>
-              <div className="bg-secondary/50 border border-border rounded-xl p-4">
-                <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">Arabic/Darija support</span> is planned for a future release. The architecture already supports adding new locales.</p>
-              </div>
               <button onClick={handleSave} disabled={saving}
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
                 {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
@@ -182,27 +231,129 @@ export default function Settings() {
           )}
 
           {tab === "shipping" && (
-            <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
-              <div className="flex items-center gap-3 pb-4 border-b border-border">
-                <MapPin className="w-5 h-5 text-primary" />
-                <h3 className="font-bold text-foreground">Shipping Wilayas</h3>
-                <span className="ml-auto text-sm text-muted-foreground">{form.shippingWilayas.length} selected</span>
+            <div className="space-y-5">
+
+              {/* ── Shipping Options ── */}
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
+                <div className="flex items-center gap-3 pb-4 border-b border-border">
+                  <Truck className="w-5 h-5 text-primary" />
+                  <div>
+                    <h3 className="font-bold text-foreground">Shipping Options</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">AI agent will present these options to customers when collecting orders.</p>
+                  </div>
+                </div>
+
+                {/* Home Delivery */}
+                <div className={`border rounded-xl p-5 space-y-4 transition-all ${shippingOptions.homeDeliveryEnabled ? "border-primary/30 bg-primary/5" : "border-border bg-secondary/20"}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${shippingOptions.homeDeliveryEnabled ? "bg-primary/10" : "bg-secondary"}`}>
+                        <Truck className={`w-4 h-4 ${shippingOptions.homeDeliveryEnabled ? "text-primary" : "text-muted-foreground"}`} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground text-sm">الى البيت — Home Delivery</p>
+                        <p className="text-xs text-muted-foreground">Deliver to customer's address</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShippingOptions(s => ({ ...s, homeDeliveryEnabled: !s.homeDeliveryEnabled }))}
+                      className={`relative w-11 h-6 rounded-full transition-colors ${shippingOptions.homeDeliveryEnabled ? "bg-primary" : "bg-gray-200"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${shippingOptions.homeDeliveryEnabled ? "translate-x-5" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+                  {shippingOptions.homeDeliveryEnabled && (
+                    <div>
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Delivery Price (DZD)</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={shippingOptions.homeDeliveryPrice}
+                          onChange={e => setShippingOptions(s => ({ ...s, homeDeliveryPrice: Number(e.target.value) }))}
+                          className="w-40 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-bold"
+                          placeholder="0"
+                        />
+                        <span className="text-sm text-muted-foreground">DZD per order</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">AI will add this to the total when customer chooses home delivery.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Pickup */}
+                <div className={`border rounded-xl p-5 space-y-4 transition-all ${shippingOptions.pickupEnabled ? "border-orange-200 bg-orange-50/50" : "border-border bg-secondary/20"}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${shippingOptions.pickupEnabled ? "bg-orange-100" : "bg-secondary"}`}>
+                        <Package className={`w-4 h-4 ${shippingOptions.pickupEnabled ? "text-orange-600" : "text-muted-foreground"}`} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground text-sm">من الفرع — Pickup from Branch</p>
+                        <p className="text-xs text-muted-foreground">Customer picks up from your location</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShippingOptions(s => ({ ...s, pickupEnabled: !s.pickupEnabled }))}
+                      className={`relative w-11 h-6 rounded-full transition-colors ${shippingOptions.pickupEnabled ? "bg-orange-500" : "bg-gray-200"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${shippingOptions.pickupEnabled ? "translate-x-5" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+                  {shippingOptions.pickupEnabled && (
+                    <div>
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Pickup Fee (DZD)</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={shippingOptions.pickupPrice}
+                          onChange={e => setShippingOptions(s => ({ ...s, pickupPrice: Number(e.target.value) }))}
+                          className="w-40 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-bold"
+                          placeholder="0"
+                        />
+                        <span className="text-sm text-muted-foreground">DZD (0 = free pickup)</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Preview */}
+                {(shippingOptions.homeDeliveryEnabled || shippingOptions.pickupEnabled) && (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800">
+                    <p className="font-bold mb-1">What AI will show customers:</p>
+                    {shippingOptions.homeDeliveryEnabled && (
+                      <p>• الى البيت (Home Delivery): {shippingOptions.homeDeliveryPrice.toLocaleString()} DZD</p>
+                    )}
+                    {shippingOptions.pickupEnabled && (
+                      <p>• من الفرع (Pickup): {shippingOptions.pickupPrice.toLocaleString()} DZD</p>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="flex gap-3 mb-3">
-                <button onClick={() => setForm({...form, shippingWilayas: [...WILAYAS]})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Select All</button>
-                <button onClick={() => setForm({...form, shippingWilayas: []})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Clear All</button>
+
+              {/* ── Shipping Wilayas ── */}
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
+                <div className="flex items-center gap-3 pb-4 border-b border-border">
+                  <MapPin className="w-5 h-5 text-primary" />
+                  <h3 className="font-bold text-foreground">Shipping Wilayas</h3>
+                  <span className="ml-auto text-sm text-muted-foreground">{form.shippingWilayas.length} selected</span>
+                </div>
+                <div className="flex gap-3 mb-3">
+                  <button onClick={() => setForm({...form, shippingWilayas: [...WILAYAS]})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Select All</button>
+                  <button onClick={() => setForm({...form, shippingWilayas: []})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Clear All</button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto pr-1">
+                  {WILAYAS.map(w => (
+                    <label key={w} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-all ${form.shippingWilayas.includes(w) ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-secondary"}`}>
+                      <input type="checkbox" checked={form.shippingWilayas.includes(w)} onChange={() => toggleWilaya(w)} className="w-3.5 h-3.5 accent-primary" />
+                      {w}
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto pr-1">
-                {WILAYAS.map(w => (
-                  <label key={w} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-all ${form.shippingWilayas.includes(w) ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-secondary"}`}>
-                    <input type="checkbox" checked={form.shippingWilayas.includes(w)} onChange={() => toggleWilaya(w)} className="w-3.5 h-3.5 accent-primary" />
-                    {w}
-                  </label>
-                ))}
-              </div>
-              <button onClick={handleSave} disabled={saving}
-                className={`px-5 py-2.5 rounded-xl font-bold text-sm ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
-                {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
+
+              <button onClick={handleSaveShipping} disabled={shippingSaving}
+                className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${shippingSaved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
+                {shippingSaved ? <><Check className="w-4 h-4" /> Saved!</> : shippingSaving ? "Saving..." : t("common.save")}
               </button>
             </div>
           )}
