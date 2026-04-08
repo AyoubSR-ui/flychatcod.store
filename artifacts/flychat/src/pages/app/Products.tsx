@@ -66,26 +66,27 @@ function parseVariantGroups(variants: string[]): VariantGroup[] {
 async function uploadImage(file: File): Promise<string | null> {
   try {
     const token = localStorage.getItem("flychat_token") || "";
-    // Request upload URL
     const urlRes = await fetch(`${API_BASE}/storage/uploads/request-url`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
     });
     const { uploadURL, objectPath } = await urlRes.json();
-    if (!uploadURL) return null;
+    if (!uploadURL || !objectPath) return null;
 
-    // Upload file
+    // Upload directly to GCS
     await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
 
-    // Return public URL
-    return `${API_BASE}/storage/public-objects/${objectPath}`;
+    // Normalize path — strip leading slash if present
+    const cleanPath = objectPath.startsWith("/") ? objectPath.slice(1) : objectPath;
+    
+    // Return URL through our proxy endpoint
+    return `${API_BASE}/storage/public-objects/${cleanPath}`;
   } catch (err) {
     console.error("Upload failed:", err);
     return null;
   }
 }
-
 export default function Products() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
