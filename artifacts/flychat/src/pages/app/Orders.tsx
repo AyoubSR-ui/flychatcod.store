@@ -156,8 +156,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 export default function Orders() {
   const [showCreate, setShowCreate] = useState(false);
   const [callingOrderId, setCallingOrderId] = useState<string | null>(null);
-  const { data: ordersData, isLoading } = useGetOrders({ limit: 50 }, { query: { staleTime: 0, refetchOnMount: 'always' } });
-  const { t } = useI18n();
+const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });  const { t } = useI18n();
 
   const getStatusColor = (status: string) => {
     switch (status) {

@@ -557,7 +557,7 @@ async function runOrderExtractionFlow(
   }
 
   // STRICT: never run cancellation when dominant intent signals new order
-  if (extraction.cancelIntent && dominantIntent !== "new_order") {
+  if (extraction.cancelIntent) {
     await handleAiCancellation(storeId, conversationId, extraction.cancelPhone, lockedLanguage);
     return;
   }

@@ -13,6 +13,7 @@ import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { requireAuth } from "../middlewares/auth.js";
 import jwt from "jsonwebtoken";
+import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 
 export const instagramRouter = Router();
 
@@ -97,7 +98,6 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
   const CALLBACK_URL = `${API_BASE}/api/instagram/oauth/callback`;
 
   try {
-    // Exchange code for short-lived token
     const tokenBody = new URLSearchParams({
       client_id: IG_APP_ID,
       client_secret: IG_APP_SECRET,
@@ -116,17 +116,16 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
 
     const shortToken = tokenData.access_token;
-    // Fetch username using short-lived token (before exchanging for long-lived)
-   let igUsername = "";
-   try {
-  const userRes = await fetch(
-    `https://graph.instagram.com/me?fields=username&access_token=${shortToken}`
-  );
-  const userData = await userRes.json() as any;
-  igUsername = userData.username || "";
-   } catch {}
 
-    // Exchange for long-lived token
+    let igUsername = "";
+    try {
+      const userRes = await fetch(
+        `https://graph.instagram.com/me?fields=username&access_token=${shortToken}`
+      );
+      const userData = await userRes.json() as any;
+      igUsername = userData.username || "";
+    } catch {}
+
     const longRes = await fetch(
       `https://graph.instagram.com/access_token?` +
       new URLSearchParams({
@@ -138,14 +137,10 @@ instagramRouter.get("/oauth/callback", async (req, res) => {
     const longData = await longRes.json() as any;
     const accessToken = longData.access_token || shortToken;
 
-    // NOTE: tokenData.user_id is app-scoped and does NOT match the webhook recipient ID.
-    // We store "pending" here — the real Business Account ID is self-healed
-    // on the first incoming webhook message (see processIncomingInstagramMessage).
     const appScopedId = String(tokenData.user_id || "pending");
 
-    console.log(`[Instagram OAuth] Connected app-scoped ID ${appScopedId} for store ${storeId} — real ID will be set on first message`);
+    console.log(`[Instagram OAuth] Connected app-scoped ID ${appScopedId} for store ${storeId}`);
 
-    // Save to channel_connections with pending external_account_id
     const { rows: existing } = await pool.query(
       `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'instagram' LIMIT 1`,
       [storeId]
@@ -194,12 +189,15 @@ instagramRouter.post("/webhook", async (req, res) => {
         if (!event.message || event.message.is_echo) continue;
         const text = event.message.text;
         if (!text) continue;
+        const referral = event.referral || event.message?.referral || null;
+        const adRef = referral?.ref || null;
         await processIncomingInstagramMessage({
-          igAccountId: event.recipient.id,  // ← real Business Account ID from webhook
+          igAccountId: event.recipient.id,
           senderId: event.sender.id,
           messageId: event.message.mid,
           text,
           timestamp: new Date(event.timestamp),
+          adRef,
         }).catch(err => console.error("[Instagram] Processing error:", err));
       }
     }
@@ -236,17 +234,13 @@ async function sendInstagramMessage(accessToken: string, recipientId: string, te
 
 // ─── Process Incoming Message ─────────────────────────────────────────────────
 async function processIncomingInstagramMessage(incoming: {
-  igAccountId: string;  // real Business Account ID from webhook
+  igAccountId: string;
   senderId: string;
   messageId: string;
   text: string;
   timestamp: Date;
+  adRef?: string | null;
 }) {
-
-  // Look up channel by:
-  // 1. exact external_account_id match (already healed)
-  // 2. pending (freshly connected, not yet healed)
-  // 3. metadata appScopedId (legacy fallback)
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" 
      FROM channel_connections 
@@ -262,7 +256,7 @@ async function processIncomingInstagramMessage(incoming: {
     return;
   }
 
-  // ─── Self-heal: fix external_account_id from webhook on first message ────────
+  // Self-heal external_account_id
   if (channel.external_account_id !== incoming.igAccountId) {
     await pool.query(
       `UPDATE channel_connections 
@@ -279,7 +273,6 @@ async function processIncomingInstagramMessage(incoming: {
     console.log(`[Instagram] Self-healed: external_account_id → ${incoming.igAccountId}`);
   }
 
-  // Load store
   const { rows: storeRows } = await pool.query(
     `SELECT *, ai_enabled as "aiEnabled", ai_system_prompt as "aiSystemPrompt" FROM stores WHERE id = $1 LIMIT 1`,
     [channel.storeId]
@@ -287,7 +280,6 @@ async function processIncomingInstagramMessage(incoming: {
   const store = storeRows[0];
   if (!store) return;
 
-  // Find or create customer
   let customer = await db.select().from(customersTable)
     .where(and(eq(customersTable.storeId, store.id), eq(customersTable.phone, incoming.senderId)))
     .limit(1).then(r => r[0] ?? null);
@@ -302,7 +294,6 @@ async function processIncomingInstagramMessage(incoming: {
       .where(eq(customersTable.id, customerId)).limit(1).then(r => r[0]);
   }
 
-  // Find or create open conversation
   const { rows: convRows } = await pool.query(
     `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" 
      FROM conversations 
@@ -333,12 +324,10 @@ async function processIncomingInstagramMessage(incoming: {
 
   if (!conversation) return;
 
-  // Deduplicate messages
   const existing = await db.select().from(messagesTable)
     .where(eq(messagesTable.externalId, incoming.messageId)).limit(1).then(r => r[0] ?? null);
   if (existing) return;
 
-  // Save message
   const msgId = generateId("msg");
   await db.insert(messagesTable).values({
     id: msgId, conversationId: conversation.id, content: incoming.text,
@@ -353,7 +342,6 @@ async function processIncomingInstagramMessage(incoming: {
 
   console.log(`[Instagram] Message saved: conv=${conversation.id}`);
 
-  // Emit socket event
   try {
     const { getIO } = await import("../socket.js");
     const io = getIO();
@@ -363,18 +351,27 @@ async function processIncomingInstagramMessage(incoming: {
     });
   } catch {}
 
-  // AI reply
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const rawProducts = await db.select().from(productsTable).where(eq(productsTable.storeId, store.id));
-    const products = rawProducts.map(p => ({ ...p, price: parseFloat(String(p.price)) || 0, stock: p.stock ?? 0 }));
+    const products = rawProducts.map(p => ({
+  ...p,
+  price: parseFloat(String(p.price)) || 0,
+  stock: p.stock ?? 0,
+  imageUrl: p.imageUrl ?? undefined,
+  description: p.description ?? undefined,
+  }));
     const recentOrders = await db.select().from(ordersTable)
       .where(eq(ordersTable.storeId, store.id))
       .orderBy(desc(ordersTable.createdAt)).limit(20);
 
+    // ─── Ad referral: focus AI on the specific product from the ad ───────────
+    const adProduct = await getProductFromAdRef(store.id, incoming.adRef);
+    const aiSystemPromptWithAd = buildAdProductPrompt(store.aiSystemPrompt ?? undefined, adProduct);
+
     await callAiBridge({
       messageId: msgId, conversationId: conversation.id,
       storeId: store.id, storeName: store.name,
-      aiSystemPrompt: store.aiSystemPrompt ?? undefined,
+      aiSystemPrompt: aiSystemPromptWithAd,
       products, recentOrders,
       emitNewMessage: async (_c, _s, _r, replyText) => {
         await sendInstagramMessage(channel.accessToken, incoming.senderId, replyText);

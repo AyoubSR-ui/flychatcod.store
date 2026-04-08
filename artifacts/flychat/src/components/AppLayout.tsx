@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { 
   LayoutDashboard, MessageSquare, ShoppingBag, Users, Package, 
-  Settings, Zap, Plug, CreditCard, Users2, LogOut, ShieldAlert
+  Settings, Zap, Plug, CreditCard, Users2, LogOut, ShieldAlert, Link2
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -25,6 +25,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { href: "/orders", label: "nav.orders", icon: ShoppingBag },
     { href: "/customers", label: "nav.customers", icon: Users },
     { href: "/products", label: "nav.products", icon: Package },
+    { href: "/ad-links", label: "Ad Links", icon: Link2 },
     { href: "/widget", label: "nav.widget", icon: MessageSquare },
     { href: "/automation", label: "nav.automation", icon: Zap },
     { href: "/channels", label: "nav.channels", icon: Plug },

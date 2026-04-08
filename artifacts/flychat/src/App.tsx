@@ -34,6 +34,7 @@ import Team from "@/pages/app/Team";
 import Billing from "@/pages/app/Billing";
 import Settings from "@/pages/app/Settings";
 import Admin from "@/pages/app/Admin";
+import AdLinks from "@/pages/app/AdLinks";
 
 // Embed pages (no auth)
 import WidgetEmbed from "@/pages/embed/WidgetEmbed";
@@ -84,6 +85,7 @@ function Router() {
       <Route path="/customers">{() => <ProtectedRoute component={Customers} />}</Route>
       <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetail} />}</Route>
       <Route path="/products">{() => <ProtectedRoute component={Products} />}</Route>
+      <Route path="/ad-links">{() => <ProtectedRoute component={AdLinks} />}</Route>
       <Route path="/widget">{() => <ProtectedRoute component={Widget} />}</Route>
       <Route path="/automation">{() => <ProtectedRoute component={Automation} />}</Route>
       <Route path="/channels">{() => <ProtectedRoute component={Channels} />}</Route>

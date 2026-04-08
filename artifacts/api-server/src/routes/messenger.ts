@@ -13,6 +13,7 @@ import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { requireAuth } from "../middlewares/auth.js";
 import jwt from "jsonwebtoken";
+import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 
 export const messengerRouter = Router();
 
@@ -22,7 +23,6 @@ const FB_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "flychat-wa-2026";
 const API_BASE = process.env.API_BASE_URL || "https://zealous-nature-production-771f.up.railway.app";
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
 
-// Temporary state map for OAuth
 const oauthStateMap = new Map<string, string>();
 
 // ─── OAuth Start ──────────────────────────────────────────────────────────────
@@ -33,14 +33,14 @@ messengerRouter.get("/oauth/start", async (req, res) => {
   if (queryToken) {
     try {
       const secret = process.env.JWT_SECRET || "";
-     const decoded = jwt.verify(queryToken, secret) as any;
+      const decoded = jwt.verify(queryToken, secret) as any;
       storeId = decoded.storeId;
       if (!storeId && decoded.userId) {
-      const { rows } = await pool.query(
-     `SELECT store_id FROM users WHERE id = $1 LIMIT 1`,
-     [decoded.userId]
-    );
-     storeId = rows[0]?.store_id; 
+        const { rows } = await pool.query(
+          `SELECT store_id FROM users WHERE id = $1 LIMIT 1`,
+          [decoded.userId]
+        );
+        storeId = rows[0]?.store_id;
       }
     } catch (err) {
       console.error("[Messenger OAuth] Token verification failed:", err);
@@ -97,7 +97,6 @@ messengerRouter.get("/oauth/callback", async (req, res) => {
   try {
     const CALLBACK_URL = `${API_BASE}/api/messenger/oauth/callback`;
 
-    // Exchange code for short-lived token
     const tokenRes = await fetch(
       `https://graph.facebook.com/v18.0/oauth/access_token?` +
       new URLSearchParams({
@@ -110,7 +109,6 @@ messengerRouter.get("/oauth/callback", async (req, res) => {
     const tokenData = await tokenRes.json() as any;
     if (!tokenData.access_token) throw new Error(`Token exchange failed: ${JSON.stringify(tokenData)}`);
 
-    // Exchange for long-lived token
     const longRes = await fetch(
       `https://graph.facebook.com/v18.0/oauth/access_token?` +
       new URLSearchParams({
@@ -123,7 +121,6 @@ messengerRouter.get("/oauth/callback", async (req, res) => {
     const longData = await longRes.json() as any;
     const userToken = longData.access_token || tokenData.access_token;
 
-    // Get connected Pages
     const pagesRes = await fetch(
       `https://graph.facebook.com/v18.0/me/accounts?access_token=${userToken}`
     );
@@ -135,7 +132,6 @@ messengerRouter.get("/oauth/callback", async (req, res) => {
     const pageId = page.id;
     const pageName = page.name;
 
-    // Subscribe page to webhooks
     await fetch(
       `https://graph.facebook.com/v18.0/${pageId}/subscribed_apps?access_token=${pageAccessToken}`,
       {
@@ -147,7 +143,6 @@ messengerRouter.get("/oauth/callback", async (req, res) => {
 
     console.log(`[Messenger OAuth] Connected Page ${pageId} (${pageName}) for store ${storeId}`);
 
-    // Save to channel_connections
     const { rows: existing } = await pool.query(
       `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'messenger' LIMIT 1`,
       [storeId]
@@ -194,21 +189,18 @@ messengerRouter.post("/webhook", async (req, res) => {
     for (const entry of body.entry || []) {
       const pageId = entry.id;
       for (const event of entry.messaging || []) {
-              if (!event.message || event.message.is_echo) continue;
-      const text = event.message.text;
-      if (!text) continue;
-      // Capture ad referral data
-      const referral = event.referral || event.message.referral || null;
-      const adRef = referral?.ref || null;
-      const adId = referral?.ad_id || null;
-      await processIncomingMessengerMessage({
-        pageId,
-        senderId: event.sender.id,
-        messageId: event.message.mid,
-        text,
-        timestamp: new Date(event.timestamp),
-        adRef,
-        adId,
+        if (!event.message || event.message.is_echo) continue;
+        const text = event.message.text;
+        if (!text) continue;
+        const referral = event.referral || event.message?.referral || null;
+        const adRef = referral?.ref || null;
+        await processIncomingMessengerMessage({
+          pageId,
+          senderId: event.sender.id,
+          messageId: event.message.mid,
+          text,
+          timestamp: new Date(event.timestamp),
+          adRef,
         }).catch(err => console.error("[Messenger] Processing error:", err));
       }
     }
@@ -255,9 +247,7 @@ async function processIncomingMessengerMessage(incoming: {
   text: string;
   timestamp: Date;
   adRef?: string | null;
-  adId?: string | null;
 }) {
-
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections WHERE channel = 'messenger' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
     [incoming.pageId]
@@ -294,15 +284,14 @@ async function processIncomingMessengerMessage(incoming: {
 
   if (!conversation) {
     const convId = generateId("conv");
+    const meta = (channel.metadata ?? {}) as Record<string, unknown>;
+    const defaultMode = meta.defaultAiMode as string | undefined;
+    const aiMode = (defaultMode === "ai_autopilot" && store.aiEnabled) ? "ai_autopilot" : "human";
+
     await db.insert(conversationsTable).values({
       id: convId, storeId: store.id, customerId: customer!.id,
       customerName: "Messenger User", channel: "messenger", status: "open",
-      aiMode: (() => {
-    const meta = (channel.metadata ?? {}) as Record<string, unknown>;
-    const defaultMode = meta.defaultAiMode as string | undefined;
-    if (defaultMode === "ai_autopilot" && store.aiEnabled) return "ai_autopilot";
-    return "human";
-    })(),
+      aiMode,
       createdAt: new Date(), updatedAt: new Date(),
     });
     const { rows: newRows } = await pool.query(
@@ -343,23 +332,20 @@ async function processIncomingMessengerMessage(incoming: {
 
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const rawProducts = await db.select().from(productsTable).where(eq(productsTable.storeId, store.id));
-    const products = rawProducts.map(p => ({ ...p, price: parseFloat(String(p.price)) || 0, stock: p.stock ?? 0 }));
+    const products = rawProducts.map(p => ({
+      ...p,
+      price: parseFloat(String(p.price)) || 0,
+      stock: p.stock ?? 0,
+      imageUrl: p.imageUrl ?? undefined,
+      description: p.description ?? undefined,
+    }));
     const recentOrders = await db.select().from(ordersTable)
       .where(eq(ordersTable.storeId, store.id))
       .orderBy(desc(ordersTable.createdAt)).limit(20);
 
-
-    // Match product from ad referral
-    let adProduct = null;
-    if (incoming.adRef) {
-      adProduct = rawProducts.find(p =>
-        p.name.toLowerCase().includes(incoming.adRef!.toLowerCase()) ||
-        p.id === incoming.adRef
-      ) || null;
-    }
-    const aiSystemPromptWithAd = adProduct
-      ? `${store.aiSystemPrompt || ""}\n\nIMPORTANT: The customer came from an ad for this specific product: "${adProduct.name}" (Price: ${adProduct.price} DZD). Focus your conversation on this product first.`
-      : store.aiSystemPrompt ?? undefined;
+    // ─── Ad referral: focus AI on the specific product from the ad ───────────
+    const adProduct = await getProductFromAdRef(store.id, incoming.adRef);
+    const aiSystemPromptWithAd = buildAdProductPrompt(store.aiSystemPrompt ?? undefined, adProduct);
 
     await callAiBridge({
       messageId: msgId, conversationId: conversation.id,
