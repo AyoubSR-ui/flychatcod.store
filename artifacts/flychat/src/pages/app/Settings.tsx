@@ -5,7 +5,17 @@ import { useI18n } from "@/hooks/use-i18n";
 import { Store, Globe, MapPin, Bot, Check, Truck, Package } from "lucide-react";
 
 const TABS = ["profile", "language", "shipping", "autopilot"] as const;
-const WILAYAS = ["Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar","Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger","Djelfa","Jijel","Sétif","Saïda","Skikda","Sidi Bel Abbès","Annaba","Guelma","Constantine","Médéa","Mostaganem","M'Sila","Mascara","Ouargla","Oran","El Bayadh","Illizi","Bordj Bou Arréridj","Boumerdès","El Tarf","Tindouf","Tissemsilt","El Oued","Khenchela","Souk Ahras","Tipaza","Mila","Aïn Defla","Naâma","Aïn Témouchent","Ghardaïa","Relizane"];
+
+const ALL_WILAYAS = [
+  "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
+  "Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger",
+  "Djelfa","Jijel","Sétif","Saïda","Skikda","Sidi Bel Abbès","Annaba","Guelma",
+  "Constantine","Médéa","Mostaganem","M'Sila","Mascara","Ouargla","Oran","El Bayadh",
+  "Illizi","Bordj Bou Arréridj","Boumerdès","El Tarf","Tindouf","Tissemsilt","El Oued",
+  "Khenchela","Souk Ahras","Tipaza","Mila","Aïn Defla","Naâma","Aïn Témouchent",
+  "Ghardaïa","Relizane","El M'Ghair","El Méniaa","Ouled Djellal","Bordj Badji Mokhtar",
+  "Béni Abbès","Timimoun","Touggourt","Djanet","In Salah","In Guezzam",
+];
 
 const CHANNEL_META = {
   whatsapp:  { label: "WhatsApp",           color: "text-green-700",  bg: "bg-green-50",  border: "border-green-200", dot: "bg-green-500"  },
@@ -19,12 +29,24 @@ const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-product
 type Channel = keyof typeof CHANNEL_META;
 type AiModes = Record<Channel, "human" | "ai_autopilot">;
 
+interface WilayaPrice { home: number; pickup: number; }
 interface ShippingOptions {
   homeDeliveryEnabled: boolean;
-  homeDeliveryPrice: number;
   pickupEnabled: boolean;
-  pickupPrice: number;
+  prioritize: "home" | "pickup";
+  homeLabel: string;
+  pickupLabel: string;
+  wilayaPrices: Record<string, WilayaPrice>;
 }
+
+const defaultShipping: ShippingOptions = {
+  homeDeliveryEnabled: true,
+  pickupEnabled: false,
+  prioritize: "home",
+  homeLabel: "الى البيت",
+  pickupLabel: "من الفرع",
+  wilayaPrices: {},
+};
 
 export default function Settings() {
   const [tab, setTab] = useState<typeof TABS[number]>("profile");
@@ -39,14 +61,11 @@ export default function Settings() {
     defaultLanguage: "fr", widgetLanguage: "fr", shippingWilayas: [] as string[],
   });
 
-  const [shippingOptions, setShippingOptions] = useState<ShippingOptions>({
-    homeDeliveryEnabled: true,
-    homeDeliveryPrice: 0,
-    pickupEnabled: false,
-    pickupPrice: 0,
-  });
+  const [shipping, setShipping] = useState<ShippingOptions>(defaultShipping);
   const [shippingSaving, setShippingSaving] = useState(false);
   const [shippingSaved, setShippingSaved] = useState(false);
+  const [applyAllHome, setApplyAllHome] = useState("");
+  const [applyAllPickup, setApplyAllPickup] = useState("");
 
   const [aiModes, setAiModes] = useState<AiModes>({
     whatsapp: "human", instagram: "human", messenger: "human", widget: "human",
@@ -63,31 +82,19 @@ export default function Settings() {
     });
   }, [store]);
 
-  // Fetch shipping options
   useEffect(() => {
     if (tab !== "shipping") return;
     const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/settings/shipping-options`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API_BASE}/api/settings/shipping-options`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(data => {
-        if (data) setShippingOptions({
-          homeDeliveryEnabled: data.homeDeliveryEnabled ?? true,
-          homeDeliveryPrice: data.homeDeliveryPrice ?? 0,
-          pickupEnabled: data.pickupEnabled ?? false,
-          pickupPrice: data.pickupPrice ?? 0,
-        });
-      })
+      .then(data => { if (data && typeof data === "object") setShipping({ ...defaultShipping, ...data }); })
       .catch(() => {});
   }, [tab]);
 
   useEffect(() => {
     if (tab !== "autopilot") return;
     const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/settings/channels-ai`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API_BASE}/api/settings/channels-ai`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { if (data && typeof data === "object") setAiModes(prev => ({ ...prev, ...data })); })
       .catch(console.error);
@@ -108,10 +115,9 @@ export default function Settings() {
       await fetch(`${API_BASE}/api/settings/shipping-options`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(shippingOptions),
+        body: JSON.stringify(shipping),
       });
-      // Also save wilayas
-      await updateStore.mutateAsync({ data: { shippingWilayas: form.shippingWilayas } as any });
+      await updateStore.mutateAsync({ data: { shippingWilayas: ALL_WILAYAS } as any });
       setShippingSaved(true);
       setTimeout(() => setShippingSaved(false), 2000);
     } catch {}
@@ -130,8 +136,24 @@ export default function Settings() {
     setTimeout(() => setAiSaved(false), 2000);
   };
 
-  const toggleWilaya = (w: string) => {
-    setForm(f => ({ ...f, shippingWilayas: f.shippingWilayas.includes(w) ? f.shippingWilayas.filter(x => x !== w) : [...f.shippingWilayas, w] }));
+  const setWilayaPrice = (wilaya: string, field: "home" | "pickup", value: number) => {
+    setShipping(s => ({
+      ...s,
+      wilayaPrices: {
+        ...s.wilayaPrices,
+        [wilaya]: { home: s.wilayaPrices[wilaya]?.home ?? 0, pickup: s.wilayaPrices[wilaya]?.pickup ?? 0, [field]: value },
+      },
+    }));
+  };
+
+  const applyAllPrices = (field: "home" | "pickup", value: string) => {
+    const num = Number(value);
+    if (isNaN(num)) return;
+    const updated: Record<string, WilayaPrice> = {};
+    ALL_WILAYAS.forEach(w => {
+      updated[w] = { home: shipping.wilayaPrices[w]?.home ?? 0, pickup: shipping.wilayaPrices[w]?.pickup ?? 0, [field]: num };
+    });
+    setShipping(s => ({ ...s, wilayaPrices: updated }));
   };
 
   const TAB_LABELS = { profile: "Store Profile", language: "Language", shipping: "Shipping", autopilot: "Autopilot" };
@@ -143,7 +165,7 @@ export default function Settings() {
   return (
     <AppLayout>
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-4xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.settings")}</h1>
             <p className="text-muted-foreground mt-1">Configure your store profile and preferences.</p>
@@ -214,7 +236,7 @@ export default function Settings() {
                 <div className="border border-border rounded-xl p-5 space-y-3">
                   <div>
                     <p className="font-semibold text-foreground">Widget Language</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Default language shown to visitors on your widget</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Default language shown to visitors</p>
                   </div>
                   <select value={form.widgetLanguage} onChange={e => setForm({...form, widgetLanguage: e.target.value})}
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
@@ -232,121 +254,115 @@ export default function Settings() {
 
           {tab === "shipping" && (
             <div className="space-y-5">
-
-              {/* ── Shipping Options ── */}
+              {/* ── Shipping Mode Config ── */}
               <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
                 <div className="flex items-center gap-3 pb-4 border-b border-border">
                   <Truck className="w-5 h-5 text-primary" />
                   <div>
                     <h3 className="font-bold text-foreground">Shipping Options</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">AI agent will present these options to customers when collecting orders.</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">AI agent will present these options when collecting orders.</p>
                   </div>
                 </div>
 
-                {/* Home Delivery */}
-                <div className={`border rounded-xl p-5 space-y-4 transition-all ${shippingOptions.homeDeliveryEnabled ? "border-primary/30 bg-primary/5" : "border-border bg-secondary/20"}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${shippingOptions.homeDeliveryEnabled ? "bg-primary/10" : "bg-secondary"}`}>
-                        <Truck className={`w-4 h-4 ${shippingOptions.homeDeliveryEnabled ? "text-primary" : "text-muted-foreground"}`} />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-foreground text-sm">الى البيت — Home Delivery</p>
-                        <p className="text-xs text-muted-foreground">Deliver to customer's address</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setShippingOptions(s => ({ ...s, homeDeliveryEnabled: !s.homeDeliveryEnabled }))}
-                      className={`relative w-11 h-6 rounded-full transition-colors ${shippingOptions.homeDeliveryEnabled ? "bg-primary" : "bg-gray-200"}`}>
-                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${shippingOptions.homeDeliveryEnabled ? "translate-x-5" : "translate-x-0"}`} />
-                    </button>
+                {/* Prioritize */}
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Prioritize Shipping Mode By</label>
+                  <div className="flex gap-6">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={shipping.prioritize === "home"} onChange={() => setShipping(s => ({ ...s, prioritize: "home" }))} className="accent-primary" />
+                      <span className="text-sm font-medium">الى البيت (Home)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={shipping.prioritize === "pickup"} onChange={() => setShipping(s => ({ ...s, prioritize: "pickup" }))} className="accent-primary" />
+                      <span className="text-sm font-medium">من الفرع (Pickup)</span>
+                    </label>
                   </div>
-                  {shippingOptions.homeDeliveryEnabled && (
-                    <div>
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Delivery Price (DZD)</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          value={shippingOptions.homeDeliveryPrice}
-                          onChange={e => setShippingOptions(s => ({ ...s, homeDeliveryPrice: Number(e.target.value) }))}
-                          className="w-40 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-bold"
-                          placeholder="0"
-                        />
-                        <span className="text-sm text-muted-foreground">DZD per order</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">AI will add this to the total when customer chooses home delivery.</p>
-                    </div>
-                  )}
                 </div>
 
-                {/* Pickup */}
-                <div className={`border rounded-xl p-5 space-y-4 transition-all ${shippingOptions.pickupEnabled ? "border-orange-200 bg-orange-50/50" : "border-border bg-secondary/20"}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${shippingOptions.pickupEnabled ? "bg-orange-100" : "bg-secondary"}`}>
-                        <Package className={`w-4 h-4 ${shippingOptions.pickupEnabled ? "text-orange-600" : "text-muted-foreground"}`} />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-foreground text-sm">من الفرع — Pickup from Branch</p>
-                        <p className="text-xs text-muted-foreground">Customer picks up from your location</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setShippingOptions(s => ({ ...s, pickupEnabled: !s.pickupEnabled }))}
-                      className={`relative w-11 h-6 rounded-full transition-colors ${shippingOptions.pickupEnabled ? "bg-orange-500" : "bg-gray-200"}`}>
-                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${shippingOptions.pickupEnabled ? "translate-x-5" : "translate-x-0"}`} />
-                    </button>
+                {/* Labels */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Door Delivery Label</label>
+                    <input value={shipping.homeLabel} onChange={e => setShipping(s => ({ ...s, homeLabel: e.target.value }))}
+                      className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                   </div>
-                  {shippingOptions.pickupEnabled && (
-                    <div>
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Pickup Fee (DZD)</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          value={shippingOptions.pickupPrice}
-                          onChange={e => setShippingOptions(s => ({ ...s, pickupPrice: Number(e.target.value) }))}
-                          className="w-40 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-bold"
-                          placeholder="0"
-                        />
-                        <span className="text-sm text-muted-foreground">DZD (0 = free pickup)</span>
-                      </div>
+                  <div className="flex flex-col">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Stop Desk Label</label>
+                      <button onClick={() => setShipping(s => ({ ...s, pickupEnabled: !s.pickupEnabled }))}
+                        className={`text-xs px-2 py-1 rounded font-bold ${shipping.pickupEnabled ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>
+                        {shipping.pickupEnabled ? "Disable Stop Desk" : "Enable Stop Desk"}
+                      </button>
                     </div>
-                  )}
+                    <input value={shipping.pickupLabel} onChange={e => setShipping(s => ({ ...s, pickupLabel: e.target.value }))}
+                      disabled={!shipping.pickupEnabled}
+                      className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background disabled:opacity-50" />
+                  </div>
                 </div>
-
-                {/* Preview */}
-                {(shippingOptions.homeDeliveryEnabled || shippingOptions.pickupEnabled) && (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800">
-                    <p className="font-bold mb-1">What AI will show customers:</p>
-                    {shippingOptions.homeDeliveryEnabled && (
-                      <p>• الى البيت (Home Delivery): {shippingOptions.homeDeliveryPrice.toLocaleString()} DZD</p>
-                    )}
-                    {shippingOptions.pickupEnabled && (
-                      <p>• من الفرع (Pickup): {shippingOptions.pickupPrice.toLocaleString()} DZD</p>
-                    )}
-                  </div>
-                )}
               </div>
 
-              {/* ── Shipping Wilayas ── */}
-              <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
-                <div className="flex items-center gap-3 pb-4 border-b border-border">
-                  <MapPin className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Shipping Wilayas</h3>
-                  <span className="ml-auto text-sm text-muted-foreground">{form.shippingWilayas.length} selected</span>
+              {/* ── Per-Wilaya Pricing ── */}
+              <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-border">
+                  <div className="flex items-center gap-3 mb-4">
+                    <MapPin className="w-5 h-5 text-primary" />
+                    <h3 className="font-bold text-foreground">Manage Pricings</h3>
+                    <span className="ml-auto text-xs text-muted-foreground">{ALL_WILAYAS.length} wilayas</span>
+                  </div>
+                  {/* Apply All row */}
+                  <div className="grid grid-cols-3 gap-4 p-3 bg-secondary/50 rounded-xl border border-border">
+                    <div className="text-sm font-bold text-muted-foreground flex items-center">Apply to All</div>
+                    <div className="flex gap-2 items-center">
+                      <input type="number" min={0} value={applyAllHome} onChange={e => setApplyAllHome(e.target.value)}
+                        placeholder="0" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => { applyAllPrices("home", applyAllHome); }}
+                        className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply All</button>
+                    </div>
+                    {shipping.pickupEnabled && (
+                      <div className="flex gap-2 items-center">
+                        <input type="number" min={0} value={applyAllPickup} onChange={e => setApplyAllPickup(e.target.value)}
+                          placeholder="0" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
+                        <button onClick={() => applyAllPrices("pickup", applyAllPickup)}
+                          className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply All</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex gap-3 mb-3">
-                  <button onClick={() => setForm({...form, shippingWilayas: [...WILAYAS]})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Select All</button>
-                  <button onClick={() => setForm({...form, shippingWilayas: []})} className="text-xs px-3 py-1.5 border border-border rounded-lg hover:bg-secondary">Clear All</button>
+
+                {/* Table header */}
+                <div className={`grid bg-secondary/30 border-b border-border text-xs font-bold text-muted-foreground uppercase px-6 py-3 ${shipping.pickupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                  <div>Province</div>
+                  <div>Door Delivery Price</div>
+                  {shipping.pickupEnabled && <div>Stop Desk Price</div>}
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-80 overflow-y-auto pr-1">
-                  {WILAYAS.map(w => (
-                    <label key={w} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm transition-all ${form.shippingWilayas.includes(w) ? "border-primary bg-primary/5 text-primary" : "border-border hover:bg-secondary"}`}>
-                      <input type="checkbox" checked={form.shippingWilayas.includes(w)} onChange={() => toggleWilaya(w)} className="w-3.5 h-3.5 accent-primary" />
-                      {w}
-                    </label>
+
+                {/* Wilaya rows */}
+                <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto">
+                  {ALL_WILAYAS.map((w, idx) => (
+                    <div key={w} className={`grid px-6 py-3 items-center hover:bg-secondary/20 transition-colors ${shipping.pickupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                      <div className="text-sm font-semibold text-foreground flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-5">{idx + 1}</span>
+                        {w}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">DZD</span>
+                        <input type="number" min={0}
+                          value={shipping.wilayaPrices[w]?.home ?? ""}
+                          onChange={e => setWilayaPrice(w, "home", Number(e.target.value))}
+                          placeholder="0"
+                          className="w-28 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20" />
+                      </div>
+                      {shipping.pickupEnabled && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">DZD</span>
+                          <input type="number" min={0}
+                            value={shipping.wilayaPrices[w]?.pickup ?? ""}
+                            onChange={e => setWilayaPrice(w, "pickup", Number(e.target.value))}
+                            placeholder="0"
+                            className="w-28 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20" />
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -367,11 +383,9 @@ export default function Settings() {
                   <p className="text-xs text-muted-foreground mt-0.5">Set the default mode for new conversations on each channel.</p>
                 </div>
               </div>
-
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-sm text-violet-800">
-                <p><span className="font-bold">How it works:</span> When a new message arrives on a channel, the conversation starts in the mode you set here. You can always switch per-conversation inside the Inbox.</p>
+                <p><span className="font-bold">How it works:</span> When a new message arrives on a channel, the conversation starts in the mode you set here.</p>
               </div>
-
               <div className="space-y-3">
                 {(Object.entries(CHANNEL_META) as [Channel, typeof CHANNEL_META[Channel]][]).map(([ch, meta]) => {
                   const isAi = aiModes[ch] === "ai_autopilot";
@@ -381,15 +395,12 @@ export default function Settings() {
                         <span className={`w-2.5 h-2.5 rounded-full ${isAi ? meta.dot : "bg-gray-300"}`} />
                         <div>
                           <p className={`font-semibold text-sm ${isAi ? meta.color : "text-foreground"}`}>{meta.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {isAi ? "AI handles new messages automatically" : "Agent handles new messages manually"}
-                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{isAi ? "AI handles new messages automatically" : "Agent handles new messages manually"}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`text-xs font-medium ${!isAi ? "text-foreground" : "text-muted-foreground"}`}>Human</span>
-                        <button
-                          onClick={() => setAiModes(prev => ({ ...prev, [ch]: isAi ? "human" : "ai_autopilot" }))}
+                        <button onClick={() => setAiModes(prev => ({ ...prev, [ch]: isAi ? "human" : "ai_autopilot" }))}
                           className={`relative w-11 h-6 rounded-full transition-colors ${isAi ? "bg-violet-600" : "bg-gray-200"}`}>
                           <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isAi ? "translate-x-5" : "translate-x-0"}`} />
                         </button>
@@ -399,11 +410,6 @@ export default function Settings() {
                   );
                 })}
               </div>
-
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800">
-                <span className="font-bold">Note:</span> AI autopilot only activates if your store AI is enabled in <span className="font-semibold">AI settings</span>.
-              </div>
-
               <button onClick={handleSaveAiModes} disabled={aiSaving}
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${aiSaved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
                 {aiSaved ? <><Check className="w-4 h-4" /> Saved!</> : aiSaving ? "Saving..." : t("common.save")}
