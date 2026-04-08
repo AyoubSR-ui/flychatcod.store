@@ -1,25 +1,34 @@
 import { AppLayout } from "@/components/AppLayout";
-import { Plus, Search, Pencil, Trash2, ToggleLeft, ToggleRight, Image, X, Package } from "lucide-react";
-import { useState } from "react";
+import { Plus, Search, Pencil, Trash2, ToggleLeft, ToggleRight, X, Upload, Link, Package } from "lucide-react";
+import { useState, useRef } from "react";
 import { useGetProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 
-interface VariantGroup { label: string; values: string }
+const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+
+// Preset colors for color variants
+const PRESET_COLORS = [
+  { name: "Noir", hex: "#000000" }, { name: "Blanc", hex: "#FFFFFF" },
+  { name: "Rouge", hex: "#EF4444" }, { name: "Bleu", hex: "#3B82F6" },
+  { name: "Vert", hex: "#22C55E" }, { name: "Jaune", hex: "#EAB308" },
+  { name: "Rose", hex: "#EC4899" }, { name: "Violet", hex: "#A855F7" },
+  { name: "Orange", hex: "#F97316" }, { name: "Gris", hex: "#6B7280" },
+  { name: "Marron", hex: "#92400E" }, { name: "Beige", hex: "#D4B896" },
+  { name: "Bleu Marine", hex: "#1E3A5F" }, { name: "Or", hex: "#D4AF37" },
+  { name: "Argent", hex: "#C0C0C0" }, { name: "Camel", hex: "#C19A6B" },
+];
+
+interface VariantGroup { label: string; values: string; type: "text" | "color" }
 interface ProductForm {
-  name: string;
-  description: string;
-  price: string;
-  stock: string;
-  isActive: boolean;
-  imageUrl: string;
-  extraImages: string[];
+  name: string; description: string; price: string; stock: string;
+  isActive: boolean; imageUrl: string; extraImages: string[];
   variantGroups: VariantGroup[];
 }
 
 const empty: ProductForm = {
   name: "", description: "", price: "", stock: "",
   isActive: true, imageUrl: "", extraImages: [],
-  variantGroups: [{ label: "Color", values: "" }, { label: "Size", values: "" }],
+  variantGroups: [{ label: "Color", values: "", type: "color" }, { label: "Size", values: "", type: "text" }],
 };
 
 function flattenVariants(groups: VariantGroup[]): string[] {
@@ -46,8 +55,35 @@ function parseVariantGroups(variants: string[]): VariantGroup[] {
       map["Variant"].push(v);
     }
   });
-  if (Object.keys(map).length === 0) return [{ label: "Color", values: "" }, { label: "Size", values: "" }];
-  return Object.entries(map).map(([label, vals]) => ({ label, values: vals.join(", ") }));
+  if (Object.keys(map).length === 0) return [{ label: "Color", values: "", type: "color" }, { label: "Size", values: "", type: "text" }];
+  return Object.entries(map).map(([label, vals]) => ({
+    label, values: vals.join(", "),
+    type: label.toLowerCase().includes("color") || label.toLowerCase().includes("couleur") ? "color" : "text" as "text" | "color"
+  }));
+}
+
+// Upload image to storage
+async function uploadImage(file: File): Promise<string | null> {
+  try {
+    const token = localStorage.getItem("flychat_token") || "";
+    // Request upload URL
+    const urlRes = await fetch(`${API_BASE}/storage/uploads/request-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+    });
+    const { uploadURL, objectPath } = await urlRes.json();
+    if (!uploadURL) return null;
+
+    // Upload file
+    await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+
+    // Return public URL
+    return `${API_BASE}/storage/public-objects/${objectPath}`;
+  } catch (err) {
+    console.error("Upload failed:", err);
+    return null;
+  }
 }
 
 export default function Products() {
@@ -56,37 +92,34 @@ export default function Products() {
   const [form, setForm] = useState<ProductForm>(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [imageTab, setImageTab] = useState<"url" | "upload">("url");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { data, isLoading, refetch } = useGetProducts({ search: search || undefined, limit: 50 });
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
   const { t } = useI18n();
 
-  const openCreate = () => { setForm(empty); setEditId(null); setNewImageUrl(""); setShowModal(true); };
+  const openCreate = () => { setForm(empty); setEditId(null); setNewImageUrl(""); setImageTab("url"); setShowModal(true); };
 
   const openEdit = (p: any) => {
-    const allImages: string[] = p.imageUrls || (p.imageUrl ? [p.imageUrl] : []);
-    const primary = allImages[0] || "";
-    const extras = allImages.slice(1);
+    const primary = p.imageUrl || "";
     setForm({
       name: p.name, description: p.description || "",
       price: String(p.price), stock: p.stock != null ? String(p.stock) : "",
-      isActive: p.isActive, imageUrl: primary, extraImages: extras,
+      isActive: p.isActive, imageUrl: primary, extraImages: [],
       variantGroups: parseVariantGroups(p.variants || []),
     });
-    setEditId(p.id); setNewImageUrl(""); setShowModal(true);
+    setEditId(p.id); setNewImageUrl(""); setImageTab("url"); setShowModal(true);
   };
 
   const handleSubmit = async () => {
     if (!form.name || !form.price) return;
-    const allImages = [form.imageUrl, ...form.extraImages].filter(Boolean);
     const payload = {
-      name: form.name,
-      description: form.description || undefined,
-      price: parseFloat(form.price),
-      stock: form.stock ? parseInt(form.stock) : undefined,
-      isActive: form.isActive,
-      imageUrl: allImages[0] || undefined,
+      name: form.name, description: form.description || undefined,
+      price: parseFloat(form.price), stock: form.stock ? parseInt(form.stock) : undefined,
+      isActive: form.isActive, imageUrl: form.imageUrl || undefined,
       variants: flattenVariants(form.variantGroups),
     };
     if (editId) await updateProduct.mutateAsync({ id: editId, data: payload as any });
@@ -103,19 +136,28 @@ export default function Products() {
     await updateProduct.mutateAsync({ id: p.id, data: { isActive: !p.isActive } }); refetch();
   };
 
-  const addVariantGroup = () => setForm(f => ({ ...f, variantGroups: [...f.variantGroups, { label: "", values: "" }] }));
+  const handleFileUpload = async (file: File) => {
+    setUploading(true);
+    const url = await uploadImage(file);
+    if (url) {
+      if (!form.imageUrl) setForm(f => ({ ...f, imageUrl: url }));
+      else setForm(f => ({ ...f, extraImages: [...f.extraImages, url] }));
+    }
+    setUploading(false);
+  };
+
+  const addVariantGroup = () => setForm(f => ({ ...f, variantGroups: [...f.variantGroups, { label: "", values: "", type: "text" }] }));
   const removeVariantGroup = (i: number) => setForm(f => ({ ...f, variantGroups: f.variantGroups.filter((_, idx) => idx !== i) }));
-  const updateVariantGroup = (i: number, field: "label" | "values", val: string) => {
+  const updateVariantGroup = (i: number, field: keyof VariantGroup, val: string) => {
     setForm(f => ({ ...f, variantGroups: f.variantGroups.map((g, idx) => idx === i ? { ...g, [field]: val } : g) }));
   };
-
-  const addExtraImage = () => {
-    if (!newImageUrl.trim()) return;
-    setForm(f => ({ ...f, extraImages: [...f.extraImages, newImageUrl.trim()] }));
-    setNewImageUrl("");
+  const addColorToGroup = (i: number, colorName: string) => {
+    const g = form.variantGroups[i];
+    const existing = g.values.split(",").map(v => v.trim()).filter(Boolean);
+    if (!existing.includes(colorName)) {
+      updateVariantGroup(i, "values", [...existing, colorName].join(", "));
+    }
   };
-
-  const removeExtraImage = (i: number) => setForm(f => ({ ...f, extraImages: f.extraImages.filter((_, idx) => idx !== i) }));
 
   return (
     <AppLayout>
@@ -156,7 +198,7 @@ export default function Products() {
                   {isLoading ? (
                     <tr><td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
                   ) : data?.products.length === 0 ? (
-                    <tr><td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">No products yet. Add your first product to start selling.</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">No products yet. Add your first product.</td></tr>
                   ) : data?.products.map((p) => {
                     const colorVariants = (p.variants || []).filter((v: string) => v.startsWith("Color:")).map((v: string) => v.replace("Color:", "").trim());
                     const sizeVariants = (p.variants || []).filter((v: string) => v.startsWith("Size:")).map((v: string) => v.replace("Size:", "").trim());
@@ -173,7 +215,10 @@ export default function Products() {
                               </div>
                             )}
                             <div>
-                              <div className="font-semibold text-foreground">{p.name}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-foreground">{p.name}</span>
+                                {!p.isActive && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded font-medium">AI Off</span>}
+                              </div>
                               {p.description && <div className="text-xs text-muted-foreground truncate max-w-[200px] mt-0.5">{p.description}</div>}
                             </div>
                           </div>
@@ -184,22 +229,27 @@ export default function Products() {
                           <div className="flex flex-col gap-1">
                             {colorVariants.length > 0 && (
                               <div className="flex flex-wrap gap-1">
-                                {colorVariants.slice(0, 4).map((v: string) => (
-                                  <span key={v} className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs font-medium">{v}</span>
-                                ))}
-                                {colorVariants.length > 4 && <span className="text-xs text-muted-foreground">+{colorVariants.length - 4}</span>}
+                                {colorVariants.slice(0, 5).map((v: string) => {
+                                  const preset = PRESET_COLORS.find(c => c.name.toLowerCase() === v.toLowerCase());
+                                  return preset ? (
+                                    <span key={v} title={v} className="w-4 h-4 rounded-full border border-border inline-block" style={{ backgroundColor: preset.hex }} />
+                                  ) : (
+                                    <span key={v} className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs">{v}</span>
+                                  );
+                                })}
+                                {colorVariants.length > 5 && <span className="text-xs text-muted-foreground">+{colorVariants.length - 5}</span>}
                               </div>
                             )}
                             {sizeVariants.length > 0 && (
                               <div className="flex flex-wrap gap-1">
                                 {sizeVariants.slice(0, 4).map((v: string) => (
-                                  <span key={v} className="px-1.5 py-0.5 bg-purple-50 border border-purple-200 text-purple-700 rounded text-xs font-medium">{v}</span>
+                                  <span key={v} className="px-1.5 py-0.5 bg-purple-50 border border-purple-200 text-purple-700 rounded text-xs">{v}</span>
                                 ))}
                                 {sizeVariants.length > 4 && <span className="text-xs text-muted-foreground">+{sizeVariants.length - 4}</span>}
                               </div>
                             )}
                             {otherVariants.slice(0, 3).map((v: string) => (
-                              <span key={v} className="px-1.5 py-0.5 bg-secondary rounded text-xs font-medium w-fit">{v}</span>
+                              <span key={v} className="px-1.5 py-0.5 bg-secondary rounded text-xs w-fit">{v}</span>
                             ))}
                             {!colorVariants.length && !sizeVariants.length && !otherVariants.length && (
                               <span className="text-xs text-muted-foreground">—</span>
@@ -207,9 +257,12 @@ export default function Products() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <button onClick={() => handleToggle(p)} className="text-muted-foreground hover:text-primary transition-colors">
-                            {p.isActive ? <ToggleRight className="w-6 h-6 text-green-500" /> : <ToggleLeft className="w-6 h-6" />}
-                          </button>
+                          <div className="flex flex-col gap-1 items-start">
+                            <button onClick={() => handleToggle(p)} className="text-muted-foreground hover:text-primary transition-colors">
+                              {p.isActive ? <ToggleRight className="w-6 h-6 text-green-500" /> : <ToggleLeft className="w-6 h-6" />}
+                            </button>
+                            <span className="text-xs text-muted-foreground">{p.isActive ? "AI uses" : "AI skips"}</span>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-2">
@@ -241,68 +294,118 @@ export default function Products() {
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
-
-              {/* Basic Info */}
+              {/* Name */}
               <div>
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Product Name *</label>
-                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. جلابية السلطانة" className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+                  placeholder="e.g. جلابية السلطانة"
+                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
               </div>
 
+              {/* Description */}
               <div>
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Description</label>
-                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={2} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
+                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                  rows={2} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
               </div>
 
+              {/* Price & Stock */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Price (DZD) *</label>
-                  <input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                  <input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Stock</label>
-                  <input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} placeholder="Empty = unlimited" className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                  <input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })}
+                    placeholder="Empty = unlimited"
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
               </div>
 
               {/* Media */}
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block flex items-center gap-1.5">
-                  <Image className="w-3.5 h-3.5" /> Media (Image URLs)
-                </label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Product Images</label>
 
-                {/* Primary image */}
-                <div className="space-y-2">
-                  <div className="flex gap-2 items-center">
-                    <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
-                      placeholder="Primary image URL (https://...)"
-                      className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
-                    {form.imageUrl && <img src={form.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />}
-                  </div>
-
-                  {/* Extra images */}
-                  {form.extraImages.map((url, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <img src={url} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />
-                      <span className="flex-1 text-xs text-muted-foreground truncate border border-border rounded-xl px-3 py-2 bg-secondary/30">{url}</span>
-                      <button onClick={() => removeExtraImage(i)} className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"><X className="w-3.5 h-3.5 text-red-500" /></button>
-                    </div>
-                  ))}
-
-                  {/* Add image */}
-                  <div className="flex gap-2">
-                    <input value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && addExtraImage()}
-                      placeholder="Add another image URL..."
-                      className="flex-1 border border-border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
-                    <button onClick={addExtraImage} disabled={!newImageUrl.trim()}
-                      className="px-3 py-2 bg-secondary border border-border rounded-xl text-xs font-bold hover:bg-secondary/80 disabled:opacity-40 transition-colors">
-                      + Add
-                    </button>
-                  </div>
+                {/* Tab switch */}
+                <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg border border-border w-fit mb-3">
+                  <button onClick={() => setImageTab("url")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "url" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                    <Link className="w-3 h-3" /> URL
+                  </button>
+                  <button onClick={() => setImageTab("upload")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "upload" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                    <Upload className="w-3 h-3" /> Upload
+                  </button>
                 </div>
 
-                {form.extraImages.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">AI will send the primary image when customers ask about this product.</p>
+                {imageTab === "url" ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 items-center">
+                      <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
+                        placeholder="Primary image URL (https://...)"
+                        className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                      {form.imageUrl && <img src={form.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />}
+                    </div>
+                    {form.extraImages.map((url, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <img src={url} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />
+                        <span className="flex-1 text-xs text-muted-foreground truncate border border-border rounded-xl px-3 py-2 bg-secondary/30">{url}</span>
+                        <button onClick={() => setForm(f => ({ ...f, extraImages: f.extraImages.filter((_, idx) => idx !== i) }))} className="p-1.5 hover:bg-red-50 rounded-lg">
+                          <X className="w-3.5 h-3.5 text-red-500" />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="flex gap-2">
+                      <input value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && newImageUrl.trim()) { setForm(f => ({ ...f, extraImages: [...f.extraImages, newImageUrl.trim()] })); setNewImageUrl(""); }}}
+                        placeholder="Add another image URL..."
+                        className="flex-1 border border-border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                      <button onClick={() => { if (newImageUrl.trim()) { setForm(f => ({ ...f, extraImages: [...f.extraImages, newImageUrl.trim()] })); setNewImageUrl(""); }}}
+                        disabled={!newImageUrl.trim()}
+                        className="px-3 py-2 bg-secondary border border-border rounded-xl text-xs font-bold hover:bg-secondary/80 disabled:opacity-40">
+                        + Add
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+                      onChange={async e => {
+                        const files = Array.from(e.target.files || []);
+                        for (const file of files) await handleFileUpload(file);
+                        e.target.value = "";
+                      }} />
+                    <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                      className="w-full border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center gap-3 hover:border-primary/50 hover:bg-primary/5 transition-all disabled:opacity-50 cursor-pointer">
+                      {uploading ? (
+                        <div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" />
+                      ) : (
+                        <Upload className="w-8 h-8 text-muted-foreground" />
+                      )}
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-foreground">{uploading ? "Uploading..." : "Click to upload images"}</p>
+                        <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+                      </div>
+                    </button>
+
+                    {/* Show uploaded images */}
+                    {(form.imageUrl || form.extraImages.length > 0) && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {[form.imageUrl, ...form.extraImages].filter(Boolean).map((url, i) => (
+                          <div key={i} className="relative group">
+                            <img src={url} alt="" className="w-16 h-16 rounded-xl object-cover border border-border" />
+                            {i === 0 && <span className="absolute -top-1 -left-1 bg-primary text-white text-[9px] px-1 rounded font-bold">Main</span>}
+                            <button onClick={() => {
+                              if (i === 0) setForm(f => ({ ...f, imageUrl: f.extraImages[0] || "", extraImages: f.extraImages.slice(1) }));
+                              else setForm(f => ({ ...f, extraImages: f.extraImages.filter((_, idx) => idx !== i - 1) }));
+                            }} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full hidden group-hover:flex items-center justify-center text-[10px]">×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -310,50 +413,95 @@ export default function Products() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Variants</label>
-                  <button onClick={addVariantGroup} className="text-xs text-primary font-bold hover:bg-primary/10 px-2 py-1 rounded-lg transition-colors">+ Add Group</button>
+                  <button onClick={addVariantGroup} className="text-xs text-primary font-bold hover:bg-primary/10 px-2 py-1 rounded-lg">+ Add Group</button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {form.variantGroups.map((g, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <input value={g.label} onChange={e => updateVariantGroup(i, "label", e.target.value)}
-                        placeholder="Group name (Color, Size...)"
-                        className="w-28 shrink-0 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-medium" />
-                      <input value={g.values} onChange={e => updateVariantGroup(i, "values", e.target.value)}
-                        placeholder="Values separated by commas (Red, Blue, Green)"
-                        className="flex-1 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
-                      <button onClick={() => removeVariantGroup(i)} className="p-1.5 hover:bg-red-50 rounded-lg transition-colors shrink-0">
-                        <X className="w-3.5 h-3.5 text-red-400" />
-                      </button>
+                    <div key={i} className="border border-border rounded-xl p-4 space-y-3">
+                      <div className="flex gap-2 items-center">
+                        <input value={g.label} onChange={e => updateVariantGroup(i, "label", e.target.value)}
+                          placeholder="Group name (Color, Size...)"
+                          className="w-28 shrink-0 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-medium" />
+                        <select value={g.type} onChange={e => updateVariantGroup(i, "type", e.target.value as "text" | "color")}
+                          className="border border-border rounded-xl px-3 py-2 text-xs outline-none bg-background">
+                          <option value="text">Text</option>
+                          <option value="color">Color</option>
+                        </select>
+                        <button onClick={() => removeVariantGroup(i)} className="p-1.5 hover:bg-red-50 rounded-lg ml-auto shrink-0">
+                          <X className="w-3.5 h-3.5 text-red-400" />
+                        </button>
+                      </div>
+
+                      {g.type === "color" ? (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-1.5">
+                            {PRESET_COLORS.map(c => {
+                              const selected = g.values.split(",").map(v => v.trim()).includes(c.name);
+                              return (
+                                <button key={c.name} title={c.name} onClick={() => addColorToGroup(i, c.name)}
+                                  className={`w-6 h-6 rounded-full border-2 transition-all ${selected ? "border-primary scale-110 shadow-md" : "border-transparent hover:border-gray-300"}`}
+                                  style={{ backgroundColor: c.hex }}>
+                                  {c.hex === "#FFFFFF" && <span className="block w-full h-full rounded-full border border-gray-200" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <input value={g.values} onChange={e => updateVariantGroup(i, "values", e.target.value)}
+                            placeholder="Or type custom colors: Rouge, Bleu, Vert"
+                            className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                          {g.values && (
+                            <div className="flex flex-wrap gap-1">
+                              {g.values.split(",").map(v => v.trim()).filter(Boolean).map((v, vi) => {
+                                const preset = PRESET_COLORS.find(c => c.name.toLowerCase() === v.toLowerCase());
+                                return (
+                                  <span key={vi} className="flex items-center gap-1 px-2 py-0.5 bg-secondary border border-border rounded text-xs font-medium">
+                                    {preset && <span className="w-3 h-3 rounded-full inline-block border border-gray-200" style={{ backgroundColor: preset.hex }} />}
+                                    {v}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <input value={g.values} onChange={e => updateVariantGroup(i, "values", e.target.value)}
+                          placeholder="Values separated by commas (L, XL, XXL)"
+                          className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                      )}
                     </div>
                   ))}
                 </div>
 
-                {/* Preview */}
+                {/* Variant preview */}
                 {flattenVariants(form.variantGroups).length > 0 && (
                   <div className="mt-2 p-3 bg-secondary/30 rounded-xl">
                     <p className="text-xs text-muted-foreground mb-1.5 font-medium">Preview:</p>
                     <div className="flex flex-wrap gap-1">
-                      {flattenVariants(form.variantGroups).slice(0, 10).map((v, i) => (
+                      {flattenVariants(form.variantGroups).slice(0, 12).map((v, i) => (
                         <span key={i} className="px-2 py-0.5 bg-background border border-border rounded text-xs font-medium">{v}</span>
                       ))}
-                      {flattenVariants(form.variantGroups).length > 10 && (
-                        <span className="text-xs text-muted-foreground">+{flattenVariants(form.variantGroups).length - 10} more</span>
+                      {flattenVariants(form.variantGroups).length > 12 && (
+                        <span className="text-xs text-muted-foreground">+{flattenVariants(form.variantGroups).length - 12} more</span>
                       )}
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Active */}
-              <div className="flex items-center gap-3">
-                <input type="checkbox" id="isActive" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} className="w-4 h-4 accent-primary" />
-                <label htmlFor="isActive" className="text-sm font-medium">Active (visible in order flow)</label>
+              {/* Active toggle */}
+              <div className="flex items-start gap-3 p-4 bg-secondary/30 rounded-xl border border-border">
+                <input type="checkbox" id="isActive" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} className="w-4 h-4 accent-primary mt-0.5" />
+                <div>
+                  <label htmlFor="isActive" className="text-sm font-semibold cursor-pointer">Active — AI will suggest this product</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">When unchecked, AI will not mention or offer this product to customers.</p>
+                </div>
               </div>
             </div>
 
             <div className="p-6 border-t border-border shrink-0 flex justify-end gap-3">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
-              <button onClick={handleSubmit} disabled={!form.name || !form.price} className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
+              <button onClick={handleSubmit} disabled={!form.name || !form.price}
+                className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
                 {editId ? "Save Changes" : "Add Product"}
               </button>
             </div>
