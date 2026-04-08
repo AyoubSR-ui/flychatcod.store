@@ -66,8 +66,7 @@ function parseVariantGroups(variants: string[]): VariantGroup[] {
 async function uploadImage(file: File): Promise<string | null> {
   try {
     const token = localStorage.getItem("flychat_token") || "";
-    const urlRes = await fetch(`${API_BASE}/storage/uploads/request-url`, {
-      method: "POST",
+  const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {      method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
     });
@@ -84,7 +83,7 @@ async function uploadImage(file: File): Promise<string | null> {
     const cleanPath = objectPath.startsWith("/") ? objectPath.slice(1) : objectPath;
     
     // Return URL through our proxy endpoint
-    return `${API_BASE}/storage/public-objects/${cleanPath}`;
+    return `${API_BASE}/api/storage/public-objects/${cleanPath}`;
   } catch (err) {
     console.error("Upload failed:", err);
     return null;
