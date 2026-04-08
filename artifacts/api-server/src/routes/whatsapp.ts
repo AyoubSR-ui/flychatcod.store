@@ -18,14 +18,13 @@ import {
 import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
+import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 
 export const whatsappRouter = Router();
 
 // ─── Helper: resolve storeId from request ─────────────────────────────────────
 async function resolveStoreId(req: any): Promise<string | null> {
-  // Prefer storeId directly on user (set by requireAuth from JWT)
   if (req.user?.storeId) return req.user.storeId;
-  // Fallback: look up from users table by userId
   if (req.user?.id) {
     const { rows } = await pool.query(
       `SELECT store_id FROM users WHERE id = $1 LIMIT 1`,
@@ -42,7 +41,6 @@ whatsappRouter.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("[WhatsApp] Webhook verified");
     res.status(200).send(challenge);
@@ -55,10 +53,8 @@ whatsappRouter.get("/webhook", (req, res) => {
 whatsappRouter.post("/connect", requireAuth, async (req, res) => {
   const storeId = await resolveStoreId(req);
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
-
   const { accessToken, phoneNumberId } = req.body;
   if (!accessToken) { res.status(400).json({ error: "accessToken required" }); return; }
-
   try {
     const { rows: existing } = await pool.query(
       `SELECT id FROM channel_connections WHERE store_id = $1 AND channel = 'whatsapp' LIMIT 1`,
@@ -87,16 +83,13 @@ whatsappRouter.post("/connect", requireAuth, async (req, res) => {
 whatsappRouter.post("/disconnect", requireAuth, async (req, res) => {
   const storeId = await resolveStoreId(req);
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
-
   try {
     await pool.query(
       `UPDATE channel_connections SET status = 'disconnected', access_token = NULL, updated_at = NOW() WHERE store_id = $1 AND channel = 'whatsapp'`,
       [storeId]
     );
-    console.log(`[WhatsApp] Disconnected store ${storeId}`);
     res.json({ success: true });
   } catch (err) {
-    console.error("[WhatsApp] Disconnect error:", err);
     res.status(500).json({ error: "Failed to disconnect" });
   }
 });
@@ -104,11 +97,9 @@ whatsappRouter.post("/disconnect", requireAuth, async (req, res) => {
 // ─── Webhook Incoming Messages ────────────────────────────────────────────────
 whatsappRouter.post("/webhook", async (req, res) => {
   res.status(200).send("OK");
-
   try {
     const body = req.body as WhatsAppWebhookPayload;
     if (body.object !== "whatsapp_business_account") return;
-
     const incomingMessages = parseWhatsAppWebhook(body);
     for (const incoming of incomingMessages) {
       await processIncomingWhatsAppMessage(incoming).catch((err) =>
@@ -127,58 +118,43 @@ async function processIncomingWhatsAppMessage(incoming: {
   messageId: string;
   text: string;
   timestamp: Date;
+  adRef?: string | null;
 }) {
-
-  // 1. Find channel by phoneNumberId
+  // 1. Find channel
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", external_account_id as "externalAccountId", store_id as "storeId", webhook_secret as "webhookSecret" FROM channel_connections WHERE channel = 'whatsapp' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
     [incoming.phoneNumberId]
   );
   const channel = channelRows[0];
-
   if (!channel) {
     console.warn(`[WhatsApp] No connected channel for phoneNumberId: ${incoming.phoneNumberId}`);
     return;
   }
 
-  // 2. Load store — use channel.storeId (aliased in SQL above)
+  // 2. Load store
   const { rows: storeRows } = await pool.query(
     `SELECT *, ai_enabled as "aiEnabled", ai_system_prompt as "aiSystemPrompt" FROM stores WHERE id = $1 LIMIT 1`,
     [channel.storeId]
   );
   const store = storeRows[0];
-  if (!store) {
-    console.warn(`[WhatsApp] No store found for storeId: ${channel.storeId}`);
-    return;
-  }
+  if (!store) return;
 
   // 3. Find or create customer
-  let customer = await db
-    .select()
-    .from(customersTable)
+  let customer = await db.select().from(customersTable)
     .where(and(eq(customersTable.storeId, store.id), eq(customersTable.phone, incoming.from)))
-    .limit(1)
-    .then((r) => r[0] ?? null);
+    .limit(1).then((r) => r[0] ?? null);
 
   if (!customer) {
     const customerId = generateId("cust");
     await db.insert(customersTable).values({
-      id: customerId,
-      storeId: store.id,
-      phone: incoming.from,
-      name: incoming.from,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      id: customerId, storeId: store.id, phone: incoming.from,
+      name: incoming.from, createdAt: new Date(), updatedAt: new Date(),
     });
-    customer = await db
-      .select()
-      .from(customersTable)
-      .where(eq(customersTable.id, customerId))
-      .limit(1)
-      .then((r) => r[0]);
+    customer = await db.select().from(customersTable)
+      .where(eq(customersTable.id, customerId)).limit(1).then((r) => r[0]);
   }
 
-  // 4. Find or create open conversation
+  // 4. Find or create conversation
   const { rows: convFindRows } = await pool.query(
     `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" FROM conversations WHERE store_id = $1 AND channel = 'whatsapp' AND customer_id = $2 AND status = 'open' ORDER BY created_at ASC LIMIT 1`,
     [store.id, customer!.id]
@@ -187,21 +163,14 @@ async function processIncomingWhatsAppMessage(incoming: {
 
   if (!conversation) {
     const convId = generateId("conv");
-    await db.insert(conversationsTable).values({
-      id: convId,
-      storeId: store.id,
-      customerId: customer!.id,
-      customerName: customer!.name ?? incoming.from,
-      channel: "whatsapp",
-      status: "open",
-      aiMode: (() => {
     const meta = (channel.metadata ?? {}) as Record<string, unknown>;
     const defaultMode = meta.defaultAiMode as string | undefined;
-    if (defaultMode === "ai_autopilot" && store.aiEnabled) return "ai_autopilot";
-    return "human";
-    })(),  
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const aiMode = (defaultMode === "ai_autopilot" && store.aiEnabled) ? "ai_autopilot" : "human";
+    await db.insert(conversationsTable).values({
+      id: convId, storeId: store.id, customerId: customer!.id,
+      customerName: customer!.name ?? incoming.from,
+      channel: "whatsapp", status: "open", aiMode,
+      createdAt: new Date(), updatedAt: new Date(),
     });
     const { rows: convRows } = await pool.query(
       `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" FROM conversations WHERE id = $1 LIMIT 1`,
@@ -209,47 +178,34 @@ async function processIncomingWhatsAppMessage(incoming: {
     );
     conversation = convRows[0];
   }
-
   if (!conversation) return;
 
-  // 5. Dedup check
-  const existing = await db
-    .select()
-    .from(messagesTable)
-    .where(eq(messagesTable.externalId, incoming.messageId))
-    .limit(1)
-    .then((r) => r[0] ?? null);
+  // 5. Dedup
+  const existing = await db.select().from(messagesTable)
+    .where(eq(messagesTable.externalId, incoming.messageId)).limit(1).then((r) => r[0] ?? null);
   if (existing) return;
 
   // 6. Save message
   const msgId = generateId("msg");
   await db.insert(messagesTable).values({
-    id: msgId,
-    conversationId: conversation.id,
-    content: incoming.text,
-    sender: "customer",
-    externalId: incoming.messageId,
-    createdAt: incoming.timestamp,
+    id: msgId, conversationId: conversation.id, content: incoming.text,
+    sender: "customer", externalId: incoming.messageId, createdAt: incoming.timestamp,
   });
 
-  await db
-    .update(conversationsTable)
-    .set({
-      lastMessage: incoming.text,
-      unreadCount: (conversation.unreadCount ?? 0) + 1,
-      updatedAt: new Date(),
-    })
-    .where(eq(conversationsTable.id, conversation.id));
+  await db.update(conversationsTable).set({
+    lastMessage: incoming.text,
+    unreadCount: (conversation.unreadCount ?? 0) + 1,
+    updatedAt: new Date(),
+  }).where(eq(conversationsTable.id, conversation.id));
 
-  console.log(`[WhatsApp] Message saved: conv=${conversation.id}`);
+  console.log(`[WhatsApp] Message saved: conv=${conversation.id}${incoming.adRef ? ` adRef=${incoming.adRef}` : ""}`);
 
-  // 7. Emit socket event
+  // 7. Socket event
   try {
     const { getIO } = await import("../socket.js");
     const io = getIO();
     io.to(`store:${store.id}`).emit("new_conversation_message", {
-      conversationId: conversation.id,
-      storeId: store.id,
+      conversationId: conversation.id, storeId: store.id,
     });
   } catch {}
 
@@ -258,41 +214,40 @@ async function processIncomingWhatsAppMessage(incoming: {
     const accessToken = channel.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN ?? "";
     const phoneNumberId = channel.externalAccountId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
 
-    const rawProducts = await db
-      .select()
-      .from(productsTable)
-      .where(eq(productsTable.storeId, store.id));
+    const rawProducts = await db.select().from(productsTable)
+      .where(and(eq(productsTable.storeId, store.id), eq(productsTable.isActive, true)));
 
     const products = rawProducts.map((p) => ({
       ...p,
       price: parseFloat(String(p.price)) || 0,
       stock: p.stock ?? 0,
+      imageUrl: p.imageUrl ?? undefined,
+      description: p.description ?? undefined,
     }));
 
-    const recentOrders = await db
-      .select()
-      .from(ordersTable)
+    const recentOrders = await db.select().from(ordersTable)
       .where(eq(ordersTable.storeId, store.id))
-      .orderBy(desc(ordersTable.createdAt))
-      .limit(20);
+      .orderBy(desc(ordersTable.createdAt)).limit(20);
 
+    // ─── Ad referral: focus AI on specific product from ad ────────────────────
+    const adProduct = await getProductFromAdRef(store.id, incoming.adRef);
+    const aiSystemPromptWithAd = buildAdProductPrompt(store.aiSystemPrompt ?? undefined, adProduct);
+
+    if (adProduct) {
+      console.log(`[WhatsApp] Ad referral matched product: "${adProduct.name}" for store ${store.id}`);
+    }
 
     await callAiBridge({
       messageId: msgId,
       conversationId: conversation.id,
       storeId: store.id,
       storeName: store.name,
-      aiSystemPrompt: store.aiSystemPrompt ?? undefined,
+      aiSystemPrompt: aiSystemPromptWithAd,
       products,
       recentOrders,
       emitNewMessage: async (_convId, _sId, _replyMsgId, replyText) => {
-        const handoffKeywords = [
-          "agent humain", "transfer", "hand off",
-          "n3awd nwasl", "ndir transfer", "responsable",
-        ];
-        const isHandoff = handoffKeywords.some((kw) =>
-          replyText.toLowerCase().includes(kw)
-        );
+        const handoffKeywords = ["agent humain", "transfer", "hand off", "n3awd nwasl", "ndir transfer", "responsable"];
+        const isHandoff = handoffKeywords.some((kw) => replyText.toLowerCase().includes(kw));
         if (isHandoff) {
           await handleHumanHandoff(store.id, store.name, conversation.id, incoming.from);
         }
@@ -311,51 +266,25 @@ async function processIncomingWhatsAppMessage(incoming: {
 // ─── Send Email via Resend ────────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, html: string) {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
-  if (!RESEND_API_KEY) {
-    console.warn("[Email] RESEND_API_KEY not set, skipping email");
-    return;
-  }
+  if (!RESEND_API_KEY) { console.warn("[Email] RESEND_API_KEY not set"); return; }
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: "FlyChat <notifications@flychatcod.store>",
-      to: [to],
-      subject,
-      html,
-    }),
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: "FlyChat <notifications@flychatcod.store>", to: [to], subject, html }),
   });
-  if (!res.ok) {
-    console.error("[Email] Failed to send:", await res.text());
-  } else {
-    console.log(`[Email] Sent to ${to}`);
-  }
+  if (!res.ok) console.error("[Email] Failed to send:", await res.text());
+  else console.log(`[Email] Sent to ${to}`);
 }
 
 // ─── Human Handoff ────────────────────────────────────────────────────────────
-async function handleHumanHandoff(
-  storeId: string,
-  storeName: string,
-  conversationId: string,
-  customerPhone: string
-) {
+async function handleHumanHandoff(storeId: string, storeName: string, conversationId: string, customerPhone: string) {
   try {
-    console.log(`[WhatsApp] Human handoff for conv: ${conversationId}`);
-
-    await db
-      .update(conversationsTable)
-      .set({ aiMode: "human", updatedAt: new Date() })
+    await db.update(conversationsTable).set({ aiMode: "human", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
 
-    const activeAgents = await db
-      .select({ id: teamMembersTable.id, name: teamMembersTable.name, email: teamMembersTable.email })
+    const activeAgents = await db.select({ id: teamMembersTable.id, name: teamMembersTable.name, email: teamMembersTable.email })
       .from(teamMembersTable)
       .where(and(eq(teamMembersTable.storeId, storeId), eq(teamMembersTable.status, "active")));
-
-    console.log(`[WhatsApp] Notifying ${activeAgents.length} agents for handoff`);
 
     const inboxUrl = `https://flychatcod.store/inbox/${conversationId}`;
 
@@ -366,21 +295,11 @@ async function handleHumanHandoff(
           <h2 style="color: #2563eb;">🔔 FlyChat — Human Agent Requested</h2>
           <p>A customer is requesting to speak with a human agent on <strong>${storeName}</strong>.</p>
           <table style="width:100%; border-collapse: collapse; margin: 16px 0;">
-            <tr>
-              <td style="padding: 8px; background: #f3f4f6; font-weight: bold;">Customer Phone</td>
-              <td style="padding: 8px;">${customerPhone}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; background: #f3f4f6; font-weight: bold;">Conversation ID</td>
-              <td style="padding: 8px;">${conversationId}</td>
-            </tr>
+            <tr><td style="padding: 8px; background: #f3f4f6; font-weight: bold;">Customer Phone</td><td style="padding: 8px;">${customerPhone}</td></tr>
+            <tr><td style="padding: 8px; background: #f3f4f6; font-weight: bold;">Conversation ID</td><td style="padding: 8px;">${conversationId}</td></tr>
           </table>
-          <a href="${inboxUrl}" style="display:inline-block; background:#2563eb; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">
-            Open Conversation
-          </a>
-          <p style="color:#6b7280; font-size:12px; margin-top:24px;">FlyChat COD — AI Customer Support</p>
-        </div>
-      `;
+          <a href="${inboxUrl}" style="display:inline-block; background:#2563eb; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; font-weight:bold;">Open Conversation</a>
+        </div>`;
       await sendEmail(agent.email, `🔔 ${storeName} — Customer requesting human agent`, html);
     }
   } catch (err) {

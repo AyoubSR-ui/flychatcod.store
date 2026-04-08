@@ -352,7 +352,8 @@ async function processIncomingInstagramMessage(incoming: {
   } catch {}
 
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
-    const rawProducts = await db.select().from(productsTable).where(eq(productsTable.storeId, store.id));
+    const rawProducts = await db.select().from(productsTable)
+  .where(and(eq(productsTable.storeId, store.id), eq(productsTable.isActive, true)));
     const products = rawProducts.map(p => ({
   ...p,
   price: parseFloat(String(p.price)) || 0,
