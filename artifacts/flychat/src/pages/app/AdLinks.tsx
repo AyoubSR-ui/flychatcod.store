@@ -165,19 +165,30 @@ export default function AdLinks() {
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
                   <option value="">Select a product...</option>
                   {productsData?.products.map((p: any) => {
-                    const variants = (p.variants || []);
-                    if (variants.length === 0) {
-                      return <option key={p.id} value={p.id}>{p.name} — DZD {Number(p.price).toLocaleString()}</option>;
-                    }
-                    return [
-                      <option key={p.id} value={p.id}>{p.name} (All variants) — DZD {Number(p.price).toLocaleString()}</option>,
-                      ...variants.map((v: string) => (
-                        <option key={`${p.id}_${v}`} value={`${p.id}|${v}`}>
-                          &nbsp;&nbsp;↳ {p.name} — {v} — DZD {Number(p.price).toLocaleString()}
-                        </option>
-                      ))
-                    ];
-                  })}
+                      const variants = (p.variants || []) as string[];
+                      const colors = variants.filter((v: string) => v.startsWith("Color:"));
+                      const sizes = variants.filter((v: string) => v.startsWith("Size:"));
+                      const others = variants.filter((v: string) => !v.startsWith("Color:") && !v.startsWith("Size:"));
+                      const allVariants = [...colors, ...sizes, ...others];
+
+                      if (allVariants.length === 0) {
+                        return <option key={p.id} value={p.id}>{p.name} — DZD {Number(p.price).toLocaleString()}</option>;
+                      }
+
+                      return [
+                        <option key={p.id} value={p.id} style={{ fontWeight: "bold" }}>
+                          {p.name} (All variants) — DZD {Number(p.price).toLocaleString()}
+                        </option>,
+                        ...allVariants.map((v: string) => {
+                          const variantValue = v.includes(":") ? v.split(":").slice(1).join(":").trim() : v;
+                          return (
+                            <option key={`${p.id}_${v}`} value={`${p.id}|${v}`}>
+                              &nbsp;&nbsp;↳ {p.name} {variantValue} — DZD {Number(p.price).toLocaleString()}
+                            </option>
+                          );
+                        })
+                      ];
+                    })}
                 </select>
               </div>
               {errorMsg && (
