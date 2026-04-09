@@ -351,6 +351,7 @@ export default function Products() {
                       <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
                         placeholder="Direct image URL ending in .jpg, .png, .webp..."
                         className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
+                      <p className="text-xs text-muted-foreground mt-1">⚠️ Must be a direct image URL (ending in .jpg, .png, .webp). Product page URLs won't work.</p>
                       {form.imageUrl && <img src={form.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />}
                     </div>
                     {form.extraImages.map((url, i) => (
