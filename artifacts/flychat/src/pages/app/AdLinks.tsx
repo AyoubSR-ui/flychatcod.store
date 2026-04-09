@@ -164,9 +164,20 @@ export default function AdLinks() {
                 <select value={productId} onChange={e => setProductId(e.target.value)}
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
                   <option value="">Select a product...</option>
-                  {productsData?.products.map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.name} — DZD {Number(p.price).toLocaleString()}</option>
-                  ))}
+                  {productsData?.products.map((p: any) => {
+                    const variants = (p.variants || []);
+                    if (variants.length === 0) {
+                      return <option key={p.id} value={p.id}>{p.name} — DZD {Number(p.price).toLocaleString()}</option>;
+                    }
+                    return [
+                      <option key={p.id} value={p.id}>{p.name} (All variants) — DZD {Number(p.price).toLocaleString()}</option>,
+                      ...variants.map((v: string) => (
+                        <option key={`${p.id}_${v}`} value={`${p.id}|${v}`}>
+                          &nbsp;&nbsp;↳ {p.name} — {v} — DZD {Number(p.price).toLocaleString()}
+                        </option>
+                      ))
+                    ];
+                  })}
                 </select>
               </div>
               {errorMsg && (

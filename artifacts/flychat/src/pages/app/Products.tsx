@@ -107,28 +107,39 @@ export default function Products() {
   const openCreate = () => { setForm(empty); setEditId(null); setNewImageUrl(""); setImageTab("url"); setShowModal(true); };
 
   const openEdit = (p: any) => {
-    const primary = p.imageUrl || "";
-    setForm({
-      name: p.name, description: p.description || "",
-      price: String(p.price), stock: p.stock != null ? String(p.stock) : "",
-      isActive: p.isActive, imageUrl: primary, extraImages: [],
-      variantGroups: parseVariantGroups(p.variants || []),
-    });
+   const allImages: string[] = p.imageUrls?.length ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
+  const primary = allImages[0] || "";
+  const extras = allImages.slice(1);
+  setForm({
+    name: p.name || "",
+    description: p.description || "",
+    price: p.price?.toString() || "",
+    stock: p.stock?.toString() || "",
+    isActive: p.isActive ?? true,
+    imageUrl: primary,
+    extraImages: extras,
+    variantGroups: parseVariantGroups(p.variants || []),
+  });
     setEditId(p.id); setNewImageUrl(""); setImageTab("url"); setShowModal(true);
   };
 
-  const handleSubmit = async () => {
-    if (!form.name || !form.price) return;
-    const payload = {
-      name: form.name, description: form.description || undefined,
-      price: parseFloat(form.price), stock: form.stock ? parseInt(form.stock) : undefined,
-      isActive: form.isActive, imageUrl: form.imageUrl || undefined,
-      variants: flattenVariants(form.variantGroups),
-    };
-    if (editId) await updateProduct.mutateAsync({ id: editId, data: payload as any });
-    else await createProduct.mutateAsync({ data: payload as any });
-    setShowModal(false); refetch();
+ const handleSubmit = async () => {
+  if (!form.name || !form.price) return;
+  const allImages = [form.imageUrl, ...form.extraImages].filter(Boolean);
+  const payload = {
+    name: form.name,
+    description: form.description || undefined,
+    price: parseFloat(form.price),
+    stock: form.stock ? parseInt(form.stock) : undefined,
+    isActive: form.isActive,
+    imageUrl: allImages[0] || undefined,
+    imageUrls: allImages,
+    variants: flattenVariants(form.variantGroups),
   };
+  if (editId) await updateProduct.mutateAsync({ id: editId, data: payload as any });
+  else await createProduct.mutateAsync({ data: payload as any });
+  setShowModal(false); refetch();
+   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this product?")) return;
