@@ -331,17 +331,19 @@ export default function Products() {
               <div>
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Product Images</label>
 
-                {/* Tab switch */}
-                <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg border border-border w-fit mb-3">
-                  <button onClick={() => setImageTab("url")}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "url" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
-                    <Link className="w-3 h-3" /> URL
-                  </button>
-                  <button onClick={() => setImageTab("upload")}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "upload" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
-                    <Upload className="w-3 h-3" /> Upload
-                  </button>
-                </div>
+               {/* Tab switch */}
+                    <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg border border-border w-fit mb-3">
+                      <button onClick={() => setImageTab("url")}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "url" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                        <Link className="w-3 h-3" /> URL
+                      </button>
+                      <button
+                        disabled
+                        title="Coming soon — object storage not configured yet"
+                        className="px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 text-muted-foreground opacity-40 cursor-not-allowed">
+                        <Upload className="w-3 h-3" /> Upload (Soon)
+                      </button>
+                    </div>
 
                 {imageTab === "url" ? (
                   <div className="space-y-2">
