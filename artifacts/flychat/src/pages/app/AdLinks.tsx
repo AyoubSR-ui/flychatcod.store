@@ -161,35 +161,83 @@ export default function AdLinks() {
               </div>
               <div>
                 <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Linked Product *</label>
-                <select value={productId} onChange={e => setProductId(e.target.value)}
-                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
-                  <option value="">Select a product...</option>
-                  {productsData?.products.map((p: any) => {
-                      const variants = (p.variants || []) as string[];
-                      const colors = variants.filter((v: string) => v.startsWith("Color:"));
-                      const sizes = variants.filter((v: string) => v.startsWith("Size:"));
-                      const others = variants.filter((v: string) => !v.startsWith("Color:") && !v.startsWith("Size:"));
-                      const allVariants = [...colors, ...sizes, ...others];
+            <select value={productId} onChange={e => setProductId(e.target.value)}
+              className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
+              <option value="">Select a product...</option>
+              {productsData?.products.map((p: any) => {
+                const variants = (p.variants || []) as string[];
+                const colors = variants
+                  .filter((v: string) => v.toLowerCase().startsWith("color:"))
+                  .map((v: string) => v.split(":").slice(1).join(":").trim());
+                const sizes = variants
+                  .filter((v: string) => v.toLowerCase().startsWith("size:"))
+                  .map((v: string) => v.split(":").slice(1).join(":").trim());
+                const otherVariants = variants.filter((v: string) =>
+                  !v.toLowerCase().startsWith("color:") && !v.toLowerCase().startsWith("size:")
+                );
 
-                      if (allVariants.length === 0) {
-                        return <option key={p.id} value={p.id}>{p.name} — DZD {Number(p.price).toLocaleString()}</option>;
-                      }
+                if (colors.length === 0 && sizes.length === 0) {
+                  // No structured variants — show flat list
+                  return [
+                    <option key={p.id} value={p.id}>
+                      {p.name} — DZD {Number(p.price).toLocaleString()}
+                    </option>,
+                    ...otherVariants.map((v: string) => (
+                      <option key={`${p.id}|${v}`} value={`${p.id}|${v}`}>
+                        &nbsp;&nbsp;↳ {p.name} — {v}
+                      </option>
+                    ))
+                  ];
+                }
 
-                      return [
-                        <option key={p.id} value={p.id} style={{ fontWeight: "bold" }}>
-                          {p.name} (All variants) — DZD {Number(p.price).toLocaleString()}
-                        </option>,
-                        ...allVariants.map((v: string) => {
-                          const variantValue = v.includes(":") ? v.split(":").slice(1).join(":").trim() : v;
-                          return (
-                            <option key={`${p.id}_${v}`} value={`${p.id}|${v}`}>
-                              &nbsp;&nbsp;↳ {p.name} {variantValue} — DZD {Number(p.price).toLocaleString()}
-                            </option>
-                          );
-                        })
-                      ];
-                    })}
-                </select>
+                if (colors.length > 0 && sizes.length === 0) {
+                  // Colors only — no sizes
+                  return [
+                    <option key={p.id} value={p.id}>
+                      {p.name} (All variants) — DZD {Number(p.price).toLocaleString()}
+                    </option>,
+                    ...colors.map((color: string) => (
+                      <option key={`${p.id}|Color: ${color}`} value={`${p.id}|Color: ${color}`}>
+                        &nbsp;&nbsp;↳ {p.name} — {color}
+                      </option>
+                    ))
+                  ];
+                }
+
+                if (colors.length === 0 && sizes.length > 0) {
+                  // Sizes only
+                  return [
+                    <option key={p.id} value={p.id}>
+                      {p.name} (All sizes) — DZD {Number(p.price).toLocaleString()}
+                    </option>,
+                    ...sizes.map((size: string) => (
+                      <option key={`${p.id}|Size: ${size}`} value={`${p.id}|Size: ${size}`}>
+                        &nbsp;&nbsp;↳ {p.name} — {size}
+                      </option>
+                    ))
+                  ];
+                }
+
+                // Both colors and sizes — hierarchical: color → sizes
+                return [
+                  <option key={p.id} value={p.id}>
+                    {p.name} (All variants) — DZD {Number(p.price).toLocaleString()}
+                  </option>,
+                  ...colors.flatMap((color: string) => [
+                    <option key={`${p.id}|Color: ${color}`} value={`${p.id}|Color: ${color}`}
+                      style={{ fontWeight: "600" }}>
+                      &nbsp;&nbsp;↳ {p.name} — {color} (all sizes)
+                    </option>,
+                    ...sizes.map((size: string) => (
+                      <option key={`${p.id}|Color: ${color}|Size: ${size}`}
+                        value={`${p.id}|Color: ${color}|Size: ${size}`}>
+                        &nbsp;&nbsp;&nbsp;&nbsp;↳ {p.name} — {color} — {size}
+                      </option>
+                    ))
+                  ])
+                ];
+              })}
+            </select>
               </div>
               {errorMsg && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
