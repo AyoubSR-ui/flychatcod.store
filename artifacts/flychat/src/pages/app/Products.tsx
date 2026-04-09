@@ -349,7 +349,7 @@ export default function Products() {
                   <div className="space-y-2">
                     <div className="flex gap-2 items-center">
                       <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
-                        placeholder="Primary image URL (https://...)"
+                        placeholder="Direct image URL ending in .jpg, .png, .webp..."
                         className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                       {form.imageUrl && <img src={form.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />}
                     </div>
