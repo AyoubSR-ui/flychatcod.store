@@ -166,15 +166,20 @@ export default function AdLinks() {
               <option value="">Select a product...</option>
               {productsData?.products.map((p: any) => {
                 const variants = (p.variants || []) as string[];
-                const colors = variants
-                  .filter((v: string) => v.toLowerCase().startsWith("color:"))
-                  .map((v: string) => v.split(":").slice(1).join(":").trim());
                 const sizes = variants
-                  .filter((v: string) => v.toLowerCase().startsWith("size:"))
-                  .map((v: string) => v.split(":").slice(1).join(":").trim());
-                const otherVariants = variants.filter((v: string) =>
-                  !v.toLowerCase().startsWith("color:") && !v.toLowerCase().startsWith("size:")
-                );
+                    .filter((v: string) => v.toLowerCase().startsWith("size:"))
+                    .map((v: string) => v.split(":").slice(1).join(":").trim());
+
+
+                  // e.g. "Bleu: Bleu", "Color: Bleu", "Couleur: Rouge"
+                  const colorVariants = variants.filter((v: string) => !v.toLowerCase().startsWith("size:"));
+                  const colors = colorVariants.map((v: string) => {
+                    // Extract the value part after the colon
+                    const parts = v.split(":");
+                    return parts.length > 1 ? parts.slice(1).join(":").trim() : v.trim();
+                  }).filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i); // dedupe
+
+                  const otherVariants: string[] = [];
 
                 if (colors.length === 0 && sizes.length === 0) {
                   // No structured variants — show flat list
