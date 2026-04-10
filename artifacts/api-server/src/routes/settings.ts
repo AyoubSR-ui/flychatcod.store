@@ -166,4 +166,65 @@ router.patch("/shipping-options", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/settings/channels-ai
+router.get("/channels-ai", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { rows } = await pool.query(
+      `SELECT metadata FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const meta = rows[0]?.metadata || {};
+    res.json({
+      whatsapp: meta.aiMode_whatsapp || "human",
+      instagram: meta.aiMode_instagram || "human",
+      messenger: meta.aiMode_messenger || "human",
+      widget: meta.aiMode_widget || "human",
+    });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// PATCH /api/settings/channels-ai
+router.patch("/channels-ai", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { whatsapp, instagram, messenger, widget } = req.body;
+
+    // Store per-channel AI modes in store metadata JSONB
+    await pool.query(
+      `UPDATE stores SET 
+        metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+        updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify({
+        aiMode_whatsapp: whatsapp || "human",
+        aiMode_instagram: instagram || "human",
+        aiMode_messenger: messenger || "human",
+        aiMode_widget: widget || "human",
+      }), storeId]
+    );
+
+    // Also update channel_connections defaultAiMode for each channel
+    const channels = { whatsapp, instagram, messenger, widget };
+    for (const [channel, mode] of Object.entries(channels)) {
+      if (mode) {
+        await pool.query(
+          `UPDATE channel_connections 
+           SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb,
+               updated_at = NOW()
+           WHERE store_id = $2 AND channel = $3`,
+          [JSON.stringify({ defaultAiMode: mode }), storeId, channel]
+        );
+      }
+    }
+
+    res.json({ success: true, whatsapp, instagram, messenger, widget });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 export default router;
