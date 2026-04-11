@@ -188,12 +188,39 @@ export async function callAiBridge(params: {
     await consumeCredits();
 
     // DEDUP FIX: only create order if not already created in this conversation
-    if (action.type === "create_order" && conv.aiFlowState !== "order_created") {
-      await executeCreateOrderSilent(conversationId, storeId, conv.customerId, action, detectedLanguage);
-    } else if (action.type === "create_order" && conv.aiFlowState === "order_created") {
-      console.log(`[AI Bridge] Skipping duplicate order creation for conv ${conversationId} — already created`);
+    if (action.type === "create_order") {
+      if (conv.aiFlowState === "order_created") {
+        // Check if existing order is still active (pending/awaiting)
+        const [existingOrder] = await db
+          .select({ id: ordersTable.id, status: ordersTable.status, customerPhone: ordersTable.customerPhone })
+          .from(ordersTable)
+          .where(and(
+            eq(ordersTable.conversationId, conversationId),
+            eq(ordersTable.createdBySource, "ai"),
+          ))
+          .orderBy(desc(ordersTable.createdAt))
+          .limit(1);
+
+        const activeStatuses = ["new", "awaiting_confirmation", "confirmed"];
+        const isSamePhone = existingOrder?.customerPhone === action.customerPhone;
+
+        if (existingOrder && activeStatuses.includes(existingOrder.status) && isSamePhone) {
+          // Same customer, active order exists — skip and inform AI
+          console.log(`[AI Bridge] Active order exists for conv ${conversationId} — skipping duplicate`);
+        } else {
+          // Different customer OR order is cancelled/delivered → allow new order
+          console.log(`[AI Bridge] Resetting aiFlowState — new order allowed for conv ${conversationId}`);
+          await db.update(conversationsTable)
+            .set({ aiFlowState: null })
+            .where(eq(conversationsTable.id, conversationId));
+          await executeCreateOrderSilent(conversationId, storeId, conv.customerId, action, detectedLanguage);
+        }
+      } else {
+        await executeCreateOrderSilent(conversationId, storeId, conv.customerId, action, detectedLanguage);
+      }
     } else if (action.type === "cancel_order" && action.customerPhone) {
       await executeCancelOrderSilent(conversationId, storeId, action.customerPhone);
+    
     }
   } catch (err) {
     console.error("[AI Bridge] callAiBridge failed:", err);
