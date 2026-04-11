@@ -710,8 +710,7 @@ export default function Inbox() {
                 return (
                   <div key={msg.id} className={`flex ${isCustomer ? "justify-start" : "justify-end"}`}>
                     <div
-                      className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm transition-all select-none
-                        ${isCustomer
+                      className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm transition-all select-text                        ${isCustomer
                           ? `bg-white text-foreground rounded-tl-sm border
                              ${isClickable ? "cursor-pointer hover:border-primary/50 hover:shadow-md active:scale-[0.99]" : "border-border/50"}
                              ${isUsed ? "border-green-400 bg-green-50/60" : ""}`
