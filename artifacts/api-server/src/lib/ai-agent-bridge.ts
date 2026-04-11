@@ -1,5 +1,4 @@
-import { db, conversationsTable, messagesTable, ordersTable, orderItemsTable, storesTable } from "@workspace/db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { db, pool, conversationsTable, messagesTable, ordersTable, orderItemsTable, storesTable } from "@workspace/db";import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
 
 const AGENT_URL = process.env.AI_AGENT_URL;
@@ -38,6 +37,7 @@ interface AgentRequest {
   recentOrders: AgentOrder[];
   aiFlowState?: string;
   detectedLanguage?: string;
+  shippingOptions?: Record<string, unknown>;
 }
 
 interface AgentResponse {
@@ -137,6 +137,12 @@ export async function callAiBridge(params: {
       .slice(-3)
       .map((m) => m.content ?? "");
 
+   // Fetch shipping options for this store
+    const { rows: shippingRows } = await pool.query(
+      `SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const shippingOptions = shippingRows[0]?.shipping_options ?? undefined;
     const agentResponse = await callAiAgent({
       conversationId,
       storeId,
@@ -147,6 +153,7 @@ export async function callAiBridge(params: {
       recentOrders,
       aiFlowState: conv.aiFlowState ?? undefined,
       detectedLanguage: conv.aiConversationLanguage ?? undefined,
+      shippingOptions: shippingOptions ?? undefined,
     });
 
     let { reply, detectedLanguage, action } = agentResponse;
