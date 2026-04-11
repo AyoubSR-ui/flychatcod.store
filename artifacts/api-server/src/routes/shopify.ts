@@ -239,8 +239,15 @@ router.post("/webhook", async (req, res) => {
 
 // ─── Helper: sync products ────────────────────────────────────────────────────
 async function syncProducts(storeId: string, shop: string, accessToken: string): Promise<number> {
-  const data = await shopifyFetch(shop, accessToken, "/products.json?limit=250&status=active") as any;
-  const shopifyProducts = data.products || [];
+  let shopifyProducts: any[] = [];
+  let url = "/products.json?limit=250&status=active";
+  while (url) {
+    const res = await shopifyFetch(shop, accessToken, url) as any;
+    shopifyProducts = shopifyProducts.concat(res.products || []);
+    // Shopify pagination via Link header — handled via next page_info
+    const nextMatch = res.next_page_info ? `/products.json?limit=250&page_info=${res.next_page_info}` : null;
+    url = nextMatch || "";
+  }
   let count = 0;
 
   for (const sp of shopifyProducts) {
@@ -283,8 +290,13 @@ async function syncProducts(storeId: string, shop: string, accessToken: string):
 
 // ─── Helper: sync existing orders ────────────────────────────────────────────
 async function syncOrders(storeId: string, shop: string, accessToken: string): Promise<number> {
-  const data = await shopifyFetch(shop, accessToken, "/orders.json?limit=250&status=any") as any;
-  const shopifyOrders = data.orders || [];
+  let shopifyOrders: any[] = [];
+  let url = "/orders.json?limit=250&status=any";
+  while (url) {
+    const res = await shopifyFetch(shop, accessToken, url) as any;
+    shopifyOrders = shopifyOrders.concat(res.orders || []);
+    url = res.next_page_info ? `/orders.json?limit=250&page_info=${res.next_page_info}` : "";
+  }
   let count = 0;
 
   for (const so of shopifyOrders) {
@@ -295,26 +307,39 @@ async function syncOrders(storeId: string, shop: string, accessToken: string): P
     );
     if (rows[0]) continue;
 
-    const orderId = generateId("ord");
+   const orderId = generateId("ord");
+    const productTotal = so.subtotal_price || "0";
+    const shippingLine = so.shipping_lines?.[0];
+    const shippingPrice = shippingLine?.price || "0";
+    const shippingMethod = shippingLine?.title || null;
     const total = so.total_price || "0";
     const customerName = `${so.customer?.first_name || ""} ${so.customer?.last_name || ""}`.trim() || "Unknown";
-    const customerPhone = so.customer?.phone || so.billing_address?.phone || "";
+    const customerPhone = so.customer?.phone || so.shipping_address?.phone || so.billing_address?.phone || "";
     const wilaya = so.shipping_address?.city || so.billing_address?.city || "";
-    const address = so.shipping_address?.address1 || "";
+    const address = [so.shipping_address?.address1, so.shipping_address?.address2].filter(Boolean).join(", ") || "";
 
     await pool.query(
-      `INSERT INTO orders (id, store_id, status, order_number, customer_name, customer_phone, wilaya, address, total, is_cod, shopify_order_id, created_by_source, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, 'shopify', $11, NOW())
+      `INSERT INTO orders (id, store_id, status, order_number, customer_name, customer_phone, wilaya, address, total, is_cod, shopify_order_id, created_by_source, shipping_option, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, 'shopify', $11, $12, NOW())
        ON CONFLICT DO NOTHING`,
-      [orderId, storeId, mapShopifyStatus(so.financial_status), so.name, customerName, customerPhone, wilaya, address, total, String(so.id), new Date(so.created_at)]
+      [orderId, storeId, mapShopifyStatus(so.financial_status), so.name, customerName, customerPhone, wilaya, address, total, String(so.id), shippingMethod, new Date(so.created_at)]
     );
 
-    // Insert order items
+    // Insert order items with variant and shipping
     for (const item of so.line_items || []) {
       await pool.query(
-        `INSERT INTO order_items (id, order_id, product_name, price, quantity, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [generateId("oi"), orderId, item.title, item.price, item.quantity]
+        `INSERT INTO order_items (id, order_id, product_name, variant, price, quantity, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [generateId("oi"), orderId, item.title, item.variant_title || null, item.price, item.quantity]
+      );
+    }
+
+    // Insert shipping as a separate line item for display
+    if (shippingLine && parseFloat(shippingPrice) > 0) {
+      await pool.query(
+        `INSERT INTO order_items (id, order_id, product_name, variant, price, quantity, created_at)
+         VALUES ($1, $2, $3, $4, $5, 1, NOW())`,
+        [generateId("oi"), orderId, `Livraison — ${shippingMethod || "Standard"}`, null, shippingPrice]
       );
     }
     count++;
