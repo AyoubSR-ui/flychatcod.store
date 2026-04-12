@@ -49,25 +49,26 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/orders ─────────────────────────────────────────────────────────
-router.post("/", requireAuth, async (req, res) => {
-  try {
-    const storeId = req.user!.storeId;
-    if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
+    router.post("/", requireAuth, async (req, res) => {
+      try {
+        const storeId = req.user!.storeId;
+        if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
 
-    const {
-      customerName, customerPhone, customerEmail, wilaya, address,
-      customerId, conversationId, sellerNote, shippingFee = 0,
-      shippingOption = null, items = []
-    } = req.body;
+        const {
+          customerName, customerPhone, customerEmail, wilaya, address,
+          customerId, conversationId, sellerNote, shippingFee = 0,
+          shippingOption = null, items = []
+        } = req.body;
 
-    if (!customerName || !customerPhone || !wilaya || items.length === 0) {
-      res.status(400).json({ error: "validation_error", message: "customerName, customerPhone, wilaya, and items are required" });
-      return;
-    }
+        if (!customerName || !customerPhone || !wilaya || items.length === 0) {
+          res.status(400).json({ error: "validation_error", message: "customerName, customerPhone, wilaya, and items are required" });
+          return;
+        }
 
-  // ─── Plan order limit check ───────────────────────────────────────────────
+      // ─── Plan order limit check ───────────────────────────────────────────────
     try {
-      const { getPlanLimits, planLimitError } = await import("../lib/plan-limits.js");
+      const planLimitsPath = "../lib/plan-limits.js";
+      const { getPlanLimits, planLimitError } = await import(planLimitsPath);
       const limits = await getPlanLimits(storeId);
       if (limits.ordersPerMonth !== -1) {
         const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
@@ -81,7 +82,7 @@ router.post("/", requireAuth, async (req, res) => {
         }
       }
     } catch {
-      // plan-limits module not available — skip limit check
+      // plan-limits module not yet implemented — skip check
     }
 
     // ─── Customer linking ─────────────────────────────────────────────────────

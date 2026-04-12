@@ -235,8 +235,9 @@ export async function callAiBridge(params: {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // WILAYA NORMALIZATION
-// ── Darija/Arabic → French/Official wilaya names ──────────────────────────────
+// ── Darija Latin + Arabic → French/Official wilaya names ─────────────────────
 const WILAYA_ALIASES: Record<string, string> = {
+  // ── Latin Darija → French ──────────────────────────────────────────────────
   "wahran": "Oran", "ouahran": "Oran",
   "dzayer": "Alger", "dzair": "Alger", "el djazair": "Alger",
   "qsantina": "Constantine", "ksantina": "Constantine", "casantina": "Constantine",
@@ -285,13 +286,65 @@ const WILAYA_ALIASES: Record<string, string> = {
   "el tarf": "El Tarf",
   "el oued": "El Oued", "l oued": "El Oued",
   "ouled djellal": "Ouled Djellal",
-  "touggourt": "Touggourt",
+  "touggourt": "Touggourt", "tougourt": "Touggourt",
   "in salah": "In Salah", "in guezzam": "In Guezzam",
+
+  // ── Arabic → French (FIX: extraction may return Arabic wilaya names) ────────
+  "الجزائر": "Alger", "الجزائر العاصمة": "Alger",
+  "وهران": "Oran",
+  "قسنطينة": "Constantine",
+  "عنابة": "Annaba",
+  "سطيف": "Sétif",
+  "تلمسان": "Tlemcen",
+  "باتنة": "Batna",
+  "سيدي بلعباس": "Sidi Bel Abbès",
+  "بسكرة": "Biskra",
+  "البليدة": "Blida",
+  "بجاية": "Béjaïa",
+  "تيزي وزو": "Tizi Ouzou",
+  "المسيلة": "M'Sila",
+  "مستغانم": "Mostaganem",
+  "الشلف": "Chlef",
+  "تيارت": "Tiaret",
+  "بشار": "Béchar",
+  "ورقلة": "Ouargla",
+  "غرداية": "Ghardaïa",
+  "الأغواط": "Laghouat",
+  "الجلفة": "Djelfa",
+  "المدية": "Médéa",
+  "البويرة": "Bouira",
+  "بومرداس": "Boumerdès",
+  "تيبازة": "Tipaza",
+  "عين الدفلى": "Aïn Defla",
+  "عين تموشنت": "Aïn Témouchent",
+  "غليزان": "Relizane",
+  "معسكر": "Mascara",
+  "سعيدة": "Saïda",
+  "النعامة": "Naâma",
+  "البيض": "El Bayadh",
+  "أدرار": "Adrar",
+  "تمنراست": "Tamanrasset",
+  "إليزي": "Illizi",
+  "تندوف": "Tindouf",
+  "خنشلة": "Khenchela",
+  "سوق أهراس": "Souk Ahras",
+  "تبسة": "Tébessa",
+  "أم البواقي": "Oum El Bouaghi",
+  "برج بوعريريج": "Bordj Bou Arréridj",
+  "ميلة": "Mila",
+  "جيجل": "Jijel",
+  "سكيكدة": "Skikda",
+  "قالمة": "Guelma",
+  "الطارف": "El Tarf",
+  "الوادي": "El Oued",
+  "أولاد جلال": "Ouled Djellal",
+  "تقرت": "Touggourt",
+  "عين صالح": "In Salah",
+  "عين قزام": "In Guezzam",
 };
 
 /**
  * Strip accents: "Béjaïa" → "bejaia", "Sétif" → "setif"
- * Allows matching accented DB keys against plain agent output
  */
 function stripAccents(str: string): string {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -299,23 +352,27 @@ function stripAccents(str: string): string {
 
 function normalizeWilaya(wilaya: string): string {
   const lower = wilaya.toLowerCase().trim();
-  return WILAYA_ALIASES[lower] || wilaya;
+  // Check Latin aliases first
+  if (WILAYA_ALIASES[lower]) return WILAYA_ALIASES[lower];
+  // Check Arabic aliases (exact match on original string)
+  const trimmed = wilaya.trim();
+  if (WILAYA_ALIASES[trimmed]) return WILAYA_ALIASES[trimmed];
+  return wilaya;
 }
 
 /**
- * Find the matching key in wilayaPrices for a given wilaya string.
- * Tries 4 strategies in order:
- *   1. Exact match (case-insensitive, after alias resolution)
- *   2. Accent-stripped exact match
- *   3. Substring match (key contains wilaya or wilaya contains key)
- *   4. Accent-stripped substring match
+ * Find the matching key in wilayaPrices — 4-strategy lookup:
+ * 1. Exact match (case-insensitive, after alias resolution)
+ * 2. Accent-stripped exact match
+ * 3. Substring match
+ * 4. Accent-stripped substring match
  */
 function findWilayaKey(wilayaPrices: Record<string, any>, rawWilaya: string): string | undefined {
-  const normalized = normalizeWilaya(rawWilaya);         // e.g. "Béjaïa"
-  const normalizedLow = normalized.toLowerCase();         // "béjaïa"
-  const rawLow = rawWilaya.toLowerCase().trim();          // "bgayet"
-  const strippedNorm = stripAccents(normalizedLow);       // "bejaia"
-  const strippedRaw = stripAccents(rawLow);               // "bgayet"
+  const normalized = normalizeWilaya(rawWilaya);
+  const normalizedLow = normalized.toLowerCase();
+  const rawLow = rawWilaya.toLowerCase().trim();
+  const strippedNorm = stripAccents(normalizedLow);
+  const strippedRaw = stripAccents(rawLow);
 
   const keys = Object.keys(wilayaPrices);
 
@@ -382,7 +439,6 @@ async function executeCreateOrderSilent(
         const wilayaPrices = shippingOptions.wilayaPrices || {};
         const wilayaKey = findWilayaKey(wilayaPrices, action.wilaya!);
 
-        // ── Debug log: shows exactly what matched (or didn't) ─────────────────
         console.log(`[AI Bridge] shippingCalc:`, JSON.stringify({
           rawWilaya: action.wilaya,
           normalizedWilaya: normalizeWilaya(action.wilaya!),
@@ -421,7 +477,7 @@ async function executeCreateOrderSilent(
       isCod: true,
       total,
       shippingFee: String(shippingPrice),
-      shippingOption,                        // FIX: always set, never null
+      shippingOption,
       sellerNote: "Created by AI agent",
       createdBySource: "ai",
       createdAt: new Date(),
