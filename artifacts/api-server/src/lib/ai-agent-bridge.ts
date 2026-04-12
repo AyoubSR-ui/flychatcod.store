@@ -49,6 +49,7 @@ interface AgentResponse {
     customerPhone?: string;
     wilaya?: string;
     address?: string;
+    shippingOption?: string;
     items?: Array<{
       productId?: string;
       productName: string;
@@ -247,11 +248,34 @@ async function executeCreateOrderSilent(
   try {
     const orderId = generateId("ord");
     const orderNumber = `FLY-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000 + 1000)}`;
-    const total = (action.items ?? [])
-      .reduce((sum, item) => sum + item.price * item.quantity, 0)
-      .toFixed(2);
+    const itemsTotal = (action.items ?? [])
+      .reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-    await db.insert(ordersTable).values({
+    // Get shipping price from shipping options based on wilaya
+    let shippingPrice = 0;
+    try {
+      const { rows: storeRows } = await pool.query(
+        `SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`,
+        [storeId]
+      );
+      const shippingOptions = storeRows[0]?.shipping_options;
+      if (shippingOptions && action.wilaya) {
+        const wilayaPrices = shippingOptions.wilayaPrices || {};
+        const wilayaKey = Object.keys(wilayaPrices).find(
+          k => k.toLowerCase() === action.wilaya!.toLowerCase()
+        );
+        if (wilayaKey) {
+          const shippingOption = action.shippingOption || "home_delivery";
+          shippingPrice = shippingOption === "pickup"
+            ? (wilayaPrices[wilayaKey]?.pickup || 0)
+            : (wilayaPrices[wilayaKey]?.home || 0);
+        }
+      }
+    } catch {}
+
+    const total = (itemsTotal + shippingPrice).toFixed(2);
+
+await db.insert(ordersTable).values({
       id: orderId,
       storeId,
       conversationId,
@@ -264,6 +288,8 @@ async function executeCreateOrderSilent(
       address: action.address ?? null,
       isCod: true,
       total,
+      shippingFee: String(shippingPrice),
+      shippingOption: action.shippingOption ?? null,
       sellerNote: "Created by AI agent",
       createdBySource: "ai",
       createdAt: new Date(),

@@ -29,6 +29,11 @@ export const ordersTable = pgTable("orders", {
   sellerNote: text("seller_note"),
   createdBySource: text("created_by_source"),
   cancelledBySource: text("cancelled_by_source"),
+  shippingFee: numeric("shipping_fee", { precision: 10, scale: 2 }).default("0"),
+  shippingOption: text("shipping_option"),
+  shopifyOrderId: text("shopify_order_id"),
+  confirmedBySource: text("confirmed_by_source"),
+  voiceCallSid: text("voice_call_sid"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

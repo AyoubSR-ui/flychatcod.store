@@ -117,9 +117,31 @@ export default function OrderDetail() {
                     </div>
                   ))}
                 </div>
-                <div className="px-6 py-4 border-t border-border flex justify-between items-center">
+                {/* Subtotal */}
+                <div className="px-6 py-3 border-t border-border flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="font-medium text-foreground">
+                    DZD {order.items?.reduce((sum: number, i: any) => sum + Number(i.price) * i.quantity, 0).toLocaleString()}
+                  </span>
+                </div>
+                {/* Shipping */}
+                {Number((order as any).shippingFee) > 0 && (
+                  <div className="px-6 py-3 border-t border-border flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground flex items-center gap-2">
+                      Shipping
+                      {(order as any).shippingOption && (
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">
+                          {(order as any).shippingOption === "home_delivery" ? "الى البيت" : "من الفرع"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-medium text-foreground">DZD {Number((order as any).shippingFee).toLocaleString()}</span>
+                  </div>
+                )}
+                {/* Total */}
+                <div className="px-6 py-4 border-t border-border flex justify-between items-center bg-secondary/20 rounded-b-2xl">
                   <span className="font-bold text-foreground">Total</span>
-                  <span className="font-bold text-xl text-foreground">DZD {Number(order.total)}</span>
+                  <span className="font-bold text-xl text-foreground">DZD {Number(order.total).toLocaleString()}</span>
                 </div>
               </div>
 

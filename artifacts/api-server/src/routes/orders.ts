@@ -5,9 +5,9 @@ import { requireAuth } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
 
-
 const router = Router();
 
+// ─── GET /api/orders ──────────────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
@@ -27,11 +27,18 @@ router.get("/", requireAuth, async (req, res) => {
       .orderBy(sql`${ordersTable.createdAt} desc`)
       .limit(limitNum).offset(offset);
 
-    const [{ total }] = await db.select({ total: sql<number>`count(*)` }).from(ordersTable).where(and(...conditions));
+    const [{ total }] = await db.select({ total: sql<number>`count(*)` })
+      .from(ordersTable).where(and(...conditions));
 
     const ordersWithItems = await Promise.all(orders.map(async (order) => {
       const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
-      return { ...order, total: Number(order.total), items: items.map(i => ({ ...i, price: Number(i.price) })) };
+      return {
+        ...order,
+        total: Number(order.total),
+        shippingFee: Number((order as any).shippingFee || 0),
+        shippingOption: (order as any).shippingOption || null,
+        items: items.map(i => ({ ...i, price: Number(i.price) })),
+      };
     }));
 
     res.json({ orders: ordersWithItems, total: Number(total), page: pageNum, limit: limitNum });
@@ -41,45 +48,49 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /api/orders ─────────────────────────────────────────────────────────
 router.post("/", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
 
-    const { customerName, customerPhone, customerEmail, wilaya, address, customerId, conversationId, sellerNote, items = [] } = req.body;
+    const {
+      customerName, customerPhone, customerEmail, wilaya, address,
+      customerId, conversationId, sellerNote, shippingFee = 0,
+      shippingOption = null, items = []
+    } = req.body;
+
     if (!customerName || !customerPhone || !wilaya || items.length === 0) {
       res.status(400).json({ error: "validation_error", message: "customerName, customerPhone, wilaya, and items are required" });
       return;
     }
 
-    // ─── Plan order limit check ────────────────────────────────────────────
-   const { getPlanLimits, planLimitError } = await import("../lib/plan-limits.js");
-   const limits = await getPlanLimits(storeId);  
-   if (limits.ordersPerMonth !== -1) {
-   const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0,0,0,0);
-   const { rows } = await pool.query(
-    `SELECT COUNT(*) as count FROM orders WHERE store_id = $1 AND created_at >= $2`,
-    [storeId, startOfMonth]
-    );
-    if (parseInt(rows[0].count) >= limits.ordersPerMonth) {
-    res.status(403).json(planLimitError("orders", limits.plan, `${limits.ordersPerMonth} orders/month`));
-    return;
-   }
-   }
+  // ─── Plan order limit check ───────────────────────────────────────────────
+    try {
+      const { getPlanLimits, planLimitError } = await import("../lib/plan-limits.js");
+      const limits = await getPlanLimits(storeId);
+      if (limits.ordersPerMonth !== -1) {
+        const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
+        const { rows } = await pool.query(
+          `SELECT COUNT(*) as count FROM orders WHERE store_id = $1 AND created_at >= $2`,
+          [storeId, startOfMonth]
+        );
+        if (parseInt(rows[0].count) >= limits.ordersPerMonth) {
+          res.status(403).json(planLimitError("orders", limits.plan, `${limits.ordersPerMonth} orders/month`));
+          return;
+        }
+      }
+    } catch {
+      // plan-limits module not available — skip limit check
+    }
 
-    // ── Customer linking: find or create, always scoped to this store ──
+    // ─── Customer linking ─────────────────────────────────────────────────────
     let finalCustomerId: string | undefined = customerId;
-
     if (!finalCustomerId && customerPhone) {
-      // Look up existing customer in this store by phone
-      const [existing] = await db
-        .select()
-        .from(customersTable)
-        .where(and(eq(customersTable.storeId, storeId), eq(customersTable.phone, customerPhone)))
-        .limit(1);
+      const [existing] = await db.select().from(customersTable)
+        .where(and(eq(customersTable.storeId, storeId), eq(customersTable.phone, customerPhone))).limit(1);
 
       if (existing) {
-        // Reuse existing customer, update fields if we have better data (never overwrite with blanks)
         await db.update(customersTable).set({
           name: customerName || existing.name,
           ...(customerEmail && !existing.email ? { email: customerEmail } : {}),
@@ -88,7 +99,6 @@ router.post("/", requireAuth, async (req, res) => {
         }).where(eq(customersTable.id, existing.id));
         finalCustomerId = existing.id;
       } else {
-        // Create new customer
         const [newCustomer] = await db.insert(customersTable).values({
           id: generateId("cust"),
           storeId,
@@ -101,49 +111,39 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
 
-    const total = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    const itemsTotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+    const total = (itemsTotal + Number(shippingFee)).toFixed(2);
     const orderId = generateId("ord");
 
-    const [order] = await db.insert(ordersTable).values({
-      id: orderId,
-      orderNumber: generateOrderNumber(),
-      storeId,
-      customerId: finalCustomerId,
-      conversationId,
-      customerName,
-      customerPhone,
-      customerEmail: customerEmail || null,
-      wilaya,
-      address,
-      sellerNote,
-      total: total.toString(),
-      isCod: true,
-      status: "new",
-    }).returning();
+    await pool.query(
+      `INSERT INTO orders (id, order_number, store_id, customer_id, conversation_id, customer_name, customer_phone,
+        customer_email, wilaya, address, seller_note, total, shipping_fee, shipping_option, is_cod, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,'new',NOW(),NOW())`,
+      [orderId, generateOrderNumber(), storeId, finalCustomerId || null, conversationId || null,
+       customerName, customerPhone, customerEmail || null, wilaya, address || null,
+       sellerNote || null, total, String(shippingFee || 0), shippingOption || null]
+    );
 
     for (const item of items) {
       await db.insert(orderItemsTable).values({
         id: generateId("oi"),
         orderId,
-        productId: item.productId,
+        productId: item.productId || null,
         productName: item.productName,
-        variant: item.variant,
+        variant: item.variant || null,
         quantity: item.quantity,
         price: item.price.toString(),
       });
     }
 
-    // ── Update conversation with real customer identity ──
+    // ─── Update conversation ──────────────────────────────────────────────────
     if (conversationId && finalCustomerId) {
-      const [conv] = await db
-        .select({ id: conversationsTable.id, storeId: conversationsTable.storeId, customerName: conversationsTable.customerName })
+      const [conv] = await db.select({ id: conversationsTable.id, storeId: conversationsTable.storeId, customerName: conversationsTable.customerName })
         .from(conversationsTable)
-        .where(and(eq(conversationsTable.id, conversationId), eq(conversationsTable.storeId, storeId)))
-        .limit(1);
+        .where(and(eq(conversationsTable.id, conversationId), eq(conversationsTable.storeId, storeId))).limit(1);
 
       if (conv) {
         const convUpdates: Record<string, unknown> = { customerId: finalCustomerId, updatedAt: new Date() };
-        // Upgrade anonymous visitor name to real customer name
         if (conv.customerName.startsWith("Visitor ") || conv.customerName.startsWith("visitor ")) {
           convUpdates.customerName = customerName;
           convUpdates.customerPhone = customerPhone;
@@ -152,38 +152,36 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
 
-    // ── Update customer order count ──
+    // ─── Update customer order count ──────────────────────────────────────────
     if (finalCustomerId) {
-      const [{ cnt }] = await db
-        .select({ cnt: sql<number>`count(*)` })
+      const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)` })
         .from(ordersTable)
         .where(and(eq(ordersTable.customerId, finalCustomerId), eq(ordersTable.storeId, String(storeId))));
-
       const totalOrders = Number(cnt);
-      await db.update(customersTable).set({
-        totalOrders,
-        isRepeat: totalOrders > 1,
-        updatedAt: new Date(),
-      }).where(eq(customersTable.id, finalCustomerId));
+      await db.update(customersTable).set({ totalOrders, isRepeat: totalOrders > 1, updatedAt: new Date() })
+        .where(eq(customersTable.id, finalCustomerId));
     }
 
+    const { rows: orderRows } = await pool.query(`SELECT * FROM orders WHERE id = $1`, [orderId]);
     const orderItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+
     res.status(201).json({
-      ...order,
-      total: Number(order.total),
+      ...orderRows[0],
+      total: Number(orderRows[0].total),
+      shippingFee: Number(orderRows[0].shipping_fee || 0),
+      shippingOption: orderRows[0].shipping_option || null,
       items: orderItems.map(i => ({ ...i, price: Number(i.price) })),
       customerId: finalCustomerId,
     });
 
-    // Fire order_created automation in background if linked to a conversation
     if (conversationId) {
       fireTrigger({
         storeId,
         conversationId,
         triggerType: "order_created",
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
+        orderId,
+        orderNumber: orderRows[0].order_number,
+        customerName,
       }).catch(err => console.error("[Orders] order_created automation error:", err));
     }
   } catch (err) {
@@ -192,46 +190,72 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/orders/:id ──────────────────────────────────────────────────────
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
-    const [order] = await db.select().from(ordersTable)
-      .where(and(eq(ordersTable.id, String(req.params.id)), eq(ordersTable.storeId, String(storeId)))).limit(1);
+    const { rows } = await pool.query(
+      `SELECT * FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`,
+      [req.params.id, storeId]
+    );
+    if (!rows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
 
-    if (!order) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
-
+    const order = rows[0];
     const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
 
     let customer = null;
-    if (order.customerId) {
-      const [c] = await db.select().from(customersTable).where(eq(customersTable.id, order.customerId)).limit(1);
+    if (order.customer_id) {
+      const [c] = await db.select().from(customersTable).where(eq(customersTable.id, order.customer_id)).limit(1);
       customer = c || null;
     }
 
-    res.json({ ...order, total: Number(order.total), items: items.map(i => ({ ...i, price: Number(i.price) })), customer, conversation: null });
+    res.json({
+      ...order,
+      total: Number(order.total),
+      shippingFee: Number(order.shipping_fee || 0),
+      shippingOption: order.shipping_option || null,
+      items: items.map(i => ({ ...i, price: Number(i.price) })),
+      customer,
+      conversation: null,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to fetch order" });
   }
 });
 
+// ─── PATCH /api/orders/:id ────────────────────────────────────────────────────
 router.patch("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
-    const { status, sellerNote, wilaya, address } = req.body;
-    const updates: Partial<typeof ordersTable.$inferSelect> = { updatedAt: new Date() };
-    if (status) updates.status = status;
-    if (sellerNote !== undefined) updates.sellerNote = sellerNote;
-    if (wilaya) updates.wilaya = wilaya;
-    if (address !== undefined) updates.address = address;
+    const { status, sellerNote, wilaya, address, shippingFee, shippingOption } = req.body;
 
-    const [updated] = await db.update(ordersTable).set(updates)
-      .where(and(eq(ordersTable.id, String(req.params.id)), eq(ordersTable.storeId, String(storeId))))
-      .returning();
+    const setClauses: string[] = ["updated_at = NOW()"];
+    const params: any[] = [];
 
-    if (!updated) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
-    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, updated.id));
-    res.json({ ...updated, total: Number(updated.total), items: items.map(i => ({ ...i, price: Number(i.price) })) });
+    if (status) { params.push(status); setClauses.push(`status = $${params.length}`); }
+    if (sellerNote !== undefined) { params.push(sellerNote); setClauses.push(`seller_note = $${params.length}`); }
+    if (wilaya) { params.push(wilaya); setClauses.push(`wilaya = $${params.length}`); }
+    if (address !== undefined) { params.push(address); setClauses.push(`address = $${params.length}`); }
+    if (shippingFee !== undefined) { params.push(String(shippingFee)); setClauses.push(`shipping_fee = $${params.length}`); }
+    if (shippingOption !== undefined) { params.push(shippingOption); setClauses.push(`shipping_option = $${params.length}`); }
+
+    params.push(req.params.id, storeId);
+    const { rows } = await pool.query(
+      `UPDATE orders SET ${setClauses.join(", ")} WHERE id = $${params.length - 1} AND store_id = $${params.length} RETURNING *`,
+      params
+    );
+
+    if (!rows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
+
+    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, rows[0].id));
+    res.json({
+      ...rows[0],
+      total: Number(rows[0].total),
+      shippingFee: Number(rows[0].shipping_fee || 0),
+      shippingOption: rows[0].shipping_option || null,
+      items: items.map(i => ({ ...i, price: Number(i.price) })),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to update order" });
