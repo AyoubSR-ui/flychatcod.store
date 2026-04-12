@@ -223,7 +223,65 @@ export async function callAiBridge(params: {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXECUTE CREATE ORDER
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Algerian wilaya name mapping (Darija/Arabic → French/Official) ────────────
+const WILAYA_ALIASES: Record<string, string> = {
+  // Darija Latin → French
+  "wahran": "Oran", "ouahran": "Oran",
+  "dzayer": "Alger", "dzair": "Alger", "el djazair": "Alger",
+  "qsantina": "Constantine", "ksantina": "Constantine", "casantina": "Constantine",
+  "3annaba": "Annaba", "3naba": "Annaba",
+  "setif": "Sétif", "stif": "Sétif",
+  "tlemcen": "Tlemcen", "tilimsan": "Tlemcen",
+  "batna": "Batna",
+  "sidi bel abbes": "Sidi Bel Abbès", "sba": "Sidi Bel Abbès",
+  "biskra": "Biskra",
+  "blida": "Blida", "boufarik": "Blida",
+  "bejaia": "Béjaïa", "bgayet": "Béjaïa", "bgayette": "Béjaïa",
+  "tizi ouzou": "Tizi Ouzou", "tizi wezzu": "Tizi Ouzou",
+  "msila": "M'Sila", "m'sila": "M'Sila",
+  "mostaganem": "Mostaganem", "musteghanem": "Mostaganem",
+  "chlef": "Chlef", "chelef": "Chlef",
+  "tiaret": "Tiaret", "tihert": "Tiaret",
+  "bechar": "Béchar", "bashar": "Béchar",
+  "ouargla": "Ouargla", "wargla": "Ouargla", "wergla": "Ouargla",
+  "ghardaia": "Ghardaïa", "ghardaya": "Ghardaïa",
+  "laghouat": "Laghouat", "leghouat": "Laghouat",
+  "djelfa": "Djelfa", "jalfa": "Djelfa",
+  "medea": "Médéa", "medya": "Médéa",
+  "bouira": "Bouira", "bwira": "Bouira",
+  "boumerdes": "Boumerdès", "bumerdes": "Boumerdès",
+  "tipaza": "Tipaza", "tipasa": "Tipaza",
+  "ain defla": "Aïn Defla",
+  "ain temouchent": "Aïn Témouchent",
+  "relizane": "Relizane", "ghilizane": "Relizane",
+  "mascara": "Mascara",
+  "saida": "Saïda",
+  "naama": "Naâma",
+  "el bayadh": "El Bayadh",
+  "adrar": "Adrar",
+  "tamanrasset": "Tamanrasset", "tamenrasset": "Tamanrasset",
+  "illizi": "Illizi",
+  "tindouf": "Tindouf",
+  "khenchela": "Khenchela",
+  "souk ahras": "Souk Ahras",
+  "tebessa": "Tébessa", "tbessa": "Tébessa",
+  "oum el bouaghi": "Oum El Bouaghi",
+  "bordj bou arreridj": "Bordj Bou Arréridj", "bba": "Bordj Bou Arréridj",
+  "mila": "Mila",
+  "jijel": "Jijel",
+  "skikda": "Skikda",
+  "guelma": "Guelma",
+  "el tarf": "El Tarf",
+  "el oued": "El Oued", "l oued": "El Oued",
+  "ouled djellal": "Ouled Djellal",
+  "touggourt": "Touggourt",
+  "in salah": "In Salah", "in guezzam": "In Guezzam",
+};
+
+function normalizeWilaya(wilaya: string): string {
+  const lower = wilaya.toLowerCase().trim();
+  return WILAYA_ALIASES[lower] || wilaya;
+}
 async function executeCreateOrderSilent(
   conversationId: string,
   storeId: string,
@@ -246,9 +304,11 @@ async function executeCreateOrderSilent(
       const shippingOptions = storeRows[0]?.shipping_options;
       if (shippingOptions && action.wilaya) {
         const wilayaPrices = shippingOptions.wilayaPrices || {};
-        const wilayaKey = Object.keys(wilayaPrices).find(
-          k => k.toLowerCase() === action.wilaya!.toLowerCase()
-        );
+        const normalizedWilaya = normalizeWilaya(action.wilaya!);
+        const wilayaKey = Object.keys(wilayaPrices).find(k => {
+          const kl = k.toLowerCase();
+          return kl === normalizedWilaya.toLowerCase() || kl === action.wilaya!.toLowerCase() || kl.includes(normalizedWilaya.toLowerCase()) || normalizedWilaya.toLowerCase().includes(kl);
+        });
         if (wilayaKey) {
           const opt = action.shippingOption || "home_delivery";
           shippingPrice = opt === "pickup"
@@ -404,9 +464,11 @@ async function executeUpdateOrderSilent(
           const wilaya = updateData.wilaya || existingOrder.wilaya;
           const opt = updateData.shippingOption || (existingOrder as any).shippingOption || "home_delivery";
           const wilayaPrices = shippingOptions.wilayaPrices || {};
-          const wilayaKey = Object.keys(wilayaPrices).find(
-            k => k.toLowerCase() === wilaya.toLowerCase()
-          );
+          const normalizedWilaya = normalizeWilaya(wilaya);
+          const wilayaKey = Object.keys(wilayaPrices).find(k => {
+            const kl = k.toLowerCase();
+            return kl === normalizedWilaya.toLowerCase() || kl === wilaya.toLowerCase() || kl.includes(normalizedWilaya.toLowerCase()) || normalizedWilaya.toLowerCase().includes(kl);
+          });
           if (wilayaKey) {
             const newShippingFee = opt === "pickup"
               ? Number(wilayaPrices[wilayaKey]?.pickup || 0)
