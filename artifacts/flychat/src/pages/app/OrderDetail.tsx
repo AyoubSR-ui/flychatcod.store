@@ -1,7 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Link, useParams } from "wouter";
 import { ArrowLeft, Phone, MapPin, MessageSquare, Package, StickyNote } from "lucide-react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { useGetOrder, useUpdateOrder } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
@@ -17,6 +17,59 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-red-100 text-red-800 border-red-200",
   suspicious: "bg-orange-100 text-orange-800 border-orange-200",
 };
+
+function EditableField({ icon, value, onSave }: {
+  icon: React.ReactNode;
+  value: string;
+  onSave: (val: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-2 text-sm">
+        <input
+          autoFocus
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          className="border border-border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={async () => { setSaving(true); await onSave(val); setSaving(false); setEditing(false); }}
+            disabled={saving}
+            className="px-3 py-1 bg-primary text-white rounded-lg text-xs font-bold hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+          <button
+            onClick={() => { setVal(value); setEditing(false); }}
+            className="px-3 py-1 border border-border rounded-lg text-xs hover:bg-secondary"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm group">
+      <div className="flex items-center gap-2">
+        {icon}
+        <span className="font-medium">{value}</span>
+      </div>
+      <button
+        onClick={() => setEditing(true)}
+        className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-primary px-2 py-0.5 rounded border border-border hover:border-primary"
+      >
+        Edit
+      </button>
+    </div>
+  );
+}
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -83,14 +136,28 @@ export default function OrderDetail() {
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Name</p>
                 <p className="font-semibold text-foreground">{order.customerName}</p>
               </div>
-              <div className="flex items-center gap-2 text-sm">
-                <Phone className="w-4 h-4 text-muted-foreground" />
-                <a href={`tel:${order.customerPhone}`} className="font-medium hover:text-primary">{order.customerPhone}</a>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <MapPin className="w-4 h-4 text-muted-foreground" />
-                <span>{order.wilaya}{order.address ? `, ${order.address}` : ''}</span>
-              </div>
+
+              {/* Phone — inline edit */}
+              <EditableField
+                icon={<Phone className="w-4 h-4 text-muted-foreground" />}
+                value={order.customerPhone}
+                onSave={async (val) => {
+                  await updateOrder.mutateAsync({ id: id!, data: { customerPhone: val } as any });
+
+                  refetch();
+                }}
+              />
+
+              {/* Address — inline edit */}
+              <EditableField
+                icon={<MapPin className="w-4 h-4 text-muted-foreground" />}
+                value={order.wilaya + (order.address ? `, ${order.address}` : '')}
+                onSave={async (val) => {
+                  await updateOrder.mutateAsync({ id: id!, data: { address: val } as any });
+                  refetch();
+                }}
+              />
+
               {order.conversationId && (
                 <Link href="/inbox" className="flex items-center gap-2 text-sm text-primary hover:underline pt-2 border-t border-border">
                   <MessageSquare className="w-4 h-4" /> View conversation
