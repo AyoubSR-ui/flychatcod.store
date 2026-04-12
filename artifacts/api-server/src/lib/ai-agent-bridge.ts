@@ -80,6 +80,7 @@ export async function callAiAgent(payload: AgentRequest): Promise<AgentResponse>
 }
 
 const aiReplyInFlight = new Set<string>();
+const conversationBatch = new Map<string, { timer: any; messageId: string }>();
 
 function isRepetitive(newReply: string, recentReplies: string[]): boolean {
   return recentReplies.some(
@@ -105,6 +106,23 @@ export async function callAiBridge(params: {
   } = params;
 
   if (aiReplyInFlight.has(messageId)) return;
+
+  // ── 3-second batch window — wait for customer to finish typing ──────────────
+  await new Promise<void>((resolve) => {
+    if (conversationBatch.has(conversationId)) {
+      clearTimeout(conversationBatch.get(conversationId)!.timer);
+    }
+    const timer = setTimeout(() => {
+      conversationBatch.delete(conversationId);
+      resolve();
+    }, 3000);
+    conversationBatch.set(conversationId, { timer, messageId });
+  });
+
+  // If a newer message came in during the wait, skip this one
+  const current = conversationBatch.get(conversationId);
+  if (current && current.messageId !== messageId) return;
+
   aiReplyInFlight.add(messageId);
 
   try {
