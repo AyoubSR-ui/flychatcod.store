@@ -160,6 +160,18 @@ export async function callAiBridge(params: {
 
     let { reply, detectedLanguage, action } = agentResponse;
 
+    // ── Debug: log raw agent action ───────────────────────────────────────────
+    if (action.type !== "none") {
+      console.log(`[AI Bridge] Agent action received:`, JSON.stringify({
+        type: action.type,
+        wilaya: action.wilaya,
+        shippingOption: action.shippingOption,
+        customerPhone: action.customerPhone,
+        customerName: action.customerName,
+        itemCount: action.items?.length ?? 0,
+      }));
+    }
+
     if (isRepetitive(reply, recentAiReplies)) {
       const retryResponse = await callAiAgent({
         conversationId, storeId, storeName,
@@ -222,10 +234,9 @@ export async function callAiBridge(params: {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EXECUTE CREATE ORDER
-// ── Algerian wilaya name mapping (Darija/Arabic → French/Official) ────────────
+// WILAYA NORMALIZATION
+// ── Darija/Arabic → French/Official wilaya names ──────────────────────────────
 const WILAYA_ALIASES: Record<string, string> = {
-  // Darija Latin → French
   "wahran": "Oran", "ouahran": "Oran",
   "dzayer": "Alger", "dzair": "Alger", "el djazair": "Alger",
   "qsantina": "Constantine", "ksantina": "Constantine", "casantina": "Constantine",
@@ -278,10 +289,70 @@ const WILAYA_ALIASES: Record<string, string> = {
   "in salah": "In Salah", "in guezzam": "In Guezzam",
 };
 
+/**
+ * Strip accents: "Béjaïa" → "bejaia", "Sétif" → "setif"
+ * Allows matching accented DB keys against plain agent output
+ */
+function stripAccents(str: string): string {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 function normalizeWilaya(wilaya: string): string {
   const lower = wilaya.toLowerCase().trim();
   return WILAYA_ALIASES[lower] || wilaya;
 }
+
+/**
+ * Find the matching key in wilayaPrices for a given wilaya string.
+ * Tries 4 strategies in order:
+ *   1. Exact match (case-insensitive, after alias resolution)
+ *   2. Accent-stripped exact match
+ *   3. Substring match (key contains wilaya or wilaya contains key)
+ *   4. Accent-stripped substring match
+ */
+function findWilayaKey(wilayaPrices: Record<string, any>, rawWilaya: string): string | undefined {
+  const normalized = normalizeWilaya(rawWilaya);         // e.g. "Béjaïa"
+  const normalizedLow = normalized.toLowerCase();         // "béjaïa"
+  const rawLow = rawWilaya.toLowerCase().trim();          // "bgayet"
+  const strippedNorm = stripAccents(normalizedLow);       // "bejaia"
+  const strippedRaw = stripAccents(rawLow);               // "bgayet"
+
+  const keys = Object.keys(wilayaPrices);
+
+  // Strategy 1: exact match on normalized or raw
+  let found = keys.find(k => {
+    const kl = k.toLowerCase();
+    return kl === normalizedLow || kl === rawLow;
+  });
+  if (found) return found;
+
+  // Strategy 2: accent-stripped exact match
+  found = keys.find(k => {
+    const kStripped = stripAccents(k.toLowerCase());
+    return kStripped === strippedNorm || kStripped === strippedRaw;
+  });
+  if (found) return found;
+
+  // Strategy 3: substring match (original)
+  found = keys.find(k => {
+    const kl = k.toLowerCase();
+    return kl.includes(normalizedLow) || normalizedLow.includes(kl) ||
+           kl.includes(rawLow) || rawLow.includes(kl);
+  });
+  if (found) return found;
+
+  // Strategy 4: accent-stripped substring match
+  found = keys.find(k => {
+    const kStripped = stripAccents(k.toLowerCase());
+    return kStripped.includes(strippedNorm) || strippedNorm.includes(kStripped) ||
+           kStripped.includes(strippedRaw) || strippedRaw.includes(kStripped);
+  });
+  return found;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXECUTE CREATE ORDER
+// ═══════════════════════════════════════════════════════════════════════════════
 async function executeCreateOrderSilent(
   conversationId: string,
   storeId: string,
@@ -290,10 +361,14 @@ async function executeCreateOrderSilent(
   detectedLanguage?: string,
 ): Promise<void> {
   if (!action.customerName || !action.customerPhone || !action.wilaya) return;
+
   try {
     const orderId = generateId("ord");
     const orderNumber = `FLY-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000 + 1000)}`;
     const itemsTotal = (action.items ?? []).reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    // FIX: Default shippingOption to "home_delivery" if agent didn't return one
+    const shippingOption = action.shippingOption || "home_delivery";
 
     // ── Calculate shipping fee ─────────────────────────────────────────────────
     let shippingPrice = 0;
@@ -302,23 +377,37 @@ async function executeCreateOrderSilent(
         `SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`, [storeId]
       );
       const shippingOptions = storeRows[0]?.shipping_options;
-      if (shippingOptions && action.wilaya) {
+
+      if (shippingOptions) {
         const wilayaPrices = shippingOptions.wilayaPrices || {};
-        const normalizedWilaya = normalizeWilaya(action.wilaya!);
-        const wilayaKey = Object.keys(wilayaPrices).find(k => {
-          const kl = k.toLowerCase();
-          return kl === normalizedWilaya.toLowerCase() || kl === action.wilaya!.toLowerCase() || kl.includes(normalizedWilaya.toLowerCase()) || normalizedWilaya.toLowerCase().includes(kl);
-        });
+        const wilayaKey = findWilayaKey(wilayaPrices, action.wilaya!);
+
+        // ── Debug log: shows exactly what matched (or didn't) ─────────────────
+        console.log(`[AI Bridge] shippingCalc:`, JSON.stringify({
+          rawWilaya: action.wilaya,
+          normalizedWilaya: normalizeWilaya(action.wilaya!),
+          wilayaKeyFound: wilayaKey ?? "NOT FOUND",
+          shippingOption,
+          availableKeys: Object.keys(wilayaPrices),
+        }));
+
         if (wilayaKey) {
-          const opt = action.shippingOption || "home_delivery";
-          shippingPrice = opt === "pickup"
+          shippingPrice = shippingOption === "pickup"
             ? Number(wilayaPrices[wilayaKey]?.pickup || 0)
             : Number(wilayaPrices[wilayaKey]?.home || 0);
+        } else {
+          console.warn(`[AI Bridge] Wilaya "${action.wilaya}" not found in wilayaPrices — shippingFee will be 0`);
         }
+      } else {
+        console.warn(`[AI Bridge] No shipping_options configured for store ${storeId}`);
       }
-    } catch {}
+    } catch (e) {
+      console.error("[AI Bridge] Shipping calc failed:", e);
+    }
 
     const total = (itemsTotal + shippingPrice).toFixed(2);
+
+    console.log(`[AI Bridge] Creating order — items: ${itemsTotal}, shipping: ${shippingPrice}, total: ${total}, option: ${shippingOption}`);
 
     await db.insert(ordersTable).values({
       id: orderId, storeId, conversationId,
@@ -332,7 +421,7 @@ async function executeCreateOrderSilent(
       isCod: true,
       total,
       shippingFee: String(shippingPrice),
-      shippingOption: action.shippingOption ?? null,
+      shippingOption,                        // FIX: always set, never null
       sellerNote: "Created by AI agent",
       createdBySource: "ai",
       createdAt: new Date(),
@@ -355,7 +444,7 @@ async function executeCreateOrderSilent(
       .set({ aiFlowState: "order_created", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
 
-    console.log(`[AI Bridge] Order ${orderNumber} created for conv ${conversationId}`);
+    console.log(`[AI Bridge] Order ${orderNumber} created — conv ${conversationId}`);
 
     // ── Voice confirmation call ────────────────────────────────────────────────
     try {
@@ -464,11 +553,12 @@ async function executeUpdateOrderSilent(
           const wilaya = updateData.wilaya || existingOrder.wilaya;
           const opt = updateData.shippingOption || (existingOrder as any).shippingOption || "home_delivery";
           const wilayaPrices = shippingOptions.wilayaPrices || {};
-          const normalizedWilaya = normalizeWilaya(wilaya);
-          const wilayaKey = Object.keys(wilayaPrices).find(k => {
-            const kl = k.toLowerCase();
-            return kl === normalizedWilaya.toLowerCase() || kl === wilaya.toLowerCase() || kl.includes(normalizedWilaya.toLowerCase()) || normalizedWilaya.toLowerCase().includes(kl);
-          });
+          const wilayaKey = findWilayaKey(wilayaPrices, wilaya);
+
+          console.log(`[AI Bridge] updateOrder shippingCalc:`, JSON.stringify({
+            wilaya, opt, wilayaKeyFound: wilayaKey ?? "NOT FOUND",
+          }));
+
           if (wilayaKey) {
             const newShippingFee = opt === "pickup"
               ? Number(wilayaPrices[wilayaKey]?.pickup || 0)
@@ -480,7 +570,9 @@ async function executeUpdateOrderSilent(
             updates.total = String(itemsTotal + newShippingFee);
           }
         }
-      } catch {}
+      } catch (e) {
+        console.error("[AI Bridge] Update shipping calc failed:", e);
+      }
     }
 
     await db.update(ordersTable)
