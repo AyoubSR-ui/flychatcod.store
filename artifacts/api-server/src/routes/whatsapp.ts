@@ -263,7 +263,9 @@ async function processIncomingWhatsAppMessage(incoming: {
             `UPDATE subscriptions
              SET ai_credits_used_current_period = ai_credits_used_current_period + 1,
                  updated_at = NOW()
-             WHERE store_id = $1`,
+             WHERE organization_id = (
+               SELECT organization_id FROM stores WHERE id = $1
+             )`,
             [store.id]
           );
           await pool.query(
