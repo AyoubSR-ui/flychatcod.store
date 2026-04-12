@@ -237,6 +237,9 @@ async function processIncomingWhatsAppMessage(incoming: {
       console.log(`[WhatsApp] Ad referral matched product: "${adProduct.name}" for store ${store.id}`);
     }
 
+   // ── Generate run ID for ai_runs tracking ─────────────────────────────────
+    const aiRunId = generateId("run");
+
     await callAiBridge({
       messageId: msgId,
       conversationId: conversation.id,
@@ -254,15 +257,32 @@ async function processIncomingWhatsAppMessage(incoming: {
         await sendWhatsAppMessage(phoneNumberId, accessToken, incoming.from, replyText);
         console.log(`[WhatsApp] AI reply sent to ${incoming.from}`);
       },
-      consumeCredits: async () => {},
+      consumeCredits: async () => {
+        try {
+          await pool.query(
+            `UPDATE subscriptions
+             SET ai_credits_used_current_period = ai_credits_used_current_period + 1,
+                 updated_at = NOW()
+             WHERE store_id = $1`,
+            [store.id]
+          );
+          await pool.query(
+            `INSERT INTO ai_runs
+               (id, store_id, conversation_id, credits_charged, status, created_at)
+             VALUES ($1, $2, $3, 1, 'success', NOW())`,
+            [aiRunId, store.id, conversation.id]
+          );
+        } catch (err) {
+          console.error("[Credits] Failed to consume credits:", err);
+        }
+      },
       checkCredits: async () => {
         const status = await getAiStatus(store.id);
         return status.eligible;
       },
-    });
-  }
-}
-
+    });                  // closes callAiBridge({
+  }                      // closes if (conversation.aiMode === "ai_autopilot" && store.aiEnabled)
+}                        // closes outer handler function
 // ─── Send Email via Resend ────────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, html: string) {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
