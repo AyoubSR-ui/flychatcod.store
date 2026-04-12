@@ -62,28 +62,20 @@ function parseVariantGroups(variants: string[]): VariantGroup[] {
   }));
 }
 
-// Upload image to storage
+// Upload image to Cloudinary via our backend
 async function uploadImage(file: File): Promise<string | null> {
   try {
     const token = localStorage.getItem("flychat_token") || "";
-  const urlRes = await fetch(`${API_BASE}/api/storage/uploads/request-url`, {      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`${API_BASE}/api/storage/upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
     });
-    const { uploadURL, objectPath } = await urlRes.json();
-    // DEBUG — remove after testing
-    console.log("[Upload] objectPath:", objectPath);
-    console.log("[Upload] uploadURL prefix:", uploadURL?.slice(0, 80));
-    if (!uploadURL || !objectPath) return null;
-
-    // Upload directly to GCS
-    await fetch(uploadURL, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-
-    // Normalize path — strip leading slash if present
-    const cleanPath = objectPath.startsWith("/") ? objectPath.slice(1) : objectPath;
-    
-    // Return URL through our proxy endpoint
-    return `${API_BASE}/api/storage/public-objects/${cleanPath}`;
+    if (!res.ok) return null;
+    const { url } = await res.json();
+    return url || null;
   } catch (err) {
     console.error("Upload failed:", err);
     return null;
@@ -348,11 +340,9 @@ export default function Products() {
                         className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "url" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
                         <Link className="w-3 h-3" /> URL
                       </button>
-                      <button
-                        disabled
-                        title="Coming soon — object storage not configured yet"
-                        className="px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 text-muted-foreground opacity-40 cursor-not-allowed">
-                        <Upload className="w-3 h-3" /> Upload (Soon)
+                      <button onClick={() => setImageTab("upload")}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "upload" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
+                        <Upload className="w-3 h-3" /> Upload
                       </button>
                     </div>
 

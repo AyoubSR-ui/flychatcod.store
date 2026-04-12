@@ -1,83 +1,64 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { Readable } from "stream";
-import { z } from "zod/v4";
-import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage.js";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import { requireAuth } from "../middlewares/auth.js";
 
 const router: IRouter = Router();
-const objectStorageService = new ObjectStorageService();
 
-const RequestUploadUrlBody = z.object({
-  name: z.string(),
-  size: z.number(),
-  contentType: z.string(),
+// Cloudinary is configured automatically from CLOUDINARY_URL env var
+// Format: cloudinary://API_KEY:API_SECRET@CLOUD_NAME
+const CLOUDINARY_URL = process.env.CLOUDINARY_URL || "";
+const cloudinaryEnabled = CLOUDINARY_URL.startsWith("cloudinary://");
+if (cloudinaryEnabled) {
+  cloudinary.config({ cloudinary_url: CLOUDINARY_URL });
+}
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"));
+  },
 });
 
-router.post("/storage/uploads/request-url", async (req: Request, res: Response) => {
-  const parsed = RequestUploadUrlBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Missing or invalid required fields" });
-    return;
-  }
-
-  try {
-    const { name, size, contentType } = parsed.data;
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-    const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-
-    res.json({ uploadURL, objectPath, metadata: { name, size, contentType } });
-  } catch (error) {
-    console.error("Error generating upload URL:", error);
-    res.status(500).json({ error: "Failed to generate upload URL" });
-  }
-});
-
-router.get("/storage/public-objects/*filePath", async (req: Request, res: Response) => {
-  try {
-    const raw = req.params.filePath;
-    const filePath = Array.isArray(raw) ? raw.join("/") : raw;
-    const file = await objectStorageService.searchPublicObject(filePath);
-    if (!file) {
-      res.status(404).json({ error: "File not found" });
+// POST /api/storage/upload — accepts multipart file, uploads to Cloudinary
+router.post(
+  "/storage/upload",
+  requireAuth,
+  upload.single("file"),
+  async (req: Request, res: Response) => {
+    if (!cloudinaryEnabled) {
+      res.status(503).json({
+        error: "storage_not_configured",
+        message: "Set CLOUDINARY_URL env var to enable image uploads.",
+      });
       return;
     }
-    const response = await objectStorageService.downloadObject(file);
-    res.status(response.status);
-    response.headers.forEach((value, key) => res.setHeader(key, value));
-    if (response.body) {
-      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
-  } catch (error) {
-    console.error("Error serving public object:", error);
-    res.status(500).json({ error: "Failed to serve public object" });
-  }
-});
 
-router.get("/storage/objects/*path", async (req: Request, res: Response) => {
-  try {
-    const raw = req.params.path;
-    const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
-    const objectPath = `/objects/${wildcardPath}`;
-    const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-    const response = await objectStorageService.downloadObject(objectFile);
-    res.status(response.status);
-    response.headers.forEach((value, key) => res.setHeader(key, value));
-    if (response.body) {
-      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
-  } catch (error) {
-    console.error("Error serving object:", error);
-    if (error instanceof ObjectNotFoundError) {
-      res.status(404).json({ error: "Object not found" });
+    if (!req.file) {
+      res.status(400).json({ error: "no_file", message: "No file uploaded" });
       return;
     }
-    res.status(500).json({ error: "Failed to serve object" });
+
+    try {
+      const result = await new Promise<{ secure_url: string }>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: "flychat-products", resource_type: "image" },
+          (err, result) => {
+            if (err || !result) reject(err ?? new Error("Upload failed"));
+            else resolve(result as { secure_url: string });
+          }
+        );
+        stream.end(req.file!.buffer);
+      });
+
+      res.json({ url: result.secure_url });
+    } catch (err) {
+      console.error("[Storage] Cloudinary upload failed:", err);
+      res.status(500).json({ error: "upload_failed", message: "Image upload failed" });
+    }
   }
-});
+);
 
 export default router;

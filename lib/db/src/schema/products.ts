@@ -12,6 +12,7 @@ export const productsTable = pgTable("products", {
   isActive: boolean("is_active").notNull().default(true),
   variants: jsonb("variants").$type<string[]>().notNull().default([]),
   imageUrl: text("image_url"),
+  imageUrls: jsonb("image_urls").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
