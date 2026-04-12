@@ -32,11 +32,11 @@ router.get("/", requireAuth, async (req, res) => {
 
     const ordersWithItems = await Promise.all(orders.map(async (order) => {
       const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
-      return {
+    return {
         ...order,
         total: Number(order.total),
-        shippingFee: Number((order as any).shippingFee || 0),
-        shippingOption: (order as any).shippingOption || null,
+        shippingFee: Number(order.shippingFee || 0),
+        shippingOption: order.shippingOption || null,
         items: items.map(i => ({ ...i, price: Number(i.price) })),
       };
     }));
@@ -195,25 +195,28 @@ router.get("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { rows } = await pool.query(
-      `SELECT * FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`,
+      `SELECT id, order_number as "orderNumber", store_id as "storeId", customer_id as "customerId",
+       conversation_id as "conversationId", customer_name as "customerName", customer_phone as "customerPhone",
+       customer_email as "customerEmail", wilaya, address, status, is_cod as "isCod",
+       total, seller_note as "sellerNote", created_by_source as "createdBySource",
+       cancelled_by_source as "cancelledBySource", shipping_fee as "shippingFee",
+       shipping_option as "shippingOption", created_at as "createdAt", updated_at as "updatedAt"
+       FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`,
       [req.params.id, storeId]
     );
     if (!rows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
-
     const order = rows[0];
     const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
-
     let customer = null;
-    if (order.customer_id) {
-      const [c] = await db.select().from(customersTable).where(eq(customersTable.id, order.customer_id)).limit(1);
+    if (order.customerId) {
+      const [c] = await db.select().from(customersTable).where(eq(customersTable.id, order.customerId)).limit(1);
       customer = c || null;
     }
-
     res.json({
       ...order,
       total: Number(order.total),
-      shippingFee: Number(order.shipping_fee || 0),
-      shippingOption: order.shipping_option || null,
+      shippingFee: Number(order.shippingFee || 0),
+      shippingOption: order.shippingOption || null,
       items: items.map(i => ({ ...i, price: Number(i.price) })),
       customer,
       conversation: null,
