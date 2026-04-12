@@ -28,8 +28,6 @@ const WILAYAS = [
   "In Salah","In Guezzam","Touggourt","Djanet","El M'Ghair","El Méniaa",
 ];
 
-// ─── Channel badges ───────────────────────────────────────────────────────────
-
 const CHANNEL_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; dot: string }> = {
   whatsapp:  { label: "WhatsApp",  color: "text-green-700",  bg: "bg-green-50",   border: "border-green-200", dot: "bg-green-500"  },
   instagram: { label: "Instagram", color: "text-pink-700",   bg: "bg-pink-50",    border: "border-pink-200",  dot: "bg-pink-500"   },
@@ -54,7 +52,6 @@ function ChannelIcon({ channel, size = "sm" }: { channel: string; size?: "sm" | 
       <path d="M12 0C5.373 0 0 4.974 0 11.111c0 3.498 1.744 6.614 4.469 8.654V24l4.088-2.242c1.092.3 2.246.464 3.443.464 6.627 0 12-4.975 12-11.111S18.627 0 12 0zm1.191 14.963l-3.055-3.26-5.963 3.26L10.732 8l3.131 3.259L19.752 8l-6.561 6.963z"/>
     </svg>
   );
-  // widget
   return (
     <svg className={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -82,8 +79,6 @@ function ChannelHeaderBadge({ channel }: { channel: string }) {
     </span>
   );
 }
-
-// ─── Interfaces ───────────────────────────────────────────────────────────────
 
 interface ConversationWithWidget extends Conversation {
   sourcePageUrl?: string | null;
@@ -138,8 +133,6 @@ interface TeamNotificationToast {
   timestamp: string;
 }
 
-// ─── File upload ──────────────────────────────────────────────────────────────
-
 async function uploadFileToStorage(file: File): Promise<FileAttachment> {
   const urlRes = await fetch("/api/storage/uploads/request-url", {
     method: "POST",
@@ -175,8 +168,6 @@ function FilePreview({ attachment, isAgent }: { attachment: FileAttachment; isAg
   );
 }
 
-// ─── Draft field ──────────────────────────────────────────────────────────────
-
 function DraftField({ label, value, onChange, error, placeholder, as }: {
   label: string; value: string; onChange: (v: string) => void;
   error?: string; placeholder?: string; as?: "textarea" | "select-wilaya";
@@ -208,8 +199,6 @@ function DraftField({ label, value, onChange, error, placeholder, as }: {
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export default function Inbox() {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [msgInput, setMsgInput] = useState("");
@@ -240,7 +229,7 @@ export default function Inbox() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: convsData, isLoading: isLoadingConvs } = useGetConversations({ status: "open" });
- const { data: msgsData } = useGetMessages(activeConvId || "", { query: { enabled: !!activeConvId, queryKey: ["messages", activeConvId] } });
+  const { data: msgsData } = useGetMessages(activeConvId || "", { query: { enabled: !!activeConvId, queryKey: ["messages", activeConvId] } });
 
   const sendMutation = useSendMessage();
   const createOrderMutation = useCreateOrder();
@@ -248,22 +237,19 @@ export default function Inbox() {
   const activeConv = convsData?.conversations?.find(c => c.id === activeConvId) as ConversationWithWidget | undefined;
 
   const { data: customerData } = useGetCustomer(activeConv?.customerId || "", {
-  query: { enabled: !!activeConv?.customerId, queryKey: ["customer", activeConv?.customerId] },
- }); 
-
+    query: { enabled: !!activeConv?.customerId, queryKey: ["customer", activeConv?.customerId] },
+  });
 
   const { data: productsData } = useGetProducts(
-  { search: productSearch, limit: 8 },
-  { query: { enabled: productSearch.length >= 1, queryKey: ["products", productSearch] } }
-);
+    { search: productSearch, limit: 8 },
+    { query: { enabled: productSearch.length >= 1, queryKey: ["products", productSearch] } }
+  );
 
-  // Filtered conversations
   const allConvs = convsData?.conversations ?? [];
   const filteredConvs = channelFilter === "all"
     ? allConvs
     : allConvs.filter(c => c.channel === channelFilter);
 
-  // Socket.IO
   useEffect(() => {
     const token = localStorage.getItem("flychat_token");
     if (!token) return;
@@ -505,7 +491,6 @@ export default function Inbox() {
     { field: "sellerNote", label: t("order.use_as_note") },
   ];
 
-  // Channel filter tabs
   const channelCounts = allConvs.reduce((acc, c) => {
     acc[c.channel] = (acc[c.channel] || 0) + 1;
     return acc;
@@ -557,7 +542,6 @@ export default function Inbox() {
               <input type="text" placeholder={t("common.search")}
                 className="w-full pl-9 pr-4 py-2 bg-secondary border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/30 outline-none" />
             </div>
-            {/* Channel filter tabs */}
             <div className="flex gap-1 flex-wrap">
               {[
                 { key: "all", label: "All" },
@@ -621,19 +605,23 @@ export default function Inbox() {
         {/* ── CENTER PANEL ── */}
         {activeConv ? (
           <div className="flex-1 flex flex-col h-full bg-white min-w-0">
-            {/* Chat header */}
-            <div className="h-16 border-b border-border flex items-center justify-between px-6 bg-white shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
+
+            {/* ── Chat Header — 2 rows on mobile, 1 row on desktop ── */}
+            <div className="border-b border-border bg-white shrink-0">
+
+              {/* Row 1 — back + avatar + name + desktop actions */}
+              <div className="flex items-center gap-2 px-3 lg:px-6 pt-3 pb-2 lg:py-0 lg:h-16">
                 <button onClick={() => setActiveConvId(null)}
-                  className="xl:hidden p-1.5 -ml-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors shrink-0">
+                  className="xl:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors shrink-0">
                   <ChevronLeft className="w-5 h-5" />
                 </button>
-                <div className="w-10 h-10 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold shrink-0">
+                <div className="w-9 h-9 lg:w-10 lg:h-10 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold shrink-0 text-sm">
                   {activeConv.customerName.charAt(0).toUpperCase()}
                 </div>
-                <div className="min-w-0">
-                  <h3 className="font-bold text-foreground leading-tight truncate">{activeConv.customerName}</h3>
-                  <div className="flex items-center gap-2 mt-0.5">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-foreground leading-tight truncate text-sm lg:text-base">{activeConv.customerName}</h3>
+                  {/* Channel badge row — desktop only (shown in row 2 on mobile) */}
+                  <div className="hidden lg:flex items-center gap-2 mt-0.5">
                     <ChannelHeaderBadge channel={activeConv.channel} />
                     {activeConv.sourcePageUrl && (() => {
                       try {
@@ -648,47 +636,85 @@ export default function Inbox() {
                     })()}
                   </div>
                 </div>
+
+                {/* Desktop action buttons — hidden on mobile */}
+                <div className="hidden lg:flex items-center gap-2 shrink-0">
+                  {activeConv.aiMode === "ai_autopilot" ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-100 text-violet-700 text-xs font-bold rounded-full border border-violet-200">
+                      <Bot className="w-3 h-3" /> {t("ai.active")}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-full border border-gray-200">
+                      <UserCheck className="w-3 h-3" /> {t("ai.human")}
+                    </span>
+                  )}
+                  {activeConv.aiMode === "human" ? (() => {
+                    const aiUnavailable = aiStatus?.statusLabel === "not_included";
+                    const aiStoreDisabled = aiStatus?.statusLabel === "disabled";
+                    const disabled = togglingAiMode || aiUnavailable || aiStoreDisabled;
+                    return (
+                      <button onClick={() => !disabled && toggleAiMode("ai_autopilot")} disabled={disabled}
+                        className={`px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1 transition-colors disabled:opacity-50 ${aiUnavailable || aiStoreDisabled ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-violet-50 text-violet-700 hover:bg-violet-100"}`}>
+                        <Bot className="w-3 h-3" /> {t("ai.enable")}
+                      </button>
+                    );
+                  })() : (
+                    <button onClick={() => toggleAiMode("human")} disabled={togglingAiMode}
+                      className="px-3 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-xl hover:bg-amber-100 flex items-center gap-1 transition-colors disabled:opacity-50">
+                      <UserCheck className="w-3 h-3" /> {t("ai.take_over")}
+                    </button>
+                  )}
+                  {rightPanel === "draft" && (
+                    <button onClick={cancelDraft}
+                      className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors">
+                      <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {/* AI mode badge */}
-                {activeConv.aiMode === "ai_autopilot" ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-100 text-violet-700 text-xs font-bold rounded-full border border-violet-200">
-                    <Bot className="w-3 h-3" /> {t("ai.active")}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-full border border-gray-200">
-                    <UserCheck className="w-3 h-3" /> {t("ai.human")}
-                  </span>
-                )}
-
-                {/* AI toggle button */}
-                {activeConv.aiMode === "human" ? (() => {
-                  const aiUnavailable = aiStatus?.statusLabel === "not_included";
-                  const aiStoreDisabled = aiStatus?.statusLabel === "disabled";
-                  const disabled = togglingAiMode || aiUnavailable || aiStoreDisabled;
-                  return (
-                    <button onClick={() => !disabled && toggleAiMode("ai_autopilot")} disabled={disabled}
-                      title={aiUnavailable ? t("ai.not_available") : aiStoreDisabled ? t("ai.store_disabled") : undefined}
-                      className={`px-3 py-1.5 font-bold text-xs rounded-xl flex items-center gap-1 transition-colors disabled:opacity-50 ${aiUnavailable || aiStoreDisabled ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-violet-50 text-violet-700 hover:bg-violet-100"}`}>
-                      <Bot className="w-3 h-3" /> {t("ai.enable")}
+              {/* Row 2 — mobile only: channel badge + AI controls */}
+              <div className="lg:hidden flex items-center justify-between gap-2 px-3 pb-2.5">
+                <ChannelHeaderBadge channel={activeConv.channel} />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {activeConv.aiMode === "ai_autopilot" ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-violet-100 text-violet-700 text-[10px] font-bold rounded-full border border-violet-200">
+                        <Bot className="w-3 h-3" /> {t("ai.active")}
+                      </span>
+                      <button onClick={() => toggleAiMode("human")} disabled={togglingAiMode}
+                        className="px-2.5 py-1 bg-amber-50 text-amber-700 font-bold text-[10px] rounded-lg hover:bg-amber-100 flex items-center gap-1 transition-colors disabled:opacity-50">
+                        <UserCheck className="w-3 h-3" /> {t("ai.take_over")}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-full border border-gray-200">
+                        <UserCheck className="w-3 h-3" /> {t("ai.human")}
+                      </span>
+                      {(() => {
+                        const aiUnavailable = aiStatus?.statusLabel === "not_included";
+                        const aiStoreDisabled = aiStatus?.statusLabel === "disabled";
+                        const disabled = togglingAiMode || aiUnavailable || aiStoreDisabled;
+                        return (
+                          <button onClick={() => !disabled && toggleAiMode("ai_autopilot")} disabled={disabled}
+                            className={`px-2.5 py-1 font-bold text-[10px] rounded-lg flex items-center gap-1 transition-colors disabled:opacity-50 ${disabled ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-violet-50 text-violet-700 hover:bg-violet-100"}`}>
+                            <Bot className="w-3 h-3" /> {t("ai.enable")}
+                          </button>
+                        );
+                      })()}
+                    </>
+                  )}
+                  {rightPanel === "draft" && (
+                    <button onClick={cancelDraft}
+                      className="px-2.5 py-1 bg-red-50 text-red-600 font-bold text-[10px] rounded-lg hover:bg-red-100 flex items-center gap-1 transition-colors">
+                      <X className="w-3 h-3" /> {t("order.close_draft")}
                     </button>
-                  );
-                })() : (
-                  <button onClick={() => toggleAiMode("human")} disabled={togglingAiMode}
-                    className="px-3 py-1.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-xl hover:bg-amber-100 flex items-center gap-1 transition-colors disabled:opacity-50">
-                    <UserCheck className="w-3 h-3" /> {t("ai.take_over")}
-                  </button>
-                )}
-
-                {rightPanel === "draft" && (
-                  <button onClick={cancelDraft}
-                    className="px-3 py-2 bg-red-50 text-red-600 font-bold text-sm rounded-xl hover:bg-red-100 flex items-center gap-1.5 transition-colors">
-                    <X className="w-3.5 h-3.5" /> {t("order.close_draft")}
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
             </div>
+            {/* ── End Chat Header ── */}
 
             {/* Draft hint */}
             {rightPanel === "draft" && (
@@ -698,7 +724,7 @@ export default function Inbox() {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[#f8fafc]">
+            <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4 bg-[#f8fafc]">
               {msgsData?.messages.map((msg) => {
                 const isCustomer = msg.sender === "customer";
                 const metadata = (msg.metadata ?? {}) as Record<string, unknown>;
@@ -710,7 +736,8 @@ export default function Inbox() {
                 return (
                   <div key={msg.id} className={`flex ${isCustomer ? "justify-start" : "justify-end"}`}>
                     <div
-                      className={`max-w-[70%] rounded-2xl px-5 py-3 shadow-sm transition-all select-text                        ${isCustomer
+                      className={`max-w-[80%] lg:max-w-[70%] rounded-2xl px-4 lg:px-5 py-3 shadow-sm transition-all select-text
+                        ${isCustomer
                           ? `bg-white text-foreground rounded-tl-sm border
                              ${isClickable ? "cursor-pointer hover:border-primary/50 hover:shadow-md active:scale-[0.99]" : "border-border/50"}
                              ${isUsed ? "border-green-400 bg-green-50/60" : ""}`
@@ -750,8 +777,7 @@ export default function Inbox() {
             </div>
 
             {/* Chat input */}
-            <div className="p-4 bg-white border-t border-border shrink-0">
-              {/* AI autopilot notice */}
+            <div className="p-3 lg:p-4 bg-white border-t border-border shrink-0">
               {activeConv.aiMode === "ai_autopilot" && (
                 <div className="mb-2 px-3 py-2 bg-violet-50 border border-violet-200 rounded-xl text-xs text-violet-700 font-medium flex items-center gap-2">
                   <Bot className="w-3.5 h-3.5 shrink-0" />
@@ -762,34 +788,34 @@ export default function Inbox() {
                 <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-lg text-xs flex justify-between items-center">
                   <div className="flex items-center gap-2 text-blue-700">
                     <Paperclip className="w-3 h-3" />
-                    <span className="truncate max-w-[300px]">{selectedFile.name}</span>
+                    <span className="truncate max-w-[200px]">{selectedFile.name}</span>
                     <span className="text-blue-500">({(selectedFile.size / 1024).toFixed(0)} KB)</span>
                   </div>
                   <button onClick={() => setSelectedFile(null)} className="text-blue-400 hover:text-blue-600 ml-2 shrink-0"><X className="w-3 h-3" /></button>
                 </div>
               )}
-              <div className="flex items-end gap-3 bg-secondary/30 border border-border rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
+              <div className="flex items-end gap-2 bg-secondary/30 border border-border rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
                 <input ref={fileInputRef} type="file" onChange={e => setSelectedFile(e.target.files?.[0] || null)}
                   className="hidden" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip" />
                 <button onClick={() => fileInputRef.current?.click()} disabled={isUploading}
-                  className="w-10 h-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 flex items-center justify-center transition-colors shrink-0">
+                  className="w-9 h-9 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 flex items-center justify-center transition-colors shrink-0">
                   <Paperclip className="w-4 h-4" />
                 </button>
                 <textarea value={msgInput} onChange={e => setMsgInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  className="flex-1 bg-transparent border-none outline-none resize-none p-2 text-sm max-h-32 min-h-10"
+                  className="flex-1 bg-transparent border-none outline-none resize-none p-1.5 text-sm max-h-32 min-h-9"
                   placeholder={activeConv.aiMode === "ai_autopilot" ? "AI is active — take over to type..." : "Type a message..."}
                   rows={1} />
                 <button onClick={handleSend}
                   disabled={(!msgInput.trim() && !selectedFile) || sendMutation.isPending || isUploading}
-                  className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 transition-colors shrink-0 mb-0.5 mr-0.5">
+                  className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 transition-colors shrink-0">
                   {isUploading || sendMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 ml-0.5" />}
                 </button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground bg-[#f8fafc]">
+          <div className="flex-1 hidden xl:flex flex-col items-center justify-center text-muted-foreground bg-[#f8fafc]">
             <div className="w-20 h-20 bg-white border border-border rounded-full flex items-center justify-center mb-4 shadow-sm">
               <MessageSquare className="w-10 h-10 text-border" />
             </div>
