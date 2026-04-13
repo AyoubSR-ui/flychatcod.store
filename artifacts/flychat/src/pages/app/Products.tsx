@@ -89,6 +89,7 @@ export default function Products() {
   const [newImageUrl, setNewImageUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [imageTab, setImageTab] = useState<"url" | "upload">("url");
+  const [groupColorHex, setGroupColorHex] = useState<Record<number, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data, isLoading, refetch } = useGetProducts({ search: search || undefined, limit: 50 });
   const createProduct = useCreateProduct();
@@ -237,8 +238,9 @@ export default function Products() {
                               <div className="flex flex-wrap gap-1">
                                 {colorVariants.slice(0, 5).map((v: string) => {
                                   const preset = PRESET_COLORS.find(c => c.name.toLowerCase() === v.toLowerCase());
-                                  return preset ? (
-                                    <span key={v} title={v} className="w-4 h-4 rounded-full border border-border inline-block" style={{ backgroundColor: preset.hex }} />
+                                  const isHex = /^#[0-9A-Fa-f]{6}$/.test(v);
+                                  return (preset || isHex) ? (
+                                    <span key={v} title={v} className="w-4 h-4 rounded-full border border-border inline-block" style={{ backgroundColor: isHex ? v : preset?.hex }} />
                                   ) : (
                                     <span key={v} className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded text-xs">{v}</span>
                                   );
@@ -453,16 +455,40 @@ export default function Products() {
                               );
                             })}
                           </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={groupColorHex[i] ?? "#000000"}
+                              onChange={e => setGroupColorHex(prev => ({ ...prev, [i]: e.target.value }))}
+                              className="w-8 h-8 rounded-full cursor-pointer border border-border p-0.5"
+                              title="Pick custom color"
+                            />
+                            <div className="w-6 h-6 rounded-full border border-border shrink-0" style={{ backgroundColor: groupColorHex[i] ?? "#000000" }} />
+                            <span className="text-xs text-muted-foreground">Custom hex:</span>
+                            <button
+                              onClick={() => {
+                                const hex = groupColorHex[i] ?? "#000000";
+                                const existing = g.values.split(",").map(v => v.trim()).filter(Boolean);
+                                if (!existing.includes(hex)) {
+                                  updateVariantGroup(i, "values", [...existing, hex].join(", "));
+                                }
+                              }}
+                              className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-lg font-medium hover:bg-primary/20"
+                            >
+                              + Add
+                            </button>
+                          </div>
                           <input value={g.values} onChange={e => updateVariantGroup(i, "values", e.target.value)}
-                            placeholder="Or type custom colors: Rouge, Bleu, Vert"
+                            placeholder="Or type: Rouge, Bleu, #FF0000"
                             className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                           {g.values && (
                             <div className="flex flex-wrap gap-1">
                               {g.values.split(",").map(v => v.trim()).filter(Boolean).map((v, vi) => {
                                 const preset = PRESET_COLORS.find(c => c.name.toLowerCase() === v.toLowerCase());
+                                const isHex = /^#[0-9A-Fa-f]{6}$/.test(v);
                                 return (
                                   <span key={vi} className="flex items-center gap-1 px-2 py-0.5 bg-secondary border border-border rounded text-xs font-medium">
-                                    {preset && <span className="w-3 h-3 rounded-full inline-block border border-gray-200" style={{ backgroundColor: preset.hex }} />}
+                                    {(preset || isHex) && <span className="w-3 h-3 rounded-full inline-block border border-gray-200" style={{ backgroundColor: isHex ? v : preset?.hex }} />}
                                     {v}
                                   </span>
                                 );
