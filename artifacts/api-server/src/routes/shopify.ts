@@ -389,6 +389,13 @@ export async function pushOrderToShopify(storeId: string, orderId: string): Prom
           country: "DZ",
           country_code: "DZ",
         },
+        shipping_lines: [
+          {
+            title: order.shipping_option === "home_delivery" ? "الى البيت" : "من الفرع",
+            price: String(order.shipping_fee ?? "0"),
+            code: order.shipping_option ?? "home_delivery",
+          },
+        ],
         financial_status: "pending",
         payment_gateway: "cash_on_delivery",
         note: `COD Order from FlyChat COD. Wilaya: ${order.wilaya}`,
