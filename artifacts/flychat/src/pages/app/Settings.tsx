@@ -29,7 +29,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-product
 type Channel = keyof typeof CHANNEL_META;
 type AiModes = Record<Channel, "human" | "ai_autopilot">;
 
-interface WilayaPrice { home: number; pickup: number; }
+interface WilayaPrice { home: number; homeEnabled: boolean; pickup: number; pickupEnabled: boolean; }
 interface ShippingOptions {
   homeDeliveryEnabled: boolean;
   pickupEnabled: boolean;
@@ -136,13 +136,24 @@ export default function Settings() {
     setTimeout(() => setAiSaved(false), 2000);
   };
 
+  const getWilaya = (w: string) => ({
+    home: shipping.wilayaPrices[w]?.home ?? 0,
+    homeEnabled: shipping.wilayaPrices[w]?.homeEnabled ?? true,
+    pickup: shipping.wilayaPrices[w]?.pickup ?? 0,
+    pickupEnabled: shipping.wilayaPrices[w]?.pickupEnabled ?? true,
+  });
+
   const setWilayaPrice = (wilaya: string, field: "home" | "pickup", value: number) => {
     setShipping(s => ({
       ...s,
-      wilayaPrices: {
-        ...s.wilayaPrices,
-        [wilaya]: { home: s.wilayaPrices[wilaya]?.home ?? 0, pickup: s.wilayaPrices[wilaya]?.pickup ?? 0, [field]: value },
-      },
+      wilayaPrices: { ...s.wilayaPrices, [wilaya]: { ...getWilaya(wilaya), [field]: value } },
+    }));
+  };
+
+  const setWilayaEnabled = (wilaya: string, field: "homeEnabled" | "pickupEnabled", value: boolean) => {
+    setShipping(s => ({
+      ...s,
+      wilayaPrices: { ...s.wilayaPrices, [wilaya]: { ...getWilaya(wilaya), [field]: value } },
     }));
   };
 
@@ -150,9 +161,7 @@ export default function Settings() {
     const num = Number(value);
     if (isNaN(num)) return;
     const updated: Record<string, WilayaPrice> = {};
-    ALL_WILAYAS.forEach(w => {
-      updated[w] = { home: shipping.wilayaPrices[w]?.home ?? 0, pickup: shipping.wilayaPrices[w]?.pickup ?? 0, [field]: num };
-    });
+    ALL_WILAYAS.forEach(w => { updated[w] = { ...getWilaya(w), [field]: num }; });
     setShipping(s => ({ ...s, wilayaPrices: updated }));
   };
 
@@ -338,32 +347,50 @@ export default function Settings() {
 
                 {/* Wilaya rows */}
                 <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto">
-                  {ALL_WILAYAS.map((w, idx) => (
-                    <div key={w} className={`grid px-6 py-3 items-center hover:bg-secondary/20 transition-colors ${shipping.pickupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
-                      <div className="text-sm font-semibold text-foreground flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground w-5">{idx + 1}</span>
-                        {w}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">DZD</span>
-                        <input type="number" min={0}
-                          value={shipping.wilayaPrices[w]?.home ?? ""}
-                          onChange={e => setWilayaPrice(w, "home", Number(e.target.value))}
-                          placeholder="0"
-                          className="w-28 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20" />
-                      </div>
-                      {shipping.pickupEnabled && (
-                        <div className="flex items-center gap-2">
+                  {ALL_WILAYAS.map((w, idx) => {
+                    const homeOn = shipping.wilayaPrices[w]?.homeEnabled ?? true;
+                    const pickupOn = shipping.wilayaPrices[w]?.pickupEnabled ?? true;
+                    return (
+                      <div key={w} className={`grid px-6 py-3 items-center hover:bg-secondary/20 transition-colors ${shipping.pickupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                        <div className="text-sm font-semibold text-foreground flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-5">{idx + 1}</span>
+                          {w}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setWilayaEnabled(w, "homeEnabled", !homeOn)}
+                            title={homeOn ? "Click to disable home delivery for this wilaya" : "Click to enable home delivery for this wilaya"}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-colors shrink-0 ${homeOn ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-600 hover:bg-red-200"}`}>
+                            {homeOn ? "✓" : "N/A"}
+                          </button>
                           <span className="text-xs text-muted-foreground">DZD</span>
                           <input type="number" min={0}
-                            value={shipping.wilayaPrices[w]?.pickup ?? ""}
-                            onChange={e => setWilayaPrice(w, "pickup", Number(e.target.value))}
+                            value={shipping.wilayaPrices[w]?.home ?? ""}
+                            onChange={e => setWilayaPrice(w, "home", Number(e.target.value))}
+                            disabled={!homeOn}
                             placeholder="0"
-                            className="w-28 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20" />
+                            className={`w-24 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20 ${!homeOn ? "opacity-40 cursor-not-allowed" : ""}`} />
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {shipping.pickupEnabled && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setWilayaEnabled(w, "pickupEnabled", !pickupOn)}
+                              title={pickupOn ? "Click to disable stop desk for this wilaya" : "Click to enable stop desk for this wilaya"}
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-colors shrink-0 ${pickupOn ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-600 hover:bg-red-200"}`}>
+                              {pickupOn ? "✓" : "N/A"}
+                            </button>
+                            <span className="text-xs text-muted-foreground">DZD</span>
+                            <input type="number" min={0}
+                              value={shipping.wilayaPrices[w]?.pickup ?? ""}
+                              onChange={e => setWilayaPrice(w, "pickup", Number(e.target.value))}
+                              disabled={!pickupOn}
+                              placeholder="0"
+                              className={`w-24 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20 ${!pickupOn ? "opacity-40 cursor-not-allowed" : ""}`} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

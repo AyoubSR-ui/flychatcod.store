@@ -448,9 +448,16 @@ async function executeCreateOrderSilent(
         }));
 
         if (wilayaKey) {
-          shippingPrice = shippingOption === "pickup"
-            ? Number(wilayaPrices[wilayaKey]?.pickup || 0)
-            : Number(wilayaPrices[wilayaKey]?.home || 0);
+          const priceEntry = wilayaPrices[wilayaKey];
+          if (shippingOption === "pickup") {
+            const pickupEnabled = priceEntry?.pickupEnabled !== false;
+            shippingPrice = pickupEnabled ? Number(priceEntry?.pickup || 0) : 0;
+            if (!pickupEnabled) console.warn(`[AI Bridge] Pickup not available for "${action.wilaya}"`);
+          } else {
+            const homeEnabled = priceEntry?.homeEnabled !== false;
+            shippingPrice = homeEnabled ? Number(priceEntry?.home || 0) : 0;
+            if (!homeEnabled) console.warn(`[AI Bridge] Home delivery not available for "${action.wilaya}"`);
+          }
         } else {
           console.warn(`[AI Bridge] Wilaya "${action.wilaya}" not found in wilayaPrices — shippingFee will be 0`);
         }
@@ -616,9 +623,15 @@ async function executeUpdateOrderSilent(
           }));
 
           if (wilayaKey) {
-            const newShippingFee = opt === "pickup"
-              ? Number(wilayaPrices[wilayaKey]?.pickup || 0)
-              : Number(wilayaPrices[wilayaKey]?.home || 0);
+            const priceEntry = wilayaPrices[wilayaKey];
+            let newShippingFee: number;
+            if (opt === "pickup") {
+              const pickupEnabled = priceEntry?.pickupEnabled !== false;
+              newShippingFee = pickupEnabled ? Number(priceEntry?.pickup || 0) : 0;
+            } else {
+              const homeEnabled = priceEntry?.homeEnabled !== false;
+              newShippingFee = homeEnabled ? Number(priceEntry?.home || 0) : 0;
+            }
             updates.shippingFee = String(newShippingFee);
             const items = await db.select().from(orderItemsTable)
               .where(eq(orderItemsTable.orderId, existingOrder.id));
