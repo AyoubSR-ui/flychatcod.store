@@ -1,4 +1,4 @@
-import { pgTable, text, integer, jsonb, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, timestamp, boolean, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -27,6 +27,7 @@ export const conversationsTable = pgTable("conversations", {
   unreadCount: integer("unread_count").notNull().default(0),
   aiMode: aiModeEnum("ai_mode").notNull().default("human"),
   aiFlowState: text("ai_flow_state"),
+  isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

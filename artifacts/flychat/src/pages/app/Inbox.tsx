@@ -4,6 +4,7 @@ import {
   Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe,
   Paperclip, Loader2, X, Plus, Minus, Trash2, ChevronRight, ChevronLeft,
   Check, ClipboardList, CheckCircle2, Package, Bell, Bot, UserCheck,
+  Archive, ArchiveRestore,
 } from "lucide-react";
 import {
   useGetConversations, useGetMessages, useSendMessage,
@@ -222,6 +223,9 @@ export default function Inbox() {
   const [draftTab, setDraftTab] = useState<"crm" | "draft">("draft");
   const [lastCreatedOrder, setLastCreatedOrder] = useState<{ orderNumber: string; total: number; status: string; customerName: string } | null>(null);
   const [teamNotifications, setTeamNotifications] = useState<TeamNotificationToast[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedConvs, setArchivedConvs] = useState<any[]>([]);
+  const [archiveToast, setArchiveToast] = useState<string | null>(null);
 
   const msgMenuRef = useRef<HTMLDivElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
@@ -249,6 +253,49 @@ export default function Inbox() {
   const filteredConvs = channelFilter === "all"
     ? allConvs
     : allConvs.filter(c => c.channel === channelFilter);
+
+  const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+
+  const fetchArchivedConvs = useCallback(async () => {
+    const token = localStorage.getItem("flychat_token");
+    if (!token) return;
+    const res = await fetch(`${API_BASE}/api/conversations?archived=true&limit=50`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setArchivedConvs(data.conversations ?? []);
+    }
+  }, [API_BASE]);
+
+  useEffect(() => {
+    if (showArchived) fetchArchivedConvs();
+  }, [showArchived, fetchArchivedConvs]);
+
+  const archiveConv = useCallback(async (id: string) => {
+    const token = localStorage.getItem("flychat_token");
+    if (!token) return;
+    // Optimistic remove from list
+    queryClient.setQueryData(getGetConversationsQueryKey({ status: "open" }), (old: any) => {
+      if (!old) return old;
+      return { ...old, conversations: old.conversations.filter((c: any) => c.id !== id) };
+    });
+    if (activeConvId === id) setActiveConvId(null);
+    await fetch(`${API_BASE}/api/conversations/${id}/archive`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
+    setArchiveToast("Conversation archived");
+    setTimeout(() => setArchiveToast(null), 3000);
+  }, [API_BASE, activeConvId, queryClient]);
+
+  const unarchiveConv = useCallback(async (id: string) => {
+    const token = localStorage.getItem("flychat_token");
+    if (!token) return;
+    setArchivedConvs(prev => prev.filter(c => c.id !== id));
+    if (activeConvId === id) setActiveConvId(null);
+    await fetch(`${API_BASE}/api/conversations/${id}/unarchive`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
+    queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+    setArchiveToast("Conversation restored");
+    setTimeout(() => setArchiveToast(null), 3000);
+  }, [API_BASE, activeConvId, queryClient]);
 
   useEffect(() => {
     const token = localStorage.getItem("flychat_token");
@@ -516,6 +563,14 @@ export default function Inbox() {
           </div>
         )}
 
+        {/* Archive toast */}
+        {archiveToast && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-2xl shadow-xl animate-in fade-in slide-in-from-bottom-2">
+            <Archive className="w-4 h-4 shrink-0" />
+            {archiveToast}
+          </div>
+        )}
+
         {/* Message context menu */}
         {msgMenu && (
           <div ref={msgMenuRef} className="fixed z-40 bg-white border border-border rounded-2xl shadow-xl py-1 min-w-[190px]"
@@ -552,9 +607,9 @@ export default function Inbox() {
               ].map(({ key, label }) => {
                 const count = key === "all" ? allConvs.length : (channelCounts[key] || 0);
                 const cfg = CHANNEL_CONFIG[key];
-                const isActive = channelFilter === key;
+                const isActive = !showArchived && channelFilter === key;
                 return (
-                  <button key={key} onClick={() => setChannelFilter(key)}
+                  <button key={key} onClick={() => { setShowArchived(false); setChannelFilter(key); }}
                     className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border ${
                       isActive
                         ? cfg ? `${cfg.bg} ${cfg.color} ${cfg.border}` : "bg-primary/10 text-primary border-primary/20"
@@ -566,38 +621,74 @@ export default function Inbox() {
                   </button>
                 );
               })}
+              <button onClick={() => setShowArchived(v => !v)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                  showArchived ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-transparent text-muted-foreground border-transparent hover:bg-secondary"
+                }`}>
+                <Archive className="w-3 h-3" />
+                Archived
+                {archivedConvs.length > 0 && <span className={`px-1 rounded-full ${showArchived ? "bg-amber-200/60" : "bg-secondary"}`}>{archivedConvs.length}</span>}
+              </button>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {isLoadingConvs ? (
+            {showArchived ? (
+              archivedConvs.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">No archived conversations</div>
+              ) : archivedConvs.map((conv) => (
+                <div key={conv.id} className={`group w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
+                  <button className="w-full text-left" onClick={() => setActiveConvId(conv.id)}>
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="font-semibold text-sm text-foreground truncate flex-1">{conv.customerName}</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <ChannelBadge channel={conv.channel} />
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{conv.lastMessage || "No messages"}</p>
+                  </button>
+                  <button onClick={e => { e.stopPropagation(); unarchiveConv(conv.id); }}
+                    title="Unarchive"
+                    className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-600 hover:text-amber-800 font-bold transition-colors">
+                    <ArchiveRestore className="w-3 h-3" /> Restore
+                  </button>
+                </div>
+              ))
+            ) : isLoadingConvs ? (
               <div className="p-4 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
             ) : filteredConvs.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">No conversations</div>
             ) : filteredConvs.map((conv) => (
-              <button key={conv.id} onClick={() => setActiveConvId(conv.id)}
-                className={`w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-semibold text-sm text-foreground truncate flex-1">{conv.customerName}</span>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
-                </div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <ChannelBadge channel={conv.channel} />
-                  {conv.aiMode === "ai_autopilot" && (
-                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200">
-                      <Bot className="w-2.5 h-2.5" /> AI
-                    </span>
-                  )}
-                </div>
-                <div className="flex justify-between items-center">
-                  <p className="text-xs text-muted-foreground truncate flex-1 pr-2">{conv.lastMessage || "No messages"}</p>
-                  {conv.unreadCount > 0 && (
-                    <span className="bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-5 text-center">
-                      {conv.unreadCount}
-                    </span>
-                  )}
-                </div>
-              </button>
+              <div key={conv.id} className={`group relative w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
+                <button className="w-full text-left" onClick={() => setActiveConvId(conv.id)}>
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-semibold text-sm text-foreground truncate flex-1 pr-6">{conv.customerName}</span>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <ChannelBadge channel={conv.channel} />
+                    {conv.aiMode === "ai_autopilot" && (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200">
+                        <Bot className="w-2.5 h-2.5" /> AI
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs text-muted-foreground truncate flex-1 pr-2">{conv.lastMessage || "No messages"}</p>
+                    {conv.unreadCount > 0 && (
+                      <span className="bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-5 text-center">
+                        {conv.unreadCount}
+                      </span>
+                    )}
+                  </div>
+                </button>
+                <button onClick={e => { e.stopPropagation(); archiveConv(conv.id); }}
+                  title="Archive"
+                  className="absolute top-2 right-2 p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-secondary transition-all text-muted-foreground hover:text-foreground">
+                  <Archive className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
           </div>
         </div>

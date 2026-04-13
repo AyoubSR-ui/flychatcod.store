@@ -12,14 +12,18 @@ router.get("/", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ conversations: [], total: 0, page: 1, limit: 20 }); return; }
 
-    const { status, search, page = "1", limit = "20" } = req.query as Record<string, string>;
+    const { status, search, page = "1", limit = "20", archived = "false" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, parseInt(limit));
     const offset = (pageNum - 1) * limitNum;
+    const showArchived = archived === "true";
 
-    const conditions = [eq(conversationsTable.storeId, storeId)];
-    if (status && ["open", "closed", "pending", "archived"].includes(status)) {
-      const validStatus = status as "open" | "closed" | "pending" | "archived";
+    const conditions = [
+      eq(conversationsTable.storeId, storeId),
+      eq(conversationsTable.isArchived, showArchived),
+    ];
+    if (!showArchived && status && ["open", "closed", "pending"].includes(status)) {
+      const validStatus = status as "open" | "closed" | "pending";
       conditions.push(eq(conversationsTable.status, validStatus));
     }
     if (search) {
@@ -142,6 +146,36 @@ router.patch("/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to update conversation" });
+  }
+});
+
+router.patch("/:id/archive", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const [updated] = await db.update(conversationsTable)
+      .set({ isArchived: true, updatedAt: new Date() })
+      .where(and(eq(conversationsTable.id, req.params.id), eq(conversationsTable.storeId, storeId!)))
+      .returning();
+    if (!updated) { res.status(404).json({ error: "not_found" }); return; }
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.patch("/:id/unarchive", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const [updated] = await db.update(conversationsTable)
+      .set({ isArchived: false, updatedAt: new Date() })
+      .where(and(eq(conversationsTable.id, req.params.id), eq(conversationsTable.storeId, storeId!)))
+      .returning();
+    if (!updated) { res.status(404).json({ error: "not_found" }); return; }
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error" });
   }
 });
 
