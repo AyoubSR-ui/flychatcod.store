@@ -1191,10 +1191,81 @@ async function executeAction(
     }
 
     case "create_order_flow":
-    case "escalate":
+      console.log(`[AutoEngine] Action "${rule.action}" is not yet implemented (rule: ${rule.id})`);
+      break;
+
+    case "escalate": {
+      await escalateConversation(ctx.storeId, ctx.conversationId, ctx.customerName ?? "Customer");
+      break;
+    }
+
     default:
       console.log(`[AutoEngine] Action "${rule.action}" is not yet implemented (rule: ${rule.id})`);
       break;
+  }
+}
+
+// ─── Shared escalation helper (used by automation + route voice handlers) ──────
+export async function escalateConversation(
+  storeId: string,
+  conversationId: string,
+  customerName: string = "Customer",
+): Promise<void> {
+  try {
+    // 1. Set aiMode to human
+    await db.update(conversationsTable)
+      .set({ aiMode: "human", updatedAt: new Date() })
+      .where(eq(conversationsTable.id, conversationId));
+
+    // 2. Socket notification to dashboard
+    try {
+      const io = getIO();
+      io.to(`store:${storeId}`).emit("team_notification", {
+        type: "escalation",
+        message: `Conversation with ${customerName} escalated to human agent`,
+        conversationId,
+        orderNumber: null,
+        customerName,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {}
+
+    // 3. Email active team members
+    const [store] = await db.select({ name: storesTable.name })
+      .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+    const storeName = store?.name ?? "FlyChat";
+
+    const agents = await db.select({ email: teamMembersTable.email, name: teamMembersTable.name })
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.storeId, storeId), eq(teamMembersTable.status, "active")));
+
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    if (RESEND_API_KEY) {
+      const inboxUrl = `https://flychatcod.store/inbox`;
+      const html = `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
+          <h2 style="color:#2563eb;">🔔 ${storeName} — Conversation Escalated</h2>
+          <p>Conversation with <strong>${customerName}</strong> has been escalated and requires a human agent.</p>
+          <a href="${inboxUrl}" style="display:inline-block;background:#2563eb;color:white;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">Open Inbox</a>
+        </div>`;
+      for (const agent of agents) {
+        if (!agent.email) continue;
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: "FlyChat <notifications@flychatcod.store>",
+            to: [agent.email],
+            subject: `🔔 ${storeName} — Escalation: ${customerName}`,
+            html,
+          }),
+        }).catch(() => {});
+      }
+    }
+
+    console.log(`[AutoEngine] Escalated conversation ${conversationId} to human — notified ${agents.length} agents`);
+  } catch (err) {
+    console.error("[AutoEngine] Escalation error:", err);
   }
 }
 

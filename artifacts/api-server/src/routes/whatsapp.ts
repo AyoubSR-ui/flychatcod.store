@@ -217,8 +217,8 @@ async function processIncomingWhatsAppMessage(incoming: {
     await sendWhatsAppMessage(phoneNumberId, accessToken, incoming.from,
       "🎤 واه سمعناك — ما نقدرش نقرا الرسايل الصوتية. كتب طلبك هنا ونردو عليك قريب 🙏"
     );
-    await db.update(conversationsTable).set({ aiMode: "human" })
-      .where(eq(conversationsTable.id, conversation.id));
+    const { escalateConversation } = await import("../lib/automation-engine.js");
+    await escalateConversation(store.id, conversation.id, conversation.customerName ?? incoming.from);
     console.log(`[WhatsApp] Voice message — escalated to human: conv=${conversation.id}`);
     return;
   }

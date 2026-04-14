@@ -74,8 +74,8 @@ const ACTION_META: Record<string, { label: string; description: string; live: bo
   },
   escalate: {
     label: "Escalate to Human",
-    description: "Flag the conversation for urgent human review",
-    live: false,
+    description: "Switch AI off and notify your team to take over the conversation",
+    live: true,
     configFields: [],
   },
 };
