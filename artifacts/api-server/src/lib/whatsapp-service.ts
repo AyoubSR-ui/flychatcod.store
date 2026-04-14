@@ -7,6 +7,7 @@ export interface WhatsAppMessage {
   timestamp: string;
   text?: { body: string };
   audio?: { id: string };
+  image?: { id: string; mime_type?: string; sha256?: string };
   type: string;
   referral?: {
     source_url?: string;
@@ -84,6 +85,7 @@ export function parseWhatsAppWebhook(body: WhatsAppWebhookPayload): Array<{
   timestamp: Date;
   adRef?: string | null;
   isAudio?: boolean;
+  imageMediaId?: string;
 }> {
   const results = [];
   for (const entry of body.entry ?? []) {
@@ -99,6 +101,13 @@ export function parseWhatsAppWebhook(body: WhatsAppWebhookPayload): Array<{
             text: "[🎤 Voice message]",
             timestamp: new Date(parseInt(msg.timestamp) * 1000),
             adRef, isAudio: true,
+          });
+        } else if (msg.type === "image" && msg.image?.id) {
+          results.push({
+            phoneNumberId, from: msg.from, messageId: msg.id,
+            text: "📷 Image",
+            timestamp: new Date(parseInt(msg.timestamp) * 1000),
+            adRef, imageMediaId: msg.image.id,
           });
         } else if (msg.type === "text" && msg.text?.body) {
           results.push({

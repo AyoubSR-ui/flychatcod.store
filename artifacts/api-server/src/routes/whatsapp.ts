@@ -120,6 +120,7 @@ async function processIncomingWhatsAppMessage(incoming: {
   timestamp: Date;
   adRef?: string | null;
   isAudio?: boolean;
+  imageMediaId?: string;
 }) {
   // 1. Find channel
   const { rows: channelRows } = await pool.query(
@@ -213,9 +214,30 @@ async function processIncomingWhatsAppMessage(incoming: {
 
   // 6. Save message
   const msgId = generateId("msg");
+
+  // Resolve WhatsApp image media ID → download URL via Graph API
+  let msgMetadata: Record<string, unknown> | undefined;
+  if (incoming.imageMediaId) {
+    try {
+      const accessToken = channel.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN ?? "";
+      const mediaRes = await fetch(
+        `https://graph.facebook.com/v19.0/${incoming.imageMediaId}?access_token=${accessToken}`
+      );
+      if (mediaRes.ok) {
+        const mediaData = await mediaRes.json() as any;
+        if (mediaData.url) {
+          msgMetadata = { imageUrl: mediaData.url, imageAccessToken: accessToken, isImage: true };
+        }
+      }
+    } catch (err) {
+      console.error("[WhatsApp] Failed to resolve image URL:", err);
+    }
+  }
+
   await db.insert(messagesTable).values({
     id: msgId, conversationId: conversation.id, content: incoming.text,
     sender: "customer", externalId: incoming.messageId, createdAt: incoming.timestamp,
+    metadata: msgMetadata,
   });
 
   await db.update(conversationsTable).set({
@@ -224,7 +246,7 @@ async function processIncomingWhatsAppMessage(incoming: {
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));
 
-  console.log(`[WhatsApp] Message saved: conv=${conversation.id}${incoming.adRef ? ` adRef=${incoming.adRef}` : ""}`);
+  console.log(`[WhatsApp] Message saved: conv=${conversation.id}${incoming.adRef ? ` adRef=${incoming.adRef}` : ""}${incoming.imageMediaId ? " (image)" : ""}`);
 
   // 7. Socket event
   try {

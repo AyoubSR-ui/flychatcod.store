@@ -45,6 +45,8 @@ interface AgentRequest {
   aiFlowState?: string;
   detectedLanguage?: string;
   shippingOptions?: Record<string, unknown>;
+  imageUrl?: string;
+  imageAccessToken?: string;
 }
 
 interface AgentResponse {
@@ -150,12 +152,20 @@ export async function callAiBridge(params: {
     );
     const shippingOptions = shippingRows[0]?.shipping_options ?? undefined;
 
+    // Check if the last customer message has an image attachment
+    const lastCustomerMsg = history.slice().reverse().find(m => m.sender === "customer");
+    const lastMsgMeta = lastCustomerMsg?.metadata as Record<string, unknown> | null;
+    const imageUrl = (lastMsgMeta?.imageUrl as string) || undefined;
+    const imageAccessToken = (lastMsgMeta?.imageAccessToken as string) || undefined;
+
     const agentResponse = await callAiAgent({
       conversationId, storeId, storeName, aiSystemPrompt,
       history: agentHistory, products, recentOrders,
       aiFlowState: conv.aiFlowState ?? undefined,
       detectedLanguage: conv.aiConversationLanguage ?? undefined,
       shippingOptions,
+      imageUrl,
+      imageAccessToken,
     });
 
     let { reply, detectedLanguage, action } = agentResponse;

@@ -206,18 +206,21 @@ messengerRouter.post("/webhook", async (req, res) => {
         }
 
         const text = event.message.text;
-        const isAudio = !text && event.message.attachments?.[0]?.type === "audio";
-        if (!text && !isAudio) continue;
+        const attachment = event.message.attachments?.[0];
+        const isAudio = !text && attachment?.type === "audio";
+        const isImage = !text && attachment?.type === "image";
+        if (!text && !isAudio && !isImage) continue;
         const referral = event.referral || event.message?.referral || null;
         const adRef = referral?.ref || null;
         await processIncomingMessengerMessage({
           pageId,
           senderId: event.sender.id,
           messageId: event.message.mid,
-          text: text || "[🎤 Voice message]",
+          text: text || (isAudio ? "[🎤 Voice message]" : "📷 Image"),
           timestamp: new Date(event.timestamp),
           adRef,
           isAudio,
+          imageUrl: isImage ? (attachment?.payload?.url ?? undefined) : undefined,
         }).catch(err => console.error("[Messenger] Processing error:", err));
       }
     }
@@ -310,6 +313,7 @@ async function processIncomingMessengerMessage(incoming: {
   timestamp: Date;
   adRef?: string | null;
   isAudio?: boolean;
+  imageUrl?: string;
 }) {
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections WHERE channel = 'messenger' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
@@ -371,9 +375,16 @@ async function processIncomingMessengerMessage(incoming: {
   if (existing) return;
 
   const msgId = generateId("msg");
+  const msgMetadata: Record<string, unknown> = {};
+  if (incoming.imageUrl) {
+    msgMetadata.imageUrl = incoming.imageUrl;
+    msgMetadata.imageAccessToken = channel.accessToken;
+    msgMetadata.isImage = true;
+  }
   await db.insert(messagesTable).values({
     id: msgId, conversationId: conversation.id, content: incoming.text,
     sender: "customer", externalId: incoming.messageId, createdAt: incoming.timestamp,
+    metadata: Object.keys(msgMetadata).length ? msgMetadata : undefined,
   });
 
   await db.update(conversationsTable).set({
@@ -382,7 +393,7 @@ async function processIncomingMessengerMessage(incoming: {
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));
 
-  console.log(`[Messenger] Message saved: conv=${conversation.id}`);
+  console.log(`[Messenger] Message saved: conv=${conversation.id}${incoming.imageUrl ? " (image)" : ""}`);
 
   try {
     const { getIO } = await import("../socket.js");
