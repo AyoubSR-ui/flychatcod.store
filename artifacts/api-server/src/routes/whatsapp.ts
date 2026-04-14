@@ -119,6 +119,7 @@ async function processIncomingWhatsAppMessage(incoming: {
   text: string;
   timestamp: Date;
   adRef?: string | null;
+  isAudio?: boolean;
 }) {
   // 1. Find channel
   const { rows: channelRows } = await pool.query(
@@ -208,6 +209,19 @@ async function processIncomingWhatsAppMessage(incoming: {
       conversationId: conversation.id, storeId: store.id,
     });
   } catch {}
+
+  // 7b. Voice message — send friendly reply, escalate to human, skip AI
+  if (incoming.isAudio) {
+    const accessToken = channel.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN ?? "";
+    const phoneNumberId = channel.externalAccountId ?? process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+    await sendWhatsAppMessage(phoneNumberId, accessToken, incoming.from,
+      "🎤 واه سمعناك — ما نقدرش نقرا الرسايل الصوتية. كتب طلبك هنا ونردو عليك قريب 🙏"
+    );
+    await db.update(conversationsTable).set({ aiMode: "human" })
+      .where(eq(conversationsTable.id, conversation.id));
+    console.log(`[WhatsApp] Voice message — escalated to human: conv=${conversation.id}`);
+    return;
+  }
 
   // 8. AI reply
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {

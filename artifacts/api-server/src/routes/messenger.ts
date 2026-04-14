@@ -191,16 +191,18 @@ messengerRouter.post("/webhook", async (req, res) => {
       for (const event of entry.messaging || []) {
         if (!event.message || event.message.is_echo) continue;
         const text = event.message.text;
-        if (!text) continue;
+        const isAudio = !text && event.message.attachments?.[0]?.type === "audio";
+        if (!text && !isAudio) continue;
         const referral = event.referral || event.message?.referral || null;
         const adRef = referral?.ref || null;
         await processIncomingMessengerMessage({
           pageId,
           senderId: event.sender.id,
           messageId: event.message.mid,
-          text,
+          text: text || "[🎤 Voice message]",
           timestamp: new Date(event.timestamp),
           adRef,
+          isAudio,
         }).catch(err => console.error("[Messenger] Processing error:", err));
       }
     }
@@ -247,6 +249,7 @@ async function processIncomingMessengerMessage(incoming: {
   text: string;
   timestamp: Date;
   adRef?: string | null;
+  isAudio?: boolean;
 }) {
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections WHERE channel = 'messenger' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
@@ -329,6 +332,17 @@ async function processIncomingMessengerMessage(incoming: {
       storeId: store.id,
     });
   } catch {}
+
+  // Voice message — send friendly reply, escalate to human, skip AI
+  if (incoming.isAudio) {
+    await sendMessengerMessage(channel.accessToken, incoming.senderId,
+      "🎤 واه سمعناك — ما نقدرش نقرا الرسايل الصوتية. كتب طلبك هنا ونردو عليك قريب 🙏"
+    );
+    await db.update(conversationsTable).set({ aiMode: "human" })
+      .where(eq(conversationsTable.id, conversation.id));
+    console.log(`[Messenger] Voice message — escalated to human: conv=${conversation.id}`);
+    return;
+  }
 
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const rawProducts = await db.select().from(productsTable).where(eq(productsTable.storeId, store.id));

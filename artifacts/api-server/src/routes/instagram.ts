@@ -188,16 +188,18 @@ instagramRouter.post("/webhook", async (req, res) => {
       for (const event of entry.messaging || []) {
         if (!event.message || event.message.is_echo) continue;
         const text = event.message.text;
-        if (!text) continue;
+        const isAudio = !text && event.message.attachments?.[0]?.type === "audio";
+        if (!text && !isAudio) continue;
         const referral = event.referral || event.message?.referral || null;
         const adRef = referral?.ref || null;
         await processIncomingInstagramMessage({
           igAccountId: event.recipient.id,
           senderId: event.sender.id,
           messageId: event.message.mid,
-          text,
+          text: text || "[🎤 Voice message]",
           timestamp: new Date(event.timestamp),
           adRef,
+          isAudio,
         }).catch(err => console.error("[Instagram] Processing error:", err));
       }
     }
@@ -240,6 +242,7 @@ async function processIncomingInstagramMessage(incoming: {
   text: string;
   timestamp: Date;
   adRef?: string | null;
+  isAudio?: boolean;
 }) {
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" 
@@ -350,6 +353,17 @@ async function processIncomingInstagramMessage(incoming: {
       storeId: store.id,
     });
   } catch {}
+
+  // Voice message — send friendly reply, escalate to human, skip AI
+  if (incoming.isAudio) {
+    await sendInstagramMessage(channel.accessToken, incoming.senderId,
+      "🎤 واه سمعناك — ما نقدرش نقرا الرسايل الصوتية. كتب طلبك هنا ونردو عليك قريب 🙏"
+    );
+    await db.update(conversationsTable).set({ aiMode: "human" })
+      .where(eq(conversationsTable.id, conversation.id));
+    console.log(`[Instagram] Voice message — escalated to human: conv=${conversation.id}`);
+    return;
+  }
 
   if (conversation.aiMode === "ai_autopilot" && store.aiEnabled) {
     const rawProducts = await db.select().from(productsTable)

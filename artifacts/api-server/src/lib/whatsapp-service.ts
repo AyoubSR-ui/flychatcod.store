@@ -6,6 +6,7 @@ export interface WhatsAppMessage {
   id: string;
   timestamp: string;
   text?: { body: string };
+  audio?: { id: string };
   type: string;
   referral?: {
     source_url?: string;
@@ -82,6 +83,7 @@ export function parseWhatsAppWebhook(body: WhatsAppWebhookPayload): Array<{
   text: string;
   timestamp: Date;
   adRef?: string | null;
+  isAudio?: boolean;
 }> {
   const results = [];
   for (const entry of body.entry ?? []) {
@@ -90,17 +92,22 @@ export function parseWhatsAppWebhook(body: WhatsAppWebhookPayload): Array<{
       if (!value.messages) continue;
       const phoneNumberId = value.metadata.phone_number_id;
       for (const msg of value.messages) {
-        if (msg.type !== "text" || !msg.text?.body) continue;
-        // Extract ad referral — WhatsApp sends referral.source_id or ctwa_clid
         const adRef = msg.referral?.source_id || msg.referral?.ctwa_clid || null;
-        results.push({
-          phoneNumberId,
-          from: msg.from,
-          messageId: msg.id,
-          text: msg.text.body,
-          timestamp: new Date(parseInt(msg.timestamp) * 1000),
-          adRef,
-        });
+        if (msg.type === "audio") {
+          results.push({
+            phoneNumberId, from: msg.from, messageId: msg.id,
+            text: "[🎤 Voice message]",
+            timestamp: new Date(parseInt(msg.timestamp) * 1000),
+            adRef, isAudio: true,
+          });
+        } else if (msg.type === "text" && msg.text?.body) {
+          results.push({
+            phoneNumberId, from: msg.from, messageId: msg.id,
+            text: msg.text.body,
+            timestamp: new Date(parseInt(msg.timestamp) * 1000),
+            adRef,
+          });
+        }
       }
     }
   }
