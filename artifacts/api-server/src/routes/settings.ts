@@ -227,4 +227,99 @@ router.patch("/channels-ai", requireAuth, async (req, res) => {
   }
 });
 
+// ─── AI Rules ─────────────────────────────────────────────────────────────────
+router.get("/ai-rules", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT metadata FROM stores WHERE id = $1 LIMIT 1`,
+      [req.user!.storeId]
+    );
+    const meta = rows[0]?.metadata || {};
+    res.json({ rules: meta.aiRules || "" });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.patch("/ai-rules", requireAuth, async (req, res) => {
+  try {
+    const { rules } = req.body;
+    await pool.query(
+      `UPDATE stores SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify({ aiRules: rules ?? "" }), req.user!.storeId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ─── AI Language ──────────────────────────────────────────────────────────────
+router.get("/ai-language", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT metadata FROM stores WHERE id = $1 LIMIT 1`,
+      [req.user!.storeId]
+    );
+    const meta = rows[0]?.metadata || {};
+    res.json({ language: meta.aiLanguage || "auto" });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.patch("/ai-language", requireAuth, async (req, res) => {
+  try {
+    const { language } = req.body;
+    await pool.query(
+      `UPDATE stores SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify({ aiLanguage: language || "auto" }), req.user!.storeId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ─── AI Data Quality ──────────────────────────────────────────────────────────
+router.get("/ai-data-quality", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { rows: productRows } = await pool.query(
+      `SELECT COUNT(*) as total,
+              COUNT(*) FILTER (WHERE description IS NOT NULL AND description != '') as with_desc,
+              COUNT(*) FILTER (WHERE stock IS NOT NULL) as with_stock,
+              COUNT(*) FILTER (WHERE is_active = true) as active
+       FROM products WHERE store_id = $1`,
+      [storeId]
+    );
+    const { rows: storeRows } = await pool.query(
+      `SELECT ai_system_prompt, name FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const { rows: shippingRows } = await pool.query(
+      `SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+
+    const p = productRows[0];
+    const store = storeRows[0];
+    const shippingOptions = shippingRows[0]?.shipping_options || {};
+
+    res.json({
+      products: {
+        total: parseInt(p.total) || 0,
+        withDescription: parseInt(p.with_desc) || 0,
+        withStock: parseInt(p.with_stock) || 0,
+        active: parseInt(p.active) || 0,
+      },
+      hasSystemPrompt: !!(store?.ai_system_prompt?.trim()),
+      hasStoreName: !!(store?.name?.trim()),
+      hasShipping: !!(shippingOptions.homeDeliveryEnabled || shippingOptions.pickupEnabled),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 export default router;

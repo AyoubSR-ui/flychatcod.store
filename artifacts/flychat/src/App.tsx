@@ -33,6 +33,7 @@ import Channels from "@/pages/app/Channels";
 import Team from "@/pages/app/Team";
 import Billing from "@/pages/app/Billing";
 import Settings from "@/pages/app/Settings";
+import AiSettings from "@/pages/app/AiSettings";
 import Admin from "@/pages/app/Admin";
 import AdLinks from "@/pages/app/AdLinks";
 
@@ -92,6 +93,7 @@ function Router() {
       <Route path="/team">{() => <ProtectedRoute component={Team} />}</Route>
       <Route path="/billing">{() => <ProtectedRoute component={Billing} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
+      <Route path="/ai-settings">{() => <ProtectedRoute component={AiSettings} />}</Route>
       <Route path="/admin">{() => <ProtectedRoute component={Admin} />}</Route>
 
       <Route component={NotFound} />
