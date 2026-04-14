@@ -189,7 +189,22 @@ messengerRouter.post("/webhook", async (req, res) => {
     for (const entry of body.entry || []) {
       const pageId = entry.id;
       for (const event of entry.messaging || []) {
-        if (!event.message || event.message.is_echo) continue;
+        if (!event.message) continue;
+
+        // Echo: message sent outward from Meta Business Suite — save as agent message
+        if (event.message.is_echo) {
+          const recipientId = event.recipient?.id;
+          if (!recipientId) continue;
+          await saveMessengerEcho({
+            pageId,
+            recipientId,
+            messageId: event.message.mid,
+            text: event.message.text || "[attachment]",
+            timestamp: new Date(event.timestamp),
+          }).catch(err => console.error("[Messenger] Echo save failed:", err));
+          continue;
+        }
+
         const text = event.message.text;
         const isAudio = !text && event.message.attachments?.[0]?.type === "audio";
         if (!text && !isAudio) continue;
@@ -239,6 +254,51 @@ async function sendMessengerMessage(pageAccessToken: string, recipientId: string
     throw new Error(`Messenger send failed`);
   }
   return data;
+}
+
+// ─── Save Messenger Echo (outgoing message from Business Suite) ───────────────
+async function saveMessengerEcho(incoming: {
+  pageId: string;
+  recipientId: string;
+  messageId: string;
+  text: string;
+  timestamp: Date;
+}) {
+  const { rows: channelRows } = await pool.query(
+    `SELECT store_id as "storeId" FROM channel_connections WHERE channel = 'messenger' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
+    [incoming.pageId]
+  );
+  const channel = channelRows[0];
+  if (!channel) return;
+
+  const customer = await db.select().from(customersTable)
+    .where(and(eq(customersTable.storeId, channel.storeId), eq(customersTable.phone, incoming.recipientId)))
+    .limit(1).then(r => r[0] ?? null);
+  if (!customer) return;
+
+  const conv = await db.select().from(conversationsTable)
+    .where(and(
+      eq(conversationsTable.storeId, channel.storeId),
+      eq(conversationsTable.customerId, customer.id),
+      eq(conversationsTable.channel, "messenger"),
+    )).limit(1).then(r => r[0] ?? null);
+  if (!conv) return;
+
+  if (incoming.messageId) {
+    const { rows } = await pool.query(`SELECT id FROM messages WHERE external_id = $1 LIMIT 1`, [incoming.messageId]);
+    if (rows.length > 0) return;
+  }
+
+  await db.insert(messagesTable).values({
+    id: generateId("msg"),
+    conversationId: conv.id,
+    content: incoming.text,
+    sender: "agent",
+    externalId: incoming.messageId || null,
+    metadata: { source: "meta_echo", channel: "messenger" },
+    createdAt: incoming.timestamp,
+  });
+  console.log(`[Messenger] Echo saved for conv ${conv.id}`);
 }
 
 // ─── Process Incoming Message ─────────────────────────────────────────────────

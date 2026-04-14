@@ -9,8 +9,10 @@ async function runMigrations() {
     await pool.query(`
       ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE;
       CREATE INDEX IF NOT EXISTS idx_conversations_archived ON conversations(store_id, is_archived);
+      ALTER TABLE messages ADD COLUMN IF NOT EXISTS external_id TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id) WHERE external_id IS NOT NULL;
     `);
-    console.log("[Migration] is_archived column ready");
+    console.log("[Migration] Schema ready (is_archived, messages.external_id unique index)");
   } catch (err) {
     console.error("[Migration] Failed:", err);
   }

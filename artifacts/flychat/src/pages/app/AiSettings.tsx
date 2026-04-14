@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save } from "lucide-react";
+import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save, RefreshCw, Download } from "lucide-react";
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
@@ -265,6 +265,87 @@ function HowItWorksSection() {
   );
 }
 
+// ─── Training Data Section ────────────────────────────────────────────────────
+function TrainingDataSection() {
+  const [syncing, setSyncing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ messagesSynced: number; conversationsSynced: number } | null>(null);
+  const [syncError, setSyncError] = useState("");
+
+  async function handleExport() {
+    setDownloading(true);
+    try {
+      const res = await fetch(`${API}/api/sync/export-training-data`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "training_data.jsonl";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silent
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError("");
+    try {
+      const data = await apiFetch("/api/sync/meta-conversations");
+      setSyncResult(data);
+    } catch {
+      setSyncError("Sync failed. Check your Meta channel connections.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Sync your Meta (Messenger/Instagram) conversation history and export it as a JSONL file for fine-tuning a custom AI model on your store's real conversations.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={handleSync}
+          disabled={syncing}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          {syncing ? "Syncing…" : "Sync Meta Conversations"}
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={downloading}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-secondary disabled:opacity-50 transition-colors"
+        >
+          {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          Export Training Data (JSONL)
+        </button>
+      </div>
+      {syncResult && (
+        <p className="text-sm text-green-600 dark:text-green-400">
+          <CheckCircle2 className="inline w-4 h-4 mr-1" />
+          Synced {syncResult.messagesSynced} messages from {syncResult.conversationsSynced} conversations.
+        </p>
+      )}
+      {syncError && (
+        <p className="text-sm text-destructive">
+          <AlertCircle className="inline w-4 h-4 mr-1" />
+          {syncError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Section Card ─────────────────────────────────────────────────────────────
 function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
   return (
@@ -309,6 +390,10 @@ export default function AiSettings() {
 
           <Section icon={CheckCircle2} title="Data Quality">
             <DataQualitySection />
+          </Section>
+
+          <Section icon={Download} title="Training Data">
+            <TrainingDataSection />
           </Section>
         </div>
       </div>

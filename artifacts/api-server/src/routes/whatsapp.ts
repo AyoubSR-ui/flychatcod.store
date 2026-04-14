@@ -132,6 +132,31 @@ async function processIncomingWhatsAppMessage(incoming: {
     return;
   }
 
+  // Echo guard: if message is FROM our own number, save as agent message and stop
+  const ourPhoneNumber = channel.externalAccountId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (incoming.from === ourPhoneNumber) {
+    const customer = await db.select().from(customersTable)
+      .where(eq(customersTable.storeId, channel.storeId))
+      .limit(1).then(r => r[0] ?? null);
+    if (customer) {
+      const conv = await db.select().from(conversationsTable)
+        .where(and(eq(conversationsTable.storeId, channel.storeId), eq(conversationsTable.channel, "whatsapp")))
+        .limit(1).then(r => r[0] ?? null);
+      if (conv && incoming.messageId) {
+        const { rows: dup } = await pool.query(`SELECT id FROM messages WHERE external_id = $1 LIMIT 1`, [incoming.messageId]);
+        if (dup.length === 0) {
+          await db.insert(messagesTable).values({
+            id: generateId("msg"), conversationId: conv.id, content: incoming.text,
+            sender: "agent", externalId: incoming.messageId,
+            metadata: { source: "whatsapp_echo" }, createdAt: incoming.timestamp,
+          });
+          console.log(`[WhatsApp] Echo saved for conv ${conv.id}`);
+        }
+      }
+    }
+    return;
+  }
+
   // 2. Load store
   const { rows: storeRows } = await pool.query(
     `SELECT *, ai_enabled as "aiEnabled", ai_system_prompt as "aiSystemPrompt" FROM stores WHERE id = $1 LIMIT 1`,

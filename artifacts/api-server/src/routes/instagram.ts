@@ -186,7 +186,23 @@ instagramRouter.post("/webhook", async (req, res) => {
     if (body.object !== "instagram") return;
     for (const entry of body.entry || []) {
       for (const event of entry.messaging || []) {
-        if (!event.message || event.message.is_echo) continue;
+        if (!event.message) continue;
+
+        // Echo: message sent from our IG account — save as agent message
+        if (event.message.is_echo) {
+          const recipientId = event.recipient?.id;
+          const igAccountId = event.sender?.id;
+          if (!recipientId || !igAccountId) continue;
+          await saveInstagramEcho({
+            igAccountId,
+            recipientId,
+            messageId: event.message.mid,
+            text: event.message.text || "[attachment]",
+            timestamp: new Date(event.timestamp),
+          }).catch(err => console.error("[Instagram] Echo save failed:", err));
+          continue;
+        }
+
         const text = event.message.text;
         const isAudio = !text && event.message.attachments?.[0]?.type === "audio";
         if (!text && !isAudio) continue;
@@ -232,6 +248,51 @@ async function sendInstagramMessage(accessToken: string, recipientId: string, te
     throw new Error(`Instagram send failed`);
   }
   return data;
+}
+
+// ─── Save Instagram Echo (outgoing message from our IG account) ───────────────
+async function saveInstagramEcho(incoming: {
+  igAccountId: string;
+  recipientId: string;
+  messageId: string;
+  text: string;
+  timestamp: Date;
+}) {
+  const { rows: channelRows } = await pool.query(
+    `SELECT store_id as "storeId" FROM channel_connections WHERE channel = 'instagram' AND status = 'connected' AND (external_account_id = $1 OR external_account_id = 'pending') LIMIT 1`,
+    [incoming.igAccountId]
+  );
+  const channel = channelRows[0];
+  if (!channel) return;
+
+  const customer = await db.select().from(customersTable)
+    .where(and(eq(customersTable.storeId, channel.storeId), eq(customersTable.phone, incoming.recipientId)))
+    .limit(1).then(r => r[0] ?? null);
+  if (!customer) return;
+
+  const conv = await db.select().from(conversationsTable)
+    .where(and(
+      eq(conversationsTable.storeId, channel.storeId),
+      eq(conversationsTable.customerId, customer.id),
+      eq(conversationsTable.channel, "instagram"),
+    )).limit(1).then(r => r[0] ?? null);
+  if (!conv) return;
+
+  if (incoming.messageId) {
+    const { rows } = await pool.query(`SELECT id FROM messages WHERE external_id = $1 LIMIT 1`, [incoming.messageId]);
+    if (rows.length > 0) return;
+  }
+
+  await db.insert(messagesTable).values({
+    id: generateId("msg"),
+    conversationId: conv.id,
+    content: incoming.text,
+    sender: "agent",
+    externalId: incoming.messageId || null,
+    metadata: { source: "meta_echo", channel: "instagram" },
+    createdAt: incoming.timestamp,
+  });
+  console.log(`[Instagram] Echo saved for conv ${conv.id}`);
 }
 
 // ─── Process Incoming Message ─────────────────────────────────────────────────
