@@ -7,48 +7,69 @@ import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();
 
-// ─── Backfill Messenger Conversations ────────────────────────────────────────
-// Fetches past conversations from Meta Graph API and syncs messages into our DB.
-// Only works for Messenger (Facebook page inbox). Requires message_echoes subscription.
+// ─── Backfill Meta Conversations ─────────────────────────────────────────────
+// Messenger: GET /me/conversations?platform=messenger  (page access token)
+// Instagram: GET /me/conversations?platform=instagram  (IG access token)
+// WhatsApp:  not supported via Graph API — messages not retrievable historically
 router.get("/meta-conversations", requireAuth, async (req, res) => {
+  let currentChannel = "none";
   try {
     const storeId = req.user!.storeId;
 
-    // Get all connected Meta channels for this store
     const { rows: channels } = await pool.query(
       `SELECT * FROM channel_connections WHERE store_id = $1 AND status = 'connected' AND channel IN ('messenger', 'instagram')`,
       [storeId]
     );
 
+    console.log(`[Sync] Found ${channels.length} connected channel(s) for store ${storeId}`);
+
     let totalConvsSynced = 0;
     let totalMsgsSynced = 0;
     let skipped = 0;
+    const channelErrors: string[] = [];
 
     for (const channel of channels) {
-      if (!channel.access_token) continue;
+      currentChannel = channel.channel;
+      console.log(`[Sync] Channel: ${channel.channel}, externalId: ${channel.external_account_id}, hasToken: ${!!channel.access_token}`);
+
+      if (!channel.access_token) {
+        console.warn(`[Sync] Skipping ${channel.channel} — no access token`);
+        continue;
+      }
 
       try {
-        // /me/conversations is Messenger-only (page access token)
-        if (channel.channel !== "messenger") continue;
-
+        // Both Messenger and Instagram use /me/conversations with platform param
+        const platform = channel.channel === "instagram" ? "instagram" : "messenger";
         let url: string | null =
-          `https://graph.facebook.com/v18.0/me/conversations?fields=messages{message,from,created_time,id}&limit=50&access_token=${channel.access_token}`;
+          `https://graph.facebook.com/v18.0/me/conversations?platform=${platform}&fields=messages{message,from,created_time,id}&limit=50&access_token=${channel.access_token}`;
+
+        console.log(`[Sync] Fetching ${platform} conversations...`);
 
         while (url) {
           const response = await fetch(url);
+          console.log(`[Sync] Meta API response status: ${response.status} for ${platform}`);
+
           if (!response.ok) {
-            console.error(`[Sync] Graph API error: ${await response.text()}`);
+            const responseText = await response.text();
+            console.error(`[Sync] Meta API error for ${platform}: ${responseText.substring(0, 500)}`);
+            channelErrors.push(`${channel.channel}: ${responseText.substring(0, 200)}`);
             break;
           }
-          const data = await response.json() as any;
 
-          for (const metaConv of (data.data || [])) {
+          const responseText = await response.text();
+          console.log(`[Sync] Meta API response (first 500 chars): ${responseText.substring(0, 500)}`);
+          const data = JSON.parse(responseText) as any;
+
+          const convList = data.data || [];
+          console.log(`[Sync] ${platform} returned ${convList.length} conversation(s)`);
+
+          for (const metaConv of convList) {
             totalConvsSynced++;
             const pageId = channel.external_account_id;
+            const msgs = metaConv.messages?.data || [];
 
-            for (const msg of (metaConv.messages?.data || [])) {
+            for (const msg of msgs) {
               try {
-                // Dedup by external_id
                 const { rows: dup } = await pool.query(
                   `SELECT id FROM messages WHERE external_id = $1 LIMIT 1`,
                   [msg.id]
@@ -59,24 +80,21 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
                 const sender = isOutgoing ? "agent" : "customer";
                 const content = msg.message || "[attachment]";
 
-                // Determine the customer PSID
                 const customerPsid = isOutgoing
-                  ? metaConv.messages?.data?.find((m: any) => m.from?.id !== pageId)?.from?.id
+                  ? msgs.find((m: any) => m.from?.id !== pageId)?.from?.id
                   : msg.from?.id;
                 if (!customerPsid) { skipped++; continue; }
 
-                // Find customer by phone (we store PSID in phone for social channels)
                 const customer = await db.select().from(customersTable)
                   .where(and(eq(customersTable.storeId, storeId), eq(customersTable.phone, customerPsid)))
                   .limit(1).then(r => r[0] ?? null);
                 if (!customer) { skipped++; continue; }
 
-                // Find conversation
                 const conv = await db.select().from(conversationsTable)
                   .where(and(
                     eq(conversationsTable.storeId, storeId),
                     eq(conversationsTable.customerId, customer.id),
-                    eq(conversationsTable.channel, "messenger"),
+                    eq(conversationsTable.channel, channel.channel as "messenger" | "instagram"),
                   )).limit(1).then(r => r[0] ?? null);
                 if (!conv) { skipped++; continue; }
 
@@ -91,7 +109,8 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
                 });
 
                 totalMsgsSynced++;
-              } catch {
+              } catch (msgErr: any) {
+                console.error(`[Sync] Message insert failed: ${msgErr?.message}`);
                 skipped++;
               }
             }
@@ -99,8 +118,9 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
 
           url = data.paging?.next ?? null;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[Sync] Channel ${channel.channel} failed:`, err);
+        channelErrors.push(`${channel.channel}: ${err?.message}`);
       }
     }
 
@@ -109,10 +129,15 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
       conversationsSynced: totalConvsSynced,
       messagesSynced: totalMsgsSynced,
       skipped,
+      channelErrors: channelErrors.length ? channelErrors : undefined,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("[Sync] Meta sync failed:", err);
-    res.status(500).json({ error: "Sync failed" });
+    res.status(500).json({
+      error: "Sync failed",
+      detail: err?.message,
+      channel: currentChannel,
+    });
   }
 });
 
