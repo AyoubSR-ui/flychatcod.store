@@ -3,6 +3,7 @@ import app from "./app";
 import { setupSocketIO } from "./socket.js";
 import { startInstagramTokenRefreshCron } from "./lib/instagram-token-refresh.js";
 import { pool } from "@workspace/db";
+import { syncInstagramOutgoing } from "./routes/sync.js";
 
 async function runMigrations() {
   try {
@@ -41,4 +42,14 @@ runMigrations().then(() => {
   httpServer.listen(port, () => {
     console.log(`Server listening on port ${port}`);
   });
+
+  // Sync Instagram outgoing messages every 6 hours
+  setInterval(async () => {
+    try {
+      const result = await syncInstagramOutgoing();
+      console.log(`[Sync] Instagram outgoing sync completed — synced: ${result.synced}, skipped: ${result.skipped}`);
+    } catch (err) {
+      console.error("[Sync] Instagram sync failed:", err);
+    }
+  }, 6 * 60 * 60 * 1000);
 });

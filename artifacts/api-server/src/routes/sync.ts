@@ -7,6 +7,109 @@ import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();
 
+// ─── Instagram Outgoing Sync (callable from scheduler) ───────────────────────
+// Polls Instagram Graph API for all conversation messages and saves any outgoing
+// (agent-sent) messages that arrived since last sync. Runs on-demand and every 6h.
+export async function syncInstagramOutgoing(): Promise<{ synced: number; skipped: number }> {
+  let synced = 0;
+  let skipped = 0;
+
+  const { rows: channels } = await pool.query(
+    `SELECT store_id, access_token, external_account_id
+     FROM channel_connections
+     WHERE channel = 'instagram' AND status = 'connected' AND access_token IS NOT NULL`
+  );
+
+  console.log(`[Sync] Instagram outgoing sync — ${channels.length} channel(s)`);
+
+  for (const channel of channels) {
+    const storeId: string = channel.store_id;
+    const accessToken: string = channel.access_token;
+    const igPageId: string = channel.external_account_id;
+    if (!storeId || !accessToken) continue;
+
+    try {
+      let url: string | null =
+        `https://graph.facebook.com/v18.0/me/conversations?platform=instagram` +
+        `&fields=messages{message,from,created_time,id}&limit=100&access_token=${accessToken}`;
+
+      while (url) {
+        const response = await fetch(url);
+        console.log(`[Sync] Instagram Graph API status: ${response.status} (store ${storeId})`);
+
+        if (!response.ok) {
+          const text = await response.text();
+          console.error(`[Sync] Instagram API error: ${text.substring(0, 500)}`);
+          break;
+        }
+
+        const data = await response.json() as any;
+        const convList: any[] = data.data || [];
+        console.log(`[Sync] ${convList.length} Instagram conversation(s) returned`);
+
+        for (const metaConv of convList) {
+          const msgs: any[] = metaConv.messages?.data || [];
+
+          for (const msg of msgs) {
+            try {
+              // Dedup
+              const { rows: dup } = await pool.query(
+                `SELECT id FROM messages WHERE external_id = $1 LIMIT 1`,
+                [msg.id]
+              );
+              if (dup.length > 0) { skipped++; continue; }
+
+              const isOutgoing = msg.from?.id === igPageId;
+              const sender: "agent" | "customer" = isOutgoing ? "agent" : "customer";
+              const content: string = msg.message || "[attachment]";
+
+              const customerIgsid = isOutgoing
+                ? msgs.find((m: any) => m.from?.id !== igPageId)?.from?.id
+                : msg.from?.id;
+              if (!customerIgsid) { skipped++; continue; }
+
+              // Find customer by phone (we store IGSID in phone for Instagram)
+              const customer = await db.select().from(customersTable)
+                .where(and(eq(customersTable.storeId, storeId), eq(customersTable.phone, customerIgsid)))
+                .limit(1).then(r => r[0] ?? null);
+              if (!customer) { skipped++; continue; }
+
+              const conv = await db.select().from(conversationsTable)
+                .where(and(
+                  eq(conversationsTable.storeId, storeId),
+                  eq(conversationsTable.customerId, customer.id),
+                  eq(conversationsTable.channel, "instagram"),
+                )).limit(1).then(r => r[0] ?? null);
+              if (!conv) { skipped++; continue; }
+
+              await db.insert(messagesTable).values({
+                id: generateId("msg"),
+                conversationId: conv.id,
+                content,
+                sender,
+                externalId: msg.id,
+                metadata: { source: "instagram_poll", channel: "instagram" },
+                createdAt: new Date(msg.created_time),
+              });
+
+              synced++;
+            } catch (msgErr: any) {
+              console.error(`[Sync] Instagram message insert failed: ${msgErr?.message}`);
+              skipped++;
+            }
+          }
+        }
+
+        url = data.paging?.next ?? null;
+      }
+    } catch (err: any) {
+      console.error(`[Sync] Instagram channel (store ${storeId}) failed:`, err?.message);
+    }
+  }
+
+  return { synced, skipped };
+}
+
 // ─── Backfill Meta Conversations ─────────────────────────────────────────────
 // Messenger: GET /me/conversations?platform=messenger  (page access token)
 // Instagram: GET /me/conversations?platform=instagram  (IG access token)
@@ -14,7 +117,7 @@ const router = Router();
 router.get("/meta-conversations", requireAuth, async (req, res) => {
   let currentChannel = "none";
   try {
-    const storeId = req.user!.storeId;
+    const storeId = req.user!.storeId!;
 
     const { rows: channels } = await pool.query(
       `SELECT * FROM channel_connections WHERE store_id = $1 AND status = 'connected' AND channel IN ('messenger', 'instagram')`,
@@ -145,7 +248,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
 // Returns conversations that resulted in confirmed orders as OpenAI fine-tuning format.
 router.get("/export-training-data", requireAuth, async (req, res) => {
   try {
-    const storeId = req.user!.storeId;
+    const storeId = req.user!.storeId!;
 
     const [store] = await db.select().from(storesTable)
       .where(eq(storesTable.id, storeId)).limit(1);
