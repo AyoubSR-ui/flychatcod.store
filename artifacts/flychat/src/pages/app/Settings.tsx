@@ -17,6 +17,67 @@ const ALL_WILAYAS = [
   "Béni Abbès","Timimoun","Touggourt","Djanet","In Salah","In Guezzam",
 ];
 
+const WILAYA_SHIPPING_DEFAULTS: Record<string, { home: number; pickup: number; retour: number }> = {
+  "Adrar":               { home: 1400, pickup: 970,  retour: 200 },
+  "Chlef":               { home: 750,  pickup: 520,  retour: 200 },
+  "Laghouat":            { home: 950,  pickup: 670,  retour: 200 },
+  "Oum El Bouaghi":      { home: 800,  pickup: 520,  retour: 200 },
+  "Batna":               { home: 800,  pickup: 520,  retour: 200 },
+  "Béjaïa":              { home: 800,  pickup: 520,  retour: 200 },
+  "Biskra":              { home: 950,  pickup: 670,  retour: 200 },
+  "Béchar":              { home: 1050, pickup: 720,  retour: 200 },
+  "Blida":               { home: 750,  pickup: 520,  retour: 200 },
+  "Bouira":              { home: 800,  pickup: 520,  retour: 200 },
+  "Tamanrasset":         { home: 1600, pickup: 1120, retour: 250 },
+  "Tébessa":             { home: 850,  pickup: 520,  retour: 200 },
+  "Tlemcen":             { home: 700,  pickup: 520,  retour: 200 },
+  "Tiaret":              { home: 750,  pickup: 520,  retour: 200 },
+  "Tizi Ouzou":          { home: 800,  pickup: 520,  retour: 200 },
+  "Alger":               { home: 650,  pickup: 470,  retour: 200 },
+  "Djelfa":              { home: 950,  pickup: 670,  retour: 200 },
+  "Jijel":               { home: 800,  pickup: 520,  retour: 200 },
+  "Sétif":               { home: 800,  pickup: 520,  retour: 200 },
+  "Saïda":               { home: 750,  pickup: 570,  retour: 200 },
+  "Skikda":              { home: 800,  pickup: 520,  retour: 200 },
+  "Sidi Bel Abbès":      { home: 700,  pickup: 520,  retour: 200 },
+  "Annaba":              { home: 850,  pickup: 520,  retour: 200 },
+  "Guelma":              { home: 850,  pickup: 520,  retour: 200 },
+  "Constantine":         { home: 800,  pickup: 520,  retour: 200 },
+  "Médéa":               { home: 750,  pickup: 520,  retour: 200 },
+  "Mostaganem":          { home: 700,  pickup: 520,  retour: 200 },
+  "M'Sila":              { home: 900,  pickup: 570,  retour: 200 },
+  "Mascara":             { home: 700,  pickup: 520,  retour: 200 },
+  "Ouargla":             { home: 950,  pickup: 720,  retour: 200 },
+  "Oran":                { home: 0,    pickup: 0,    retour: 0   },
+  "El Bayadh":           { home: 1000, pickup: 670,  retour: 200 },
+  "Illizi":              { home: 0,    pickup: 0,    retour: 0   },
+  "Bordj Bou Arréridj":  { home: 800,  pickup: 520,  retour: 200 },
+  "Boumerdès":           { home: 800,  pickup: 520,  retour: 200 },
+  "El Tarf":             { home: 850,  pickup: 520,  retour: 200 },
+  "Tindouf":             { home: 0,    pickup: 0,    retour: 0   },
+  "Tissemsilt":          { home: 750,  pickup: 520,  retour: 200 },
+  "El Oued":             { home: 950,  pickup: 720,  retour: 200 },
+  "Khenchela":           { home: 800,  pickup: 520,  retour: 200 },
+  "Souk Ahras":          { home: 800,  pickup: 520,  retour: 200 },
+  "Tipaza":              { home: 800,  pickup: 520,  retour: 200 },
+  "Mila":                { home: 800,  pickup: 520,  retour: 200 },
+  "Aïn Defla":           { home: 750,  pickup: 520,  retour: 200 },
+  "Naâma":               { home: 1000, pickup: 670,  retour: 200 },
+  "Aïn Témouchent":      { home: 650,  pickup: 520,  retour: 200 },
+  "Ghardaïa":            { home: 950,  pickup: 670,  retour: 200 },
+  "Relizane":            { home: 750,  pickup: 520,  retour: 200 },
+  "Timimoun":            { home: 1400, pickup: 970,  retour: 200 },
+  "Ouled Djellal":       { home: 950,  pickup: 670,  retour: 200 },
+  "Bordj Badji Mokhtar": { home: 0,    pickup: 0,    retour: 0   },
+  "Béni Abbès":          { home: 1200, pickup: 970,  retour: 200 },
+  "In Salah":            { home: 1600, pickup: 1120, retour: 250 },
+  "In Guezzam":          { home: 1600, pickup: 0,    retour: 250 },
+  "Touggourt":           { home: 950,  pickup: 720,  retour: 200 },
+  "Djanet":              { home: 0,    pickup: 0,    retour: 0   },
+  "El M'Ghair":          { home: 950,  pickup: 0,    retour: 200 },
+  "El Méniaa":           { home: 950,  pickup: 720,  retour: 200 },
+};
+
 const CHANNEL_META = {
   whatsapp:  { label: "WhatsApp",           color: "text-green-700",  bg: "bg-green-50",  border: "border-green-200", dot: "bg-green-500"  },
   instagram: { label: "Instagram DMs",      color: "text-pink-700",   bg: "bg-pink-50",   border: "border-pink-200",  dot: "bg-pink-500"   },
@@ -29,7 +90,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-product
 type Channel = keyof typeof CHANNEL_META;
 type AiModes = Record<Channel, "human" | "ai_autopilot">;
 
-interface WilayaPrice { home: number; homeEnabled: boolean; pickup: number; pickupEnabled: boolean; }
+interface WilayaPrice { home: number; homeEnabled: boolean; pickup: number; pickupEnabled: boolean; retour: number; }
 interface ShippingOptions {
   homeDeliveryEnabled: boolean;
   pickupEnabled: boolean;
@@ -66,6 +127,7 @@ export default function Settings() {
   const [shippingSaved, setShippingSaved] = useState(false);
   const [applyAllHome, setApplyAllHome] = useState("");
   const [applyAllPickup, setApplyAllPickup] = useState("");
+  const [applyAllRetour, setApplyAllRetour] = useState("");
 
   const [aiModes, setAiModes] = useState<AiModes>({
     whatsapp: "human", instagram: "human", messenger: "human", widget: "human",
@@ -136,14 +198,15 @@ export default function Settings() {
     setTimeout(() => setAiSaved(false), 2000);
   };
 
-  const getWilaya = (w: string) => ({
-    home: shipping.wilayaPrices[w]?.home ?? 0,
+  const getWilaya = (w: string): WilayaPrice => ({
+    home: shipping.wilayaPrices[w]?.home ?? WILAYA_SHIPPING_DEFAULTS[w]?.home ?? 0,
     homeEnabled: shipping.wilayaPrices[w]?.homeEnabled ?? true,
-    pickup: shipping.wilayaPrices[w]?.pickup ?? 0,
+    pickup: shipping.wilayaPrices[w]?.pickup ?? WILAYA_SHIPPING_DEFAULTS[w]?.pickup ?? 0,
     pickupEnabled: shipping.wilayaPrices[w]?.pickupEnabled ?? true,
+    retour: shipping.wilayaPrices[w]?.retour ?? WILAYA_SHIPPING_DEFAULTS[w]?.retour ?? 200,
   });
 
-  const setWilayaPrice = (wilaya: string, field: "home" | "pickup", value: number) => {
+  const setWilayaPrice = (wilaya: string, field: "home" | "pickup" | "retour", value: number) => {
     setShipping(s => ({
       ...s,
       wilayaPrices: { ...s.wilayaPrices, [wilaya]: { ...getWilaya(wilaya), [field]: value } },
@@ -157,7 +220,7 @@ export default function Settings() {
     }));
   };
 
-  const applyAllPrices = (field: "home" | "pickup", value: string) => {
+  const applyAllPrices = (field: "home" | "pickup" | "retour", value: string) => {
     const num = Number(value);
     if (isNaN(num)) return;
     const updated: Record<string, WilayaPrice> = {};
@@ -319,39 +382,47 @@ export default function Settings() {
                     <span className="ml-auto text-xs text-muted-foreground">{ALL_WILAYAS.length} wilayas</span>
                   </div>
                   {/* Apply All row */}
-                  <div className="grid grid-cols-3 gap-4 p-3 bg-secondary/50 rounded-xl border border-border">
+                  <div className={`grid gap-4 p-3 bg-secondary/50 rounded-xl border border-border ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
                     <div className="text-sm font-bold text-muted-foreground flex items-center">Apply to All</div>
                     <div className="flex gap-2 items-center">
                       <input type="number" min={0} value={applyAllHome} onChange={e => setApplyAllHome(e.target.value)}
-                        placeholder="0" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
-                      <button onClick={() => { applyAllPrices("home", applyAllHome); }}
-                        className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply All</button>
+                        placeholder="Home" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => applyAllPrices("home", applyAllHome)}
+                        className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply</button>
                     </div>
                     {shipping.pickupEnabled && (
                       <div className="flex gap-2 items-center">
                         <input type="number" min={0} value={applyAllPickup} onChange={e => setApplyAllPickup(e.target.value)}
-                          placeholder="0" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
+                          placeholder="Pickup" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
                         <button onClick={() => applyAllPrices("pickup", applyAllPickup)}
-                          className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply All</button>
+                          className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply</button>
                       </div>
                     )}
+                    <div className="flex gap-2 items-center">
+                      <input type="number" min={0} value={applyAllRetour} onChange={e => setApplyAllRetour(e.target.value)}
+                        placeholder="Retour" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => applyAllPrices("retour", applyAllRetour)}
+                        className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply</button>
+                    </div>
                   </div>
                 </div>
 
                 {/* Table header */}
-                <div className={`grid bg-secondary/30 border-b border-border text-xs font-bold text-muted-foreground uppercase px-6 py-3 ${shipping.pickupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                <div className={`grid bg-secondary/30 border-b border-border text-xs font-bold text-muted-foreground uppercase px-6 py-3 ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
                   <div>Province</div>
-                  <div>Door Delivery Price</div>
-                  {shipping.pickupEnabled && <div>Stop Desk Price</div>}
+                  <div>Door Delivery</div>
+                  {shipping.pickupEnabled && <div>Stop Desk</div>}
+                  <div>Retour Price</div>
                 </div>
 
                 {/* Wilaya rows */}
                 <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto">
                   {ALL_WILAYAS.map((w, idx) => {
-                    const homeOn = shipping.wilayaPrices[w]?.homeEnabled ?? true;
-                    const pickupOn = shipping.wilayaPrices[w]?.pickupEnabled ?? true;
+                    const wData = getWilaya(w);
+                    const homeOn = wData.homeEnabled;
+                    const pickupOn = wData.pickupEnabled;
                     return (
-                      <div key={w} className={`grid px-6 py-3 items-center hover:bg-secondary/20 transition-colors ${shipping.pickupEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
+                      <div key={w} className={`grid px-6 py-3 items-center hover:bg-secondary/20 transition-colors ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
                         <div className="text-sm font-semibold text-foreground flex items-center gap-2">
                           <span className="text-xs text-muted-foreground w-5">{idx + 1}</span>
                           {w}
@@ -365,11 +436,11 @@ export default function Settings() {
                           </button>
                           <span className="text-xs text-muted-foreground">DZD</span>
                           <input type="number" min={0}
-                            value={shipping.wilayaPrices[w]?.home ?? ""}
+                            value={wData.home}
                             onChange={e => setWilayaPrice(w, "home", Number(e.target.value))}
                             disabled={!homeOn}
                             placeholder="0"
-                            className={`w-24 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20 ${!homeOn ? "opacity-40 cursor-not-allowed" : ""}`} />
+                            className={`w-20 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20 ${!homeOn ? "opacity-40 cursor-not-allowed" : ""}`} />
                         </div>
                         {shipping.pickupEnabled && (
                           <div className="flex items-center gap-1.5">
@@ -381,13 +452,21 @@ export default function Settings() {
                             </button>
                             <span className="text-xs text-muted-foreground">DZD</span>
                             <input type="number" min={0}
-                              value={shipping.wilayaPrices[w]?.pickup ?? ""}
+                              value={wData.pickup}
                               onChange={e => setWilayaPrice(w, "pickup", Number(e.target.value))}
                               disabled={!pickupOn}
                               placeholder="0"
-                              className={`w-24 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20 ${!pickupOn ? "opacity-40 cursor-not-allowed" : ""}`} />
+                              className={`w-20 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20 ${!pickupOn ? "opacity-40 cursor-not-allowed" : ""}`} />
                           </div>
                         )}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">DZD</span>
+                          <input type="number" min={0}
+                            value={wData.retour}
+                            onChange={e => setWilayaPrice(w, "retour", Number(e.target.value))}
+                            placeholder="0"
+                            className="w-20 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background focus:ring-2 focus:ring-primary/20" />
+                        </div>
                       </div>
                     );
                   })}
