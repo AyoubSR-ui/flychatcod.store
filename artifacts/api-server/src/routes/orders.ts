@@ -18,30 +18,67 @@ router.get("/", requireAuth, async (req, res) => {
     const limitNum = Math.min(100, parseInt(limit));
     const offset = (pageNum - 1) * limitNum;
 
-    const conditions = [eq(ordersTable.storeId, String(storeId))];
-    if (status) conditions.push(eq(ordersTable.status, status as any));
-    if (search) conditions.push(ilike(ordersTable.customerName, `%${search}%`));
+    const whereParts: string[] = ["store_id = $1"];
+    const params: any[] = [storeId];
+    if (status) { params.push(status); whereParts.push(`status = $${params.length}`); }
+    if (search) {
+      params.push(`%${search}%`);
+      whereParts.push(`(customer_name ILIKE $${params.length} OR order_number ILIKE $${params.length} OR customer_phone ILIKE $${params.length})`);
+    }
+    const whereSQL = whereParts.join(" AND ");
 
-    const orders = await db.select().from(ordersTable)
-      .where(and(...conditions))
-      .orderBy(sql`${ordersTable.createdAt} desc`)
-      .limit(limitNum).offset(offset);
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*) as total FROM orders WHERE ${whereSQL}`, params
+    );
+    const dataParams = [...params, limitNum, offset];
+    const { rows: orders } = await pool.query(
+      `SELECT * FROM orders WHERE ${whereSQL} ORDER BY created_at DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      dataParams
+    );
 
-    const [{ total }] = await db.select({ total: sql<number>`count(*)` })
-      .from(ordersTable).where(and(...conditions));
-
-    const ordersWithItems = await Promise.all(orders.map(async (order) => {
-      const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
-    return {
-        ...order,
-        total: Number(order.total),
-        shippingFee: Number(order.shippingFee || 0),
-        shippingOption: order.shippingOption || null,
-        items: items.map(i => ({ ...i, price: Number(i.price) })),
+    const ordersWithItems = await Promise.all(orders.map(async (o: any) => {
+      // Use JSONB items for Shopify orders; fall back to order_items table for COD orders
+      let items = Array.isArray(o.items) && o.items.length > 0 ? o.items : [];
+      if (!items.length) {
+        const { rows: itemRows } = await pool.query(
+          `SELECT product_name as title, variant as variant_title, quantity, price FROM order_items WHERE order_id = $1`,
+          [o.id]
+        );
+        items = itemRows.map((i: any) => ({ ...i, price: Number(i.price) }));
+      }
+      return {
+        id: o.id,
+        storeId: o.store_id,
+        status: o.status,
+        orderNumber: o.order_number,
+        shopifyOrderNumber: o.shopify_order_number,
+        customerName: o.customer_name,
+        customerPhone: o.customer_phone,
+        customerEmail: o.customer_email,
+        wilaya: o.wilaya,
+        address: o.address,
+        shippingAddress: o.shipping_address,
+        total: Number(o.total),
+        shippingFee: Number(o.shipping_fee || 0),
+        shippingOption: o.shipping_option,
+        financialStatus: o.financial_status,
+        fulfillmentStatus: o.fulfillment_status,
+        deliveryStatus: o.delivery_status,
+        salesChannel: o.sales_channel,
+        flags: o.flags || [],
+        tags: o.tags,
+        items,
+        shopifyOrderId: o.shopify_order_id,
+        createdBySource: o.created_by_source,
+        cancelledBySource: o.cancelled_by_source,
+        confirmedBySource: o.confirmed_by_source,
+        sellerNote: o.seller_note,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
       };
     }));
 
-    res.json({ orders: ordersWithItems, total: Number(total), page: pageNum, limit: limitNum });
+    res.json({ orders: ordersWithItems, total: Number(countRows[0]?.total || 0), page: pageNum, limit: limitNum });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to fetch orders" });

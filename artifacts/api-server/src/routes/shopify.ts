@@ -291,6 +291,20 @@ async function syncProducts(storeId: string, shop: string, accessToken: string):
 
 // ─── Helper: sync existing orders ────────────────────────────────────────────
 async function syncOrders(storeId: string, shop: string, accessToken: string): Promise<number> {
+  // Ensure new columns exist (idempotent)
+  await pool.query(`
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS shopify_order_number TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_email TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS financial_status TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_status TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS sales_channel TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS flags JSONB DEFAULT '[]';
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_status TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS tags TEXT;
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]';
+    ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_address JSONB;
+  `);
+
   let shopifyOrders: any[] = [];
   let url = "/orders.json?limit=250&status=any";
   while (url) {
@@ -301,51 +315,99 @@ async function syncOrders(storeId: string, shop: string, accessToken: string): P
   let count = 0;
 
   for (const so of shopifyOrders) {
-    // Skip if already synced
-    const { rows } = await pool.query(
-      `SELECT id FROM orders WHERE store_id = $1 AND shopify_order_id = $2 LIMIT 1`,
-      [storeId, String(so.id)]
-    );
-    if (rows[0]) continue;
-
-   const orderId = generateId("ord");
-    const productTotal = so.subtotal_price || "0";
     const shippingLine = so.shipping_lines?.[0];
-    const shippingPrice = shippingLine?.price || "0";
-    const shippingMethod = shippingLine?.title || null;
-    const total = so.total_price || "0";
     const customerName = `${so.customer?.first_name || ""} ${so.customer?.last_name || ""}`.trim() || "Unknown";
+    const customerEmail = so.customer?.email || so.email || "";
     const customerPhone = so.customer?.phone || so.shipping_address?.phone || so.billing_address?.phone || "";
     const wilaya = so.shipping_address?.city || so.billing_address?.city || "";
     const address = [so.shipping_address?.address1, so.shipping_address?.address2].filter(Boolean).join(", ") || "";
 
-    await pool.query(
-      `INSERT INTO orders (id, store_id, status, order_number, customer_name, customer_phone, wilaya, address, total, is_cod, shopify_order_id, created_by_source, shipping_option, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, 'shopify', $11, $12, NOW())
-       ON CONFLICT DO NOTHING`,
-      [orderId, storeId, mapShopifyStatus(so.financial_status), so.name, customerName, customerPhone, wilaya, address, total, String(so.id), shippingMethod, new Date(so.created_at)]
+    const shippingAddress = so.shipping_address ? {
+      first_name: so.shipping_address.first_name || "",
+      last_name: so.shipping_address.last_name || "",
+      address1: so.shipping_address.address1 || "",
+      address2: so.shipping_address.address2 || "",
+      city: so.shipping_address.city || "",
+      province: so.shipping_address.province || "",
+      zip: so.shipping_address.zip || "",
+      country: so.shipping_address.country || "",
+      phone: so.shipping_address.phone || "",
+    } : null;
+
+    const flags: string[] = [];
+    if (so.risks?.length > 0) flags.push(...so.risks.map((r: any) => r.message));
+    if (so.financial_status === "voided") flags.push("voided");
+
+    const sales_channel = so.source_name || (so.app_id ? String(so.app_id) : "") || "online_store";
+
+    const delivery_status = so.fulfillments?.[0]?.shipment_status
+      || so.fulfillment_status
+      || "pending";
+
+    const items = (so.line_items || []).map((item: any) => ({
+      title: item.title,
+      variant_title: item.variant_title || null,
+      quantity: item.quantity,
+      price: parseFloat(item.price),
+      total: parseFloat(item.price) * item.quantity,
+      sku: item.sku || null,
+      product_id: item.product_id,
+      variant_id: item.variant_id,
+      image: item.image?.src || null,
+      requires_shipping: item.requires_shipping,
+    }));
+
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM orders WHERE store_id = $1 AND shopify_order_id = $2 LIMIT 1`,
+      [storeId, String(so.id)]
     );
 
-    // Insert order items with variant and shipping
-    for (const item of so.line_items || []) {
+    if (existing[0]) {
+      // Update existing order with newly mapped fields
       await pool.query(
-        `INSERT INTO order_items (id, order_id, product_name, variant, price, quantity, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [generateId("oi"), orderId, item.title, item.variant_title || null, item.price, item.quantity]
+        `UPDATE orders SET
+          shopify_order_number=$1, customer_email=$2,
+          financial_status=$3, fulfillment_status=$4, delivery_status=$5,
+          sales_channel=$6, flags=$7, tags=$8, items=$9,
+          shipping_address=$10, updated_at=NOW()
+         WHERE id=$11`,
+        [
+          so.name, customerEmail,
+          so.financial_status, so.fulfillment_status || "unfulfilled", delivery_status,
+          sales_channel, JSON.stringify(flags), so.tags || "", JSON.stringify(items),
+          shippingAddress ? JSON.stringify(shippingAddress) : null,
+          existing[0].id,
+        ]
+      );
+    } else {
+      const orderId = generateId("ord");
+      await pool.query(
+        `INSERT INTO orders (
+          id, store_id, status, order_number, shopify_order_number,
+          customer_name, customer_phone, customer_email,
+          wilaya, address, shipping_address,
+          total, is_cod,
+          financial_status, fulfillment_status, delivery_status,
+          sales_channel, flags, tags, items,
+          shopify_order_id, created_by_source, shipping_option,
+          created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,'shopify',$21,$22,NOW())`,
+        [
+          orderId, storeId, mapShopifyStatus(so.financial_status), so.name, so.name,
+          customerName, customerPhone, customerEmail,
+          wilaya, address, shippingAddress ? JSON.stringify(shippingAddress) : null,
+          so.total_price,
+          so.financial_status, so.fulfillment_status || "unfulfilled", delivery_status,
+          sales_channel, JSON.stringify(flags), so.tags || "", JSON.stringify(items),
+          String(so.id), shippingLine?.title || null, new Date(so.created_at),
+        ]
       );
     }
 
-    // Insert shipping as a separate line item for display
-    if (shippingLine && parseFloat(shippingPrice) > 0) {
-      await pool.query(
-        `INSERT INTO order_items (id, order_id, product_name, variant, price, quantity, created_at)
-         VALUES ($1, $2, $3, $4, $5, 1, NOW())`,
-        [generateId("oi"), orderId, `Livraison — ${shippingMethod || "Standard"}`, null, shippingPrice]
-      );
-    }
     count++;
   }
 
+  await pool.query(`UPDATE stores SET shopify_synced_at = NOW() WHERE id = $1`, [storeId]);
   console.log(`[Shopify] Synced ${count} orders for store ${storeId}`);
   return count;
 }
@@ -438,23 +500,63 @@ async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<v
   if (rows[0]) return; // Already exists
 
   const orderId = generateId("ord");
-  const customerName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim();
-  const customerPhone = order.customer?.phone || order.billing_address?.phone || "";
+  const customerName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Unknown";
+  const customerEmail = order.customer?.email || order.email || "";
+  const customerPhone = order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone || "";
   const wilaya = order.shipping_address?.city || "";
+  const shippingLine = order.shipping_lines?.[0];
+
+  const shippingAddress = order.shipping_address ? {
+    address1: order.shipping_address.address1 || "",
+    address2: order.shipping_address.address2 || "",
+    city: order.shipping_address.city || "",
+    province: order.shipping_address.province || "",
+    zip: order.shipping_address.zip || "",
+    country: order.shipping_address.country || "",
+    phone: order.shipping_address.phone || "",
+  } : null;
+
+  const flags: string[] = [];
+  if (order.risks?.length > 0) flags.push(...order.risks.map((r: any) => r.message));
+  if (order.financial_status === "voided") flags.push("voided");
+
+  const sales_channel = order.source_name || (order.app_id ? String(order.app_id) : "") || "online_store";
+  const delivery_status = order.fulfillments?.[0]?.shipment_status || order.fulfillment_status || "pending";
+
+  const items = (order.line_items || []).map((item: any) => ({
+    title: item.title,
+    variant_title: item.variant_title || null,
+    quantity: item.quantity,
+    price: parseFloat(item.price),
+    total: parseFloat(item.price) * item.quantity,
+    sku: item.sku || null,
+    product_id: item.product_id,
+    variant_id: item.variant_id,
+    image: item.image?.src || null,
+    requires_shipping: item.requires_shipping,
+  }));
 
   await pool.query(
-    `INSERT INTO orders (id, store_id, status, order_number, customer_name, customer_phone, wilaya, address, total, is_cod, shopify_order_id, created_by_source, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10, 'shopify', NOW(), NOW())`,
-    [orderId, storeId, "pending", order.name, customerName, customerPhone, wilaya, order.shipping_address?.address1 || "", order.total_price, String(order.id)]
+    `INSERT INTO orders (
+      id, store_id, status, order_number, shopify_order_number,
+      customer_name, customer_phone, customer_email,
+      wilaya, address, shipping_address,
+      total, is_cod,
+      financial_status, fulfillment_status, delivery_status,
+      sales_channel, flags, tags, items,
+      shopify_order_id, created_by_source, shipping_option,
+      created_at, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,'shopify',$21,NOW(),NOW())`,
+    [
+      orderId, storeId, mapShopifyStatus(order.financial_status), order.name, order.name,
+      customerName, customerPhone, customerEmail,
+      wilaya, order.shipping_address?.address1 || "", shippingAddress ? JSON.stringify(shippingAddress) : null,
+      order.total_price,
+      order.financial_status, order.fulfillment_status || "unfulfilled", delivery_status,
+      sales_channel, JSON.stringify(flags), order.tags || "", JSON.stringify(items),
+      String(order.id), shippingLine?.title || null,
+    ]
   );
-
-  for (const item of order.line_items || []) {
-    await pool.query(
-      `INSERT INTO order_items (id, order_id, product_name, price, quantity, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [generateId("oi"), orderId, item.title, item.price, item.quantity]
-    );
-  }
 
   console.log(`[Shopify] Webhook: new order ${order.name} for store ${storeId}`);
 }

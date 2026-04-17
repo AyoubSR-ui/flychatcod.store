@@ -153,10 +153,79 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── Badge helpers ────────────────────────────────────────────────────────────
+function PaymentBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  const map: Record<string, string> = {
+    paid: "bg-green-100 text-green-700 border-green-200",
+    pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    refunded: "bg-red-100 text-red-700 border-red-200",
+    voided: "bg-gray-100 text-gray-600 border-gray-200",
+    partially_paid: "bg-orange-100 text-orange-700 border-orange-200",
+    partially_refunded: "bg-pink-100 text-pink-700 border-pink-200",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${map[status] || "bg-gray-100 text-gray-600 border-gray-200"}`}>
+      {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function FulfillmentBadge({ status }: { status?: string }) {
+  if (!status) return null;
+  const map: Record<string, string> = {
+    fulfilled: "bg-green-100 text-green-700 border-green-200",
+    unfulfilled: "bg-gray-100 text-gray-500 border-gray-200",
+    partial: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${map[status] || "bg-gray-100 text-gray-500 border-gray-200"}`}>
+      {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function DeliveryBadge({ status }: { status?: string }) {
+  if (!status || status === "pending") return <span className="text-xs text-muted-foreground">—</span>;
+  const map: Record<string, string> = {
+    delivered: "bg-teal-100 text-teal-700",
+    in_transit: "bg-blue-100 text-blue-700",
+    out_for_delivery: "bg-orange-100 text-orange-700",
+    attempted_delivery: "bg-red-100 text-red-700",
+    failure: "bg-red-100 text-red-700",
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${map[status] || "bg-gray-100 text-gray-600"}`}>
+      {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function ChannelBadge({ channel }: { channel?: string }) {
+  if (!channel) return null;
+  const map: Record<string, string> = {
+    online_store: "bg-blue-50 text-blue-700",
+    messenger: "bg-blue-50 text-blue-600",
+    instagram: "bg-pink-50 text-pink-700",
+    web: "bg-green-50 text-green-700",
+    draft_orders: "bg-gray-100 text-gray-600",
+    pos: "bg-orange-50 text-orange-700",
+  };
+  const label = channel === "online_store" ? "Online Store"
+    : channel === "draft_orders" ? "Draft"
+    : channel.charAt(0).toUpperCase() + channel.slice(1);
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${map[channel] || "bg-gray-100 text-gray-600"}`}>
+      {label}
+    </span>
+  );
+}
+
 export default function Orders() {
   const [showCreate, setShowCreate] = useState(false);
   const [callingOrderId, setCallingOrderId] = useState<string | null>(null);
-const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });  const { t } = useI18n();
+  const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });
+  const { t } = useI18n();
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -192,7 +261,7 @@ const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });  const { t 
     <AppLayout>
       {showCreate && <CreateOrderModal onClose={() => setShowCreate(false)} />}
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
-        <div className="max-w-7xl mx-auto space-y-6">
+        <div className="max-w-full mx-auto space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h1 className="text-3xl font-display font-bold text-foreground">Orders</h1>
@@ -217,24 +286,30 @@ const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });  const { t 
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
+              <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
-                    <th className="px-6 py-4 font-medium">Order #</th>
-                    <th className="px-6 py-4 font-medium">Customer</th>
-                    <th className="px-6 py-4 font-medium">Location</th>
-                    <th className="px-6 py-4 font-medium">Total</th>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                    <th className="px-6 py-4 font-medium">Date</th>
-                    <th className="px-6 py-4 font-medium text-right">Action</th>
+                    <th className="px-4 py-3 font-medium">Order</th>
+                    <th className="px-4 py-3 font-medium">Date</th>
+                    <th className="px-4 py-3 font-medium">Customer</th>
+                    <th className="px-4 py-3 font-medium">Channel</th>
+                    <th className="px-4 py-3 font-medium">Items</th>
+                    <th className="px-4 py-3 font-medium">Total</th>
+                    <th className="px-4 py-3 font-medium">Payment</th>
+                    <th className="px-4 py-3 font-medium">Fulfillment</th>
+                    <th className="px-4 py-3 font-medium">Delivery</th>
+                    <th className="px-4 py-3 font-medium">Method</th>
+                    <th className="px-4 py-3 font-medium">Tags</th>
+                    <th className="px-4 py-3 font-medium">Destination</th>
+                    <th className="px-4 py-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
-                    <tr><td colSpan={7} className="px-6 py-8 text-center">{t("common.loading")}</td></tr>
+                    <tr><td colSpan={13} className="px-6 py-8 text-center">{t("common.loading")}</td></tr>
                   ) : ordersData?.orders.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-16 text-center">
+                      <td colSpan={13} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center"><Package className="w-7 h-7" /></div>
                           <p className="font-medium">No orders yet</p>
@@ -242,79 +317,148 @@ const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });  const { t 
                         </div>
                       </td>
                     </tr>
-                  ) : ordersData?.orders.map((order) => (
-                    <tr key={order.id} className="hover:bg-secondary/30 transition-colors">
-                      <td className="px-6 py-4 font-bold text-foreground">
-                        <Link href={`/orders/${order.id}`} className="hover:text-primary hover:underline">{order.orderNumber}</Link>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-foreground">{order.customerName}</div>
-                        <div className="text-xs text-muted-foreground">{order.customerPhone}</div>
-                      </td>
-                      <td className="px-6 py-4 text-muted-foreground">{order.wilaya}</td>
-                      <td className="px-6 py-4 font-bold text-foreground">DZD {Number(order.total).toLocaleString()}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col gap-1">
-                          <span className={`inline-flex border items-center px-2.5 py-1 rounded-full text-xs font-bold ${getStatusColor(order.status)}`}>
-                            {t(`status.${order.status}`)}
-                          </span>
-                          {/* AI Created badge */}
-                          {order.createdBySource === 'ai' && order.cancelledBySource !== 'ai' && (
-                            <Badge className="bg-violet-100 text-violet-700 border-violet-200 gap-1 w-fit">
-                              <span className="text-[9px] leading-none">✦</span> AI Created
-                            </Badge>
+                  ) : ordersData?.orders.map((order) => {
+                    const o = order as any;
+                    const flags: string[] = o.flags || [];
+                    const items: any[] = o.items || [];
+                    const firstItem = items[0];
+                    const displayOrderNum = o.shopifyOrderNumber || order.orderNumber;
+                    return (
+                      <tr key={order.id} className="hover:bg-secondary/30 transition-colors">
+                        {/* Order # + flags */}
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            <Link href={`/orders/${order.id}`} className="font-bold text-foreground hover:text-primary hover:underline">
+                              {displayOrderNum}
+                            </Link>
+                            {flags.length > 0 && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-bold w-fit">
+                                ⚠ {flags.length} flag{flags.length > 1 ? "s" : ""}
+                              </span>
+                            )}
+                            {/* Source badges */}
+                            {order.createdBySource === 'ai' && order.cancelledBySource !== 'ai' && (
+                              <Badge className="bg-violet-100 text-violet-700 border-violet-200 gap-1 w-fit text-[10px]">
+                                ✦ AI
+                              </Badge>
+                            )}
+                            {order.cancelledBySource === 'ai' && (
+                              <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1 w-fit text-[10px]">
+                                ✦ AI Cancelled
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                        {/* Date */}
+                        <td className="px-4 py-3 text-muted-foreground text-xs">
+                          {format(new Date(order.createdAt), 'MMM dd, yyyy')}
+                          <div className="text-[10px]">{format(new Date(order.createdAt), 'HH:mm')}</div>
+                        </td>
+                        {/* Customer */}
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-foreground">{order.customerName}</div>
+                          {o.customerEmail && <div className="text-[11px] text-muted-foreground">{o.customerEmail}</div>}
+                          <div className="text-[11px] text-muted-foreground">{order.customerPhone}</div>
+                        </td>
+                        {/* Channel */}
+                        <td className="px-4 py-3">
+                          <ChannelBadge channel={o.salesChannel} />
+                        </td>
+                        {/* Items */}
+                        <td className="px-4 py-3">
+                          {items.length > 0 ? (
+                            <div>
+                              <div className="text-xs font-medium text-foreground max-w-[140px] truncate">
+                                {firstItem?.title || firstItem?.productName || "—"}
+                              </div>
+                              {firstItem?.variant_title && (
+                                <div className="text-[10px] text-muted-foreground">{firstItem.variant_title}</div>
+                              )}
+                              <div className="text-[10px] text-muted-foreground">
+                                {items.length > 1 ? `+${items.length - 1} more · ` : ""}
+                                qty {items.reduce((s: number, i: any) => s + (i.quantity || 1), 0)}
+                              </div>
+                            </div>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        {/* Total */}
+                        <td className="px-4 py-3 font-bold text-foreground">
+                          DZD {Number(order.total).toLocaleString()}
+                        </td>
+                        {/* Payment status */}
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <PaymentBadge status={o.financialStatus} />
+                            {/* FlyChat internal status if no Shopify financial status */}
+                            {!o.financialStatus && (
+                              <span className={`inline-flex border items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${getStatusColor(order.status)}`}>
+                                {t(`status.${order.status}`)}
+                              </span>
+                            )}
+                            {o.confirmedBySource === 'ai_call' && order.status === 'confirmed' && (
+                              <Badge className="bg-green-100 text-green-700 border-green-200 w-fit text-[10px]">🤖 AI Call</Badge>
+                            )}
+                          </div>
+                        </td>
+                        {/* Fulfillment */}
+                        <td className="px-4 py-3">
+                          <FulfillmentBadge status={o.fulfillmentStatus} />
+                        </td>
+                        {/* Delivery status */}
+                        <td className="px-4 py-3">
+                          <DeliveryBadge status={o.deliveryStatus} />
+                        </td>
+                        {/* Delivery method */}
+                        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[100px] truncate">
+                          {order.shippingOption || o.shippingOption || "—"}
+                        </td>
+                        {/* Tags */}
+                        <td className="px-4 py-3">
+                          {o.tags ? (
+                            <div className="flex flex-wrap gap-1 max-w-[120px]">
+                              {String(o.tags).split(",").slice(0, 3).map((tag: string) => (
+                                <span key={tag} className="px-1.5 py-0.5 bg-secondary text-muted-foreground rounded text-[10px]">
+                                  {tag.trim()}
+                                </span>
+                              ))}
+                            </div>
+                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        {/* Destination */}
+                        <td className="px-4 py-3">
+                          <div className="text-xs font-medium text-foreground">{order.wilaya || "—"}</div>
+                          {o.shippingAddress?.city && o.shippingAddress.city !== order.wilaya && (
+                            <div className="text-[10px] text-muted-foreground">{o.shippingAddress.city}</div>
                           )}
-                          {/* AI Cancelled badge */}
-                          {order.cancelledBySource === 'ai' && (
-                            <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1 w-fit">
-                              <span className="text-[9px] leading-none">✦</span> AI Cancelled
-                            </Badge>
+                          {o.shippingAddress?.province && (
+                            <div className="text-[10px] text-muted-foreground">{o.shippingAddress.province}</div>
                           )}
-                          {/* AI Call Confirmed badge */}
-                          {(order as any).confirmedBySource === 'ai_call' && order.status === 'confirmed' && (
-                            <Badge className="bg-green-100 text-green-700 border-green-200 gap-1 w-fit">
-                              🤖 AI Call Confirmed
-                            </Badge>
-                          )}
-                          {/* AI Call Cancelled badge */}
-                          {(order as any).confirmedBySource === 'ai_call' && order.status === 'cancelled' && (
-                            <Badge className="bg-red-100 text-red-700 border-red-200 gap-1 w-fit">
-                              🤖 AI Call Cancelled
-                            </Badge>
-                          )}
-                          {/* Human Confirmed badge — only show if NOT ai_call */}
-                          {order.status === 'confirmed' && !(order as any).confirmedBySource && (
-                            <Badge className="bg-blue-100 text-blue-700 border-blue-200 gap-1 w-fit">
-                              👤 Human Confirmed
-                            </Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-muted-foreground">{format(new Date(order.createdAt), 'MMM dd, yyyy')}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {/* AI Voice Call button — only for pending orders */}
-                          {(order.status === "awaiting_confirmation" || order.status === "new") && (
-                            <button
-                              onClick={() => handleVoiceCall(order.id)}
-                              disabled={callingOrderId === order.id}
-                              title="Trigger AI confirmation call"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-orange-500 hover:text-white hover:bg-orange-500 bg-orange-50 border border-orange-200 rounded-lg transition-colors disabled:opacity-50 text-xs font-bold"
-                            >
-                              {callingOrderId === order.id
-                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                : <PhoneCall className="w-3.5 h-3.5" />
-                              }
-                              {callingOrderId === order.id ? "Calling..." : "AI Call"}
-                            </button>
-                          )}
-                          <Link href={`/orders/${order.id}`} className="inline-flex p-2 text-muted-foreground hover:text-primary bg-secondary hover:bg-primary/10 rounded-lg transition-colors">
-                            <Eye className="w-4 h-4" />
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        {/* Actions */}
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {(order.status === "awaiting_confirmation" || order.status === "new") && (
+                              <button
+                                onClick={() => handleVoiceCall(order.id)}
+                                disabled={callingOrderId === order.id}
+                                title="Trigger AI confirmation call"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-orange-500 hover:text-white hover:bg-orange-500 bg-orange-50 border border-orange-200 rounded-lg transition-colors disabled:opacity-50 text-xs font-bold"
+                              >
+                                {callingOrderId === order.id
+                                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  : <PhoneCall className="w-3.5 h-3.5" />
+                                }
+                                {callingOrderId === order.id ? "Calling..." : "AI Call"}
+                              </button>
+                            )}
+                            <Link href={`/orders/${order.id}`} className="inline-flex p-2 text-muted-foreground hover:text-primary bg-secondary hover:bg-primary/10 rounded-lg transition-colors">
+                              <Eye className="w-4 h-4" />
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
