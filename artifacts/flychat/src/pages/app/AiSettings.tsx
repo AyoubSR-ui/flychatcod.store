@@ -271,6 +271,7 @@ function TrainingDataSection() {
   const [downloading, setDownloading] = useState(false);
   const [syncResult, setSyncResult] = useState<{ messagesSynced: number; conversationsSynced: number; results?: Record<string, { synced: number; error: string | null }> } | null>(null);
   const [syncError, setSyncError] = useState("");
+  const [syncWarning, setSyncWarning] = useState("");
 
   async function handleExport() {
     setDownloading(true);
@@ -297,9 +298,27 @@ function TrainingDataSection() {
     setSyncing(true);
     setSyncResult(null);
     setSyncError("");
+    setSyncWarning("");
     try {
-      const data = await apiFetch("/api/sync/meta-conversations");
-      setSyncResult(data);
+      const data = await apiFetch<{ messagesSynced: number; conversationsSynced: number; results?: Record<string, { synced: number; error: string | null }> }>(
+        "/api/sync/meta-conversations"
+      );
+      const failedChannels = Object.entries(data.results ?? {})
+        .filter(([, r]) => r.error)
+        .map(([ch]) => ch);
+
+      if (data.conversationsSynced > 0 || data.messagesSynced > 0) {
+        setSyncResult(data);
+        if (failedChannels.length > 0) {
+          setSyncWarning(
+            `${failedChannels.length} channel(s) had errors (${failedChannels.join(", ")} — token may need reconnecting)`
+          );
+        }
+      } else if (failedChannels.length > 0) {
+        setSyncError("Sync failed. Check your Meta channel connections.");
+      } else {
+        setSyncResult(data);
+      }
     } catch {
       setSyncError("Sync failed. Check your Meta channel connections.");
     } finally {
@@ -334,8 +353,14 @@ function TrainingDataSection() {
         <div className="space-y-1.5">
           <p className="text-sm text-green-600 dark:text-green-400">
             <CheckCircle2 className="inline w-4 h-4 mr-1" />
-            Synced {syncResult.messagesSynced} messages from {syncResult.conversationsSynced} conversations.
+            ✅ Synced {syncResult.messagesSynced} messages from {syncResult.conversationsSynced} conversations
           </p>
+          {syncWarning && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              <AlertCircle className="inline w-4 h-4 mr-1" />
+              ⚠️ {syncWarning}
+            </p>
+          )}
           {syncResult.results && Object.entries(syncResult.results).map(([ch, r]) => (
             <p key={ch} className={`text-xs ${r.error ? "text-destructive" : "text-muted-foreground"}`}>
               {r.error
