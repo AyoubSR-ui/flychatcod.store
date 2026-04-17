@@ -5,7 +5,7 @@ import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save, 
 const API = import.meta.env.VITE_API_URL ?? "";
 
 function getToken() {
-  return localStorage.getItem("auth_token") ?? "";
+  return localStorage.getItem("flychat_token") ?? "";
 }
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -166,22 +166,26 @@ function RulesSection() {
   const [rules, setRules] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     apiFetch("/api/settings/ai-rules")
-      .then(d => setRules(d.rules || ""))
+      .then((d: any) => setRules(d.rules || ""))
       .catch(() => {});
   }, []);
 
   async function save() {
     setSaving(true);
+    setSaveError("");
     try {
       await apiFetch("/api/settings/ai-rules", {
-        method: "PATCH",
+        method: "POST",
         body: JSON.stringify({ rules }),
       });
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      setSaveError("Failed to save rules. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -206,14 +210,26 @@ function RulesSection() {
         placeholder="Enter your AI rules here, one per line…"
         className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none font-mono"
       />
-      <button
-        onClick={save}
-        disabled={saving}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-      >
-        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-        {saved ? "Saved!" : "Save rules"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+          {saved ? "Saved!" : "Save rules"}
+        </button>
+        {saved && (
+          <span className="text-sm text-green-600 flex items-center gap-1">
+            <CheckCircle2 className="w-4 h-4" /> Rules saved successfully
+          </span>
+        )}
+        {saveError && (
+          <span className="text-sm text-destructive flex items-center gap-1">
+            <AlertCircle className="w-4 h-4" /> {saveError}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

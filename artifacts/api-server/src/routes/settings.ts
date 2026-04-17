@@ -254,6 +254,21 @@ router.patch("/ai-rules", requireAuth, async (req, res) => {
   }
 });
 
+router.post("/ai-rules", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { rules } = req.body;
+    await pool.query(
+      `UPDATE stores SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify({ aiRules: rules ?? "" }), storeId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Settings] AI rules save failed:", err);
+    res.status(500).json({ error: "Failed to save rules" });
+  }
+});
+
 // ─── AI Language ──────────────────────────────────────────────────────────────
 router.get("/ai-language", requireAuth, async (req, res) => {
   try {
