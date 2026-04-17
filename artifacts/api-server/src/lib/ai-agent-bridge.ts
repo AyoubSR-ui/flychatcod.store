@@ -35,6 +35,12 @@ interface UpdateData {
   wilaya?: string | null;
 }
 
+interface AiProductImage {
+  url: string;
+  color: string;
+  label: string;
+}
+
 interface AgentRequest {
   conversationId: string;
   storeId: string;
@@ -49,13 +55,20 @@ interface AgentRequest {
   imageUrl?: string;
   imageAccessToken?: string;
   intentLevel?: string;
+  productContext?: {
+    id: string;
+    name: string;
+    price: number;
+    aiImages: AiProductImage[];
+    variants?: unknown;
+  };
 }
 
 interface AgentResponse {
   reply: string;
   detectedLanguage: string;
   action: {
-    type: "create_order" | "cancel_order" | "update_order" | "none";
+    type: "create_order" | "cancel_order" | "update_order" | "send_product_images" | "none";
     customerName?: string;
     customerPhone?: string;
     wilaya?: string;
@@ -69,6 +82,8 @@ interface AgentResponse {
       quantity: number;
       variant?: string;
     }>;
+    images?: AiProductImage[];
+    caption?: string;
   };
 }
 
@@ -222,6 +237,32 @@ export async function callAiBridge(params: {
       ? (aiSystemPrompt || "") + "\n\nADDITIONAL RULES:\n" + aiRules
       : aiSystemPrompt;
 
+    // ── Fetch product context via ad_ref → ad_product_links → products ─────────
+    let productContext: AgentRequest["productContext"] | undefined;
+    const { rows: convExtra } = await pool.query(
+      `SELECT ad_ref FROM conversations WHERE id = $1 LIMIT 1`, [conversationId]
+    );
+    const adRef = convExtra[0]?.ad_ref;
+    if (adRef) {
+      const { rows: adRows } = await pool.query(
+        `SELECT p.id, p.name, p.price, p.ai_images, p.variants
+         FROM ad_product_links al
+         JOIN products p ON p.id = al.product_id
+         WHERE al.store_id = $1 AND al.ad_ref = $2 LIMIT 1`,
+        [storeId, adRef]
+      );
+      if (adRows[0]) {
+        const p = adRows[0];
+        productContext = {
+          id: p.id,
+          name: p.name,
+          price: Number(p.price),
+          aiImages: Array.isArray(p.ai_images) ? p.ai_images : [],
+          variants: p.variants,
+        };
+      }
+    }
+
     // Check if the last customer message has an image attachment
     const lastCustomerMsg = history.slice().reverse().find(m => m.sender === "customer");
     const lastMsgMeta = lastCustomerMsg?.metadata as Record<string, unknown> | null;
@@ -241,6 +282,7 @@ export async function callAiBridge(params: {
       imageUrl,
       imageAccessToken,
       intentLevel,
+      productContext,
     });
 
     let { reply, detectedLanguage, action } = agentResponse;
@@ -316,6 +358,29 @@ export async function callAiBridge(params: {
       await executeCancelOrderSilent(conversationId, storeId, action.customerPhone);
     } else if (action.type === "update_order" && action.updateData) {
       await executeUpdateOrderSilent(conversationId, storeId, action.customerPhone, action.updateData);
+    } else if (action.type === "send_product_images" && action.images?.length) {
+      for (const img of action.images) {
+        const imgMsgId = generateId("msg");
+        const caption = [img.color, img.label].filter(Boolean).join(" — ");
+        await db.insert(messagesTable).values({
+          id: imgMsgId,
+          conversationId,
+          content: caption || img.url,
+          sender: "bot",
+          metadata: { aiGenerated: true, type: "image", imageUrl: img.url, color: img.color, label: img.label },
+          createdAt: new Date(),
+        });
+        emitNewMessage(conversationId, storeId, imgMsgId, img.url);
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (action.caption) {
+        const capMsgId = generateId("msg");
+        await db.insert(messagesTable).values({
+          id: capMsgId, conversationId, content: action.caption,
+          sender: "bot", metadata: { aiGenerated: true }, createdAt: new Date(),
+        });
+        emitNewMessage(conversationId, storeId, capMsgId, action.caption);
+      }
     }
 
   } catch (err) {

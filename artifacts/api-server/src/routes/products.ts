@@ -55,6 +55,7 @@ router.get("/", requireAuth, async (req, res) => {
         isActive: p.is_active,
         imageUrl: p.image_url,
         imageUrls: parseImageUrls(p),
+        aiImages: p.ai_images || [],
         storeId: p.store_id,
         createdAt: p.created_at,
         updatedAt: p.updated_at,
@@ -76,7 +77,7 @@ router.post("/", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
 
-    const { name, description, price, stock, isActive = true, variants = [], imageUrl, imageUrls = [] } = req.body;
+    const { name, description, price, stock, isActive = true, variants = [], imageUrl, imageUrls = [], aiImages = [] } = req.body;
     if (!name || price === undefined) {
       res.status(400).json({ error: "validation_error", message: "name and price are required" });
       return;
@@ -89,10 +90,11 @@ router.post("/", requireAuth, async (req, res) => {
     const id = generateId("prod");
 
     await pool.query(
-      `INSERT INTO products (id, store_id, name, description, price, stock, is_active, variants, image_url, image_urls, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())`,
+      `INSERT INTO products (id, store_id, name, description, price, stock, is_active, variants, image_url, image_urls, ai_images, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),NOW())`,
       [id, storeId, name, description || null, price.toString(), stock ?? null, isActive,
-       JSON.stringify(Array.isArray(variants) ? variants : []), primaryImage, JSON.stringify(allImages)]
+       JSON.stringify(Array.isArray(variants) ? variants : []), primaryImage, JSON.stringify(allImages),
+       JSON.stringify(Array.isArray(aiImages) ? aiImages : [])]
     );
 
     const { rows } = await pool.query(`SELECT * FROM products WHERE id = $1`, [id]);
@@ -100,6 +102,7 @@ router.post("/", requireAuth, async (req, res) => {
     res.status(201).json({
       ...p, price: Number(p.price), isActive: p.is_active,
       imageUrl: p.image_url, imageUrls: parseImageUrls(p),
+      aiImages: p.ai_images || [],
       storeId: p.store_id, createdAt: p.created_at, updatedAt: p.updated_at,
     });
   } catch (err) {
@@ -121,6 +124,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     res.json({
       ...p, price: Number(p.price), isActive: p.is_active,
       imageUrl: p.image_url, imageUrls: parseImageUrls(p),
+      aiImages: p.ai_images || [],
       storeId: p.store_id, createdAt: p.created_at, updatedAt: p.updated_at,
     });
   } catch (err) {
@@ -133,7 +137,7 @@ router.get("/:id", requireAuth, async (req, res) => {
 router.patch("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
-    const { name, description, price, stock, isActive, variants, imageUrl, imageUrls } = req.body;
+    const { name, description, price, stock, isActive, variants, imageUrl, imageUrls, aiImages } = req.body;
 
     const setClauses: string[] = ["updated_at = NOW()"];
     const params: any[] = [];
@@ -144,6 +148,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (stock !== undefined) { params.push(stock); setClauses.push(`stock = $${params.length}`); }
     if (isActive !== undefined) { params.push(isActive); setClauses.push(`is_active = $${params.length}`); }
     if (variants !== undefined) { params.push(JSON.stringify(variants)); setClauses.push(`variants = $${params.length}`); }
+
+    // Handle AI suggested images
+    if (aiImages !== undefined) {
+      params.push(JSON.stringify(Array.isArray(aiImages) ? aiImages : []));
+      setClauses.push(`ai_images = $${params.length}`);
+    }
 
     // Handle images
     if (imageUrls !== undefined || imageUrl !== undefined) {
@@ -166,6 +176,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     res.json({
       ...p, price: Number(p.price), isActive: p.is_active,
       imageUrl: p.image_url, imageUrls: parseImageUrls(p),
+      aiImages: p.ai_images || [],
       storeId: p.store_id, createdAt: p.created_at, updatedAt: p.updated_at,
     });
   } catch (err) {

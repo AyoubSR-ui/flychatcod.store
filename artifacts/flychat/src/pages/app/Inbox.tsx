@@ -865,9 +865,28 @@ export default function Inbox() {
                           <Check className="w-3 h-3" /> {t("order.used")}
                         </span>
                       )}
-                      {attachment && <FilePreview attachment={attachment} isAgent={!isCustomer} />}
-                      {msg.content && msg.content !== `📎 ${attachment?.name}` && (
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                      {metadata?.type === "image" && metadata?.imageUrl ? (
+                        <div>
+                          <img
+                            src={metadata.imageUrl as string}
+                            alt={(metadata.label as string) || (metadata.color as string) || ""}
+                            className="rounded-xl max-w-[220px] max-h-[220px] object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => window.open(metadata.imageUrl as string, "_blank")}
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                          />
+                          {(metadata.color || metadata.label) && (
+                            <p className="text-xs mt-1 opacity-80">
+                              {[metadata.color, metadata.label].filter(Boolean).join(" — ")}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          {attachment && <FilePreview attachment={attachment} isAgent={!isCustomer} />}
+                          {msg.content && msg.content !== `📎 ${attachment?.name}` && (
+                            <p className="text-sm leading-relaxed">{msg.content}</p>
+                          )}
+                        </>
                       )}
                       <span className={`text-[10px] mt-2 block ${isCustomer ? "text-muted-foreground" : isAiGenerated ? "text-violet-200/70" : "text-primary-foreground/70"}`}>
                         {format(new Date(msg.createdAt), "HH:mm")}
