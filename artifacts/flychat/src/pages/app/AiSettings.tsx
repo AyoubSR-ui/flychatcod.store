@@ -269,7 +269,7 @@ function HowItWorksSection() {
 function TrainingDataSection() {
   const [syncing, setSyncing] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ messagesSynced: number; conversationsSynced: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ messagesSynced: number; conversationsSynced: number; results?: Record<string, { synced: number; error: string | null }> } | null>(null);
   const [syncError, setSyncError] = useState("");
 
   async function handleExport() {
@@ -331,10 +331,20 @@ function TrainingDataSection() {
         </button>
       </div>
       {syncResult && (
-        <p className="text-sm text-green-600 dark:text-green-400">
-          <CheckCircle2 className="inline w-4 h-4 mr-1" />
-          Synced {syncResult.messagesSynced} messages from {syncResult.conversationsSynced} conversations.
-        </p>
+        <div className="space-y-1.5">
+          <p className="text-sm text-green-600 dark:text-green-400">
+            <CheckCircle2 className="inline w-4 h-4 mr-1" />
+            Synced {syncResult.messagesSynced} messages from {syncResult.conversationsSynced} conversations.
+          </p>
+          {syncResult.results && Object.entries(syncResult.results).map(([ch, r]) => (
+            <p key={ch} className={`text-xs ${r.error ? "text-destructive" : "text-muted-foreground"}`}>
+              {r.error
+                ? <><AlertCircle className="inline w-3 h-3 mr-1" />{ch}: {r.error}</>
+                : <><CheckCircle2 className="inline w-3 h-3 mr-1" />{ch}: {r.synced} messages synced</>
+              }
+            </p>
+          ))}
+        </div>
       )}
       {syncError && (
         <p className="text-sm text-destructive">

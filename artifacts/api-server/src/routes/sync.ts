@@ -131,13 +131,17 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
     let totalConvsSynced = 0;
     let totalMsgsSynced = 0;
     let skipped = 0;
-    const channelErrors: string[] = [];
+    const perChannelResults: Record<string, { synced: number; error: string | null }> = {};
 
     for (const channel of channels) {
       currentChannel = channel.channel;
+      const chResult = { synced: 0, error: null as string | null };
+      perChannelResults[channel.channel] = chResult;
+
       console.log(`[Sync] Channel: ${channel.channel}, externalId: ${channel.external_account_id}, hasToken: ${!!channel.access_token}`);
 
       if (!channel.access_token) {
+        chResult.error = "no_access_token";
         console.warn(`[Sync] Skipping ${channel.channel} — no access token`);
         continue;
       }
@@ -157,7 +161,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
           if (!response.ok) {
             const responseText = await response.text();
             console.error(`[Sync] Meta API error for ${platform}: ${responseText.substring(0, 500)}`);
-            channelErrors.push(`${channel.channel}: ${responseText.substring(0, 200)}`);
+            chResult.error = responseText.substring(0, 200);
             break;
           }
 
@@ -213,6 +217,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
                   createdAt: new Date(msg.created_time),
                 });
 
+                chResult.synced++;
                 totalMsgsSynced++;
               } catch (msgErr: any) {
                 console.error(`[Sync] Message insert failed: ${msgErr?.message}`);
@@ -225,7 +230,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
         }
       } catch (err: any) {
         console.error(`[Sync] Channel ${channel.channel} failed:`, err);
-        channelErrors.push(`${channel.channel}: ${err?.message}`);
+        chResult.error = err?.message ?? "unknown error";
       }
     }
 
@@ -234,7 +239,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
       conversationsSynced: totalConvsSynced,
       messagesSynced: totalMsgsSynced,
       skipped,
-      channelErrors: channelErrors.length ? channelErrors : undefined,
+      results: perChannelResults,
     });
   } catch (err: any) {
     console.error("[Sync] Meta sync failed:", err);

@@ -146,11 +146,18 @@ export async function callAiBridge(params: {
       .filter((m) => m.sender === "bot" && (m.metadata as Record<string, unknown> | null)?.aiGenerated)
       .slice(-3).map((m) => m.content ?? "");
 
-    // ── Fetch shipping options ─────────────────────────────────────────────────
+    // ── Fetch shipping options + store metadata (aiRules) ─────────────────────
     const { rows: shippingRows } = await pool.query(
-      `SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`, [storeId]
+      `SELECT shipping_options, metadata FROM stores WHERE id = $1 LIMIT 1`, [storeId]
     );
     const shippingOptions = shippingRows[0]?.shipping_options ?? undefined;
+    const storeMeta = shippingRows[0]?.metadata ?? {};
+    const aiRules: string | undefined = storeMeta?.aiRules ?? undefined;
+
+    // Append stored AI rules to the system prompt
+    const aiSystemPromptWithRules = aiRules
+      ? (aiSystemPrompt || "") + "\n\nADDITIONAL RULES:\n" + aiRules
+      : aiSystemPrompt;
 
     // Check if the last customer message has an image attachment
     const lastCustomerMsg = history.slice().reverse().find(m => m.sender === "customer");
@@ -159,7 +166,7 @@ export async function callAiBridge(params: {
     const imageAccessToken = (lastMsgMeta?.imageAccessToken as string) || undefined;
 
     const agentResponse = await callAiAgent({
-      conversationId, storeId, storeName, aiSystemPrompt,
+      conversationId, storeId, storeName, aiSystemPrompt: aiSystemPromptWithRules,
       history: agentHistory, products, recentOrders,
       aiFlowState: conv.aiFlowState ?? undefined,
       detectedLanguage: conv.aiConversationLanguage ?? undefined,
@@ -185,7 +192,7 @@ export async function callAiBridge(params: {
     if (isRepetitive(reply, recentAiReplies)) {
       const retryResponse = await callAiAgent({
         conversationId, storeId, storeName,
-        aiSystemPrompt: (aiSystemPrompt || "") + "\n\nIMPORTANT: Your last reply was repetitive. Rephrase completely.",
+        aiSystemPrompt: (aiSystemPromptWithRules || "") + "\n\nIMPORTANT: Your last reply was repetitive. Rephrase completely.",
         history: agentHistory, products, recentOrders,
         aiFlowState: conv.aiFlowState ?? undefined, detectedLanguage,
       });

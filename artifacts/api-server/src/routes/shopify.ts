@@ -195,6 +195,7 @@ router.post("/sync/orders", requireAuth, async (req, res) => {
     }
 
     const count = await syncOrders(storeId, rows[0].shopify_shop, rows[0].shopify_access_token);
+    console.log("[Shopify] Sync orders result:", JSON.stringify({ synced: count }));
     res.json({ success: true, synced: count });
   } catch (err: any) {
     console.error("[Shopify] Sync orders error:", err);

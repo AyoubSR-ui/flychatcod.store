@@ -406,6 +406,7 @@ export default function Channels() {
     try {
       const res = await fetch(`${API_BASE}/api/shopify/sync/${type}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Sync failed");
       setSuccessMsg(`Synced ${data.synced} ${type} from Shopify ✅`);
     } catch { setErrorMsg("Sync failed. Please try again."); }
     finally { setSyncing(false); }
