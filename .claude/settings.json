@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -n \"callAiBridge\\\\|callAiAgent\" /c/flychatcod/artifacts/api-server/src/routes/*.ts)"
+      "Bash(grep -n \"callAiBridge\\\\|callAiAgent\" /c/flychatcod/artifacts/api-server/src/routes/*.ts)",
+      "Bash(railway environment:*)",
+      "Bash(railway --version)",
+      "Bash(ls c:/flychatcod/lib/db/node_modules/.bin/pg*)",
+      "Bash(node restore-db.mjs)"
     ]
   }
 }

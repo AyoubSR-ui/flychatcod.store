@@ -296,6 +296,24 @@ router.patch("/ai-language", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Apply AI to ALL conversations (all channels, incl. old/unreplied) ────────
+router.post("/apply-ai-to-all-conversations", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { rowCount } = await pool.query(
+      `UPDATE conversations
+       SET ai_mode = 'ai_autopilot', updated_at = NOW()
+       WHERE store_id = $1
+         AND (ai_mode IS NULL OR ai_mode != 'ai_autopilot')`,
+      [storeId]
+    );
+    res.json({ success: true, updated: rowCount, message: `AI enabled on ${rowCount} conversations` });
+  } catch (err) {
+    console.error("[Settings] apply-ai-to-all-conversations failed:", err);
+    res.status(500).json({ error: "Failed to update conversations" });
+  }
+});
+
 // ─── Bulk Apply AI Autopilot ──────────────────────────────────────────────────
 router.post("/apply-ai-to-all", requireAuth, async (req, res) => {
   try {
