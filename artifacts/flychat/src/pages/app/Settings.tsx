@@ -408,27 +408,36 @@ export default function Settings() {
                     <span className="ml-auto text-xs text-muted-foreground">{ALL_WILAYAS.length} wilayas</span>
                   </div>
                   {/* Apply All row */}
-                  <div className={`grid gap-4 p-3 bg-secondary/50 rounded-xl border border-border ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
+                  <div className={`grid gap-3 p-3 bg-secondary/50 rounded-xl border border-border ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
                     <div className="text-sm font-bold text-muted-foreground flex items-center">Apply to All</div>
                     <div className="flex gap-2 items-center">
+                      <span className="text-xs text-muted-foreground shrink-0">DZD</span>
                       <input type="number" min={0} value={applyAllHome} onChange={e => setApplyAllHome(e.target.value)}
-                        placeholder="Home" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
-                      <button onClick={() => applyAllPrices("home", applyAllHome)}
-                        className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply</button>
+                        placeholder="Home price" className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => applyAllPrices("home", applyAllHome)} title="Apply to all wilayas"
+                        className="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                     {shipping.pickupEnabled && (
                       <div className="flex gap-2 items-center">
+                        <span className="text-xs text-muted-foreground shrink-0">DZD</span>
                         <input type="number" min={0} value={applyAllPickup} onChange={e => setApplyAllPickup(e.target.value)}
-                          placeholder="Pickup" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
-                        <button onClick={() => applyAllPrices("pickup", applyAllPickup)}
-                          className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply</button>
+                          placeholder="Pickup price" className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
+                        <button onClick={() => applyAllPrices("pickup", applyAllPickup)} title="Apply to all wilayas"
+                          className="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
                     <div className="flex gap-2 items-center">
+                      <span className="text-xs text-muted-foreground shrink-0">DZD</span>
                       <input type="number" min={0} value={applyAllRetour} onChange={e => setApplyAllRetour(e.target.value)}
-                        placeholder="Retour" className="flex-1 border border-border rounded-lg px-3 py-1.5 text-sm outline-none bg-background" />
-                      <button onClick={() => applyAllPrices("retour", applyAllRetour)}
-                        className="text-xs px-3 py-1.5 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 whitespace-nowrap">Apply</button>
+                        placeholder="Retour price" className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => applyAllPrices("retour", applyAllRetour)} title="Apply to all wilayas"
+                        className="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 </div>
