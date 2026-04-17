@@ -134,6 +134,9 @@ export default function Settings() {
   });
   const [aiSaving, setAiSaving] = useState(false);
   const [aiSaved, setAiSaved] = useState(false);
+  const [applyingChannel, setApplyingChannel] = useState<string | null>(null);
+  const [appliedChannel, setAppliedChannel] = useState<string | null>(null);
+  const [appliedCount, setAppliedCount] = useState(0);
 
   useEffect(() => {
     if (store) setForm({
@@ -184,6 +187,29 @@ export default function Settings() {
       setTimeout(() => setShippingSaved(false), 2000);
     } catch {}
     setShippingSaving(false);
+  };
+
+  const handleApplyAiToAll = async (channelKey: string) => {
+    const label = channelKey === "all" ? "ALL channels" : channelKey;
+    if (!confirm(`Enable AI on ALL existing open ${label} conversations? This cannot be undone.`)) return;
+    setApplyingChannel(channelKey);
+    try {
+      const token = localStorage.getItem("flychat_token") || "";
+      const res = await fetch(`${API_BASE}/api/settings/apply-ai-to-all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channel: channelKey }),
+      });
+      const data = await res.json();
+      setAppliedCount(data.updatedCount || 0);
+      setAppliedChannel(channelKey);
+      setTimeout(() => setAppliedChannel(null), 5000);
+    } catch (err) {
+      console.error("Apply AI failed:", err);
+      alert("Failed to apply AI to conversations");
+    } finally {
+      setApplyingChannel(null);
+    }
   };
 
   const handleSaveAiModes = async () => {
@@ -496,22 +522,43 @@ export default function Settings() {
                 {(Object.entries(CHANNEL_META) as [Channel, typeof CHANNEL_META[Channel]][]).map(([ch, meta]) => {
                   const isAi = aiModes[ch] === "ai_autopilot";
                   return (
-                    <div key={ch} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${isAi ? `${meta.bg} ${meta.border}` : "bg-secondary/30 border-border"}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`w-2.5 h-2.5 rounded-full ${isAi ? meta.dot : "bg-gray-300"}`} />
-                        <div>
-                          <p className={`font-semibold text-sm ${isAi ? meta.color : "text-foreground"}`}>{meta.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{isAi ? "AI handles new messages automatically" : "Agent handles new messages manually"}</p>
+                    <div key={ch} className={`rounded-xl border transition-all ${isAi ? `${meta.bg} ${meta.border}` : "bg-secondary/30 border-border"}`}>
+                      <div className="flex items-center justify-between p-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`w-2.5 h-2.5 rounded-full ${isAi ? meta.dot : "bg-gray-300"}`} />
+                          <div>
+                            <p className={`font-semibold text-sm ${isAi ? meta.color : "text-foreground"}`}>{meta.label}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{isAi ? "AI handles new messages automatically" : "Agent handles new messages manually"}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-medium ${!isAi ? "text-foreground" : "text-muted-foreground"}`}>Human</span>
+                          <button onClick={() => setAiModes(prev => ({ ...prev, [ch]: isAi ? "human" : "ai_autopilot" }))}
+                            className={`relative w-11 h-6 rounded-full transition-colors ${isAi ? "bg-violet-600" : "bg-gray-200"}`}>
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isAi ? "translate-x-5" : "translate-x-0"}`} />
+                          </button>
+                          <span className={`text-xs font-medium ${isAi ? "text-violet-700" : "text-muted-foreground"}`}>AI</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-medium ${!isAi ? "text-foreground" : "text-muted-foreground"}`}>Human</span>
-                        <button onClick={() => setAiModes(prev => ({ ...prev, [ch]: isAi ? "human" : "ai_autopilot" }))}
-                          className={`relative w-11 h-6 rounded-full transition-colors ${isAi ? "bg-violet-600" : "bg-gray-200"}`}>
-                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isAi ? "translate-x-5" : "translate-x-0"}`} />
-                        </button>
-                        <span className={`text-xs font-medium ${isAi ? "text-violet-700" : "text-muted-foreground"}`}>AI</span>
-                      </div>
+                      {isAi && (
+                        <div className="px-4 pb-3 ml-6 flex items-center gap-3">
+                          <p className="text-xs text-muted-foreground">
+                            Apply AI to all existing open {meta.label} conversations
+                          </p>
+                          <button
+                            onClick={() => handleApplyAiToAll(ch)}
+                            disabled={applyingChannel === ch}
+                            className="px-3 py-1.5 bg-primary/10 text-primary text-xs font-bold rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
+                          >
+                            {applyingChannel === ch ? "Applying..." : "Apply Now"}
+                          </button>
+                          {appliedChannel === ch && (
+                            <span className="text-xs text-green-600 font-medium">
+                              ✅ Done — {appliedCount} conversations updated
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -520,6 +567,28 @@ export default function Settings() {
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${aiSaved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
                 {aiSaved ? <><Check className="w-4 h-4" /> Saved!</> : aiSaving ? "Saving..." : t("common.save")}
               </button>
+              <div className="mt-4 pt-4 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Apply AI to all channels at once</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Enable AI on all open conversations across WhatsApp, Instagram and Messenger
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleApplyAiToAll("all")}
+                    disabled={applyingChannel === "all"}
+                    className="px-4 py-2 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {applyingChannel === "all" ? "Applying..." : "Apply to All Channels"}
+                  </button>
+                </div>
+                {appliedChannel === "all" && (
+                  <p className="text-xs text-green-600 font-medium mt-2">
+                    ✅ Done — {appliedCount} conversations updated across all channels
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>

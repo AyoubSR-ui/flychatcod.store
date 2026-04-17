@@ -281,6 +281,39 @@ router.patch("/ai-language", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Bulk Apply AI Autopilot ──────────────────────────────────────────────────
+router.post("/apply-ai-to-all", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { channel } = req.body;
+
+    const channelFilter = channel && channel !== "all"
+      ? "AND channel = $2"
+      : "";
+    const params: any[] = channel && channel !== "all"
+      ? [storeId, channel]
+      : [storeId];
+
+    const { rows: updateRows } = await pool.query(
+      `UPDATE conversations
+       SET ai_mode = 'ai_autopilot', updated_at = NOW()
+       WHERE store_id = $1
+         AND status = 'open'
+         AND ai_mode != 'ai_autopilot'
+         ${channelFilter}
+       RETURNING id`,
+      params
+    );
+
+    const updatedCount = updateRows.length;
+    console.log(`[Settings] Applied AI to ${updatedCount} ${channel} conversations for store ${storeId}`);
+    res.json({ success: true, updatedCount, channel });
+  } catch (err) {
+    console.error("[Settings] Apply AI to all failed:", err);
+    res.status(500).json({ error: "Failed to apply AI" });
+  }
+});
+
 // ─── AI Data Quality ──────────────────────────────────────────────────────────
 router.get("/ai-data-quality", requireAuth, async (req, res) => {
   try {
