@@ -252,7 +252,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
 });
 
 // ─── Export Training Data (JSONL) ─────────────────────────────────────────────
-// Returns conversations that resulted in confirmed orders as OpenAI fine-tuning format.
+// Returns all meaningful conversations (≥6 messages, ≥1 bot/agent reply) as OpenAI fine-tuning format.
 router.get("/export-training-data", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId!;
@@ -261,13 +261,15 @@ router.get("/export-training-data", requireAuth, async (req, res) => {
       .where(eq(storesTable.id, storeId)).limit(1);
     if (!store) { res.status(404).json({ error: "Store not found" }); return; }
 
-    // Conversations that have at least one confirmed/delivered/shipped order
+    // All conversations with meaningful back-and-forth — no order required
     const { rows: convs } = await pool.query(`
       SELECT DISTINCT c.id, c.customer_name, c.channel
       FROM conversations c
-      JOIN orders o ON o.conversation_id = c.id
+      JOIN messages m ON m.conversation_id = c.id
       WHERE c.store_id = $1
-        AND o.status IN ('confirmed', 'delivered', 'shipped')
+      GROUP BY c.id, c.customer_name, c.channel
+      HAVING COUNT(m.id) >= 6
+        AND COUNT(CASE WHEN m.sender IN ('bot', 'agent') THEN 1 END) >= 1
     `, [storeId]);
 
     const jsonlLines: string[] = [];
@@ -283,7 +285,7 @@ router.get("/export-training-data", requireAuth, async (req, res) => {
         LIMIT 30
       `, [conv.id]);
 
-      if (messages.length < 4) continue;
+      if (messages.length < 3) continue;
 
       const trainingMessages: { role: string; content: string }[] = [
         {
