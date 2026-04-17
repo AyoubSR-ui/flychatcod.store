@@ -14,6 +14,7 @@ import { getAiStatus } from "../lib/ai-credits.js";
 import { requireAuth } from "../middlewares/auth.js";
 import jwt from "jsonwebtoken";
 import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
+import { analyzeImage } from "../lib/analyze-image.js";
 
 export const instagramRouter = Router();
 
@@ -398,19 +399,25 @@ async function processIncomingInstagramMessage(incoming: {
 
   const msgId = generateId("msg");
   const msgMetadata: Record<string, unknown> = {};
+  let msgContent = incoming.text;
+  let imageUsedVision = false;
   if (incoming.imageUrl) {
     msgMetadata.imageUrl = incoming.imageUrl;
     msgMetadata.imageAccessToken = channel.accessToken;
     msgMetadata.isImage = true;
+    const analysis = await analyzeImage(incoming.imageUrl, channel.accessToken ?? undefined, store.id);
+    msgContent = analysis.description;
+    imageUsedVision = analysis.usedVision;
+    console.log(`[Instagram] Image analyzed (vision=${imageUsedVision}): ${msgContent.substring(0, 80)}`);
   }
   await db.insert(messagesTable).values({
-    id: msgId, conversationId: conversation.id, content: incoming.text,
+    id: msgId, conversationId: conversation.id, content: msgContent,
     sender: "customer", externalId: incoming.messageId, createdAt: incoming.timestamp,
     metadata: Object.keys(msgMetadata).length ? msgMetadata : undefined,
   });
 
   await db.update(conversationsTable).set({
-    lastMessage: incoming.text,
+    lastMessage: msgContent,
     unreadCount: (conversation.unreadCount ?? 0) + 1,
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));
@@ -464,7 +471,20 @@ async function processIncomingInstagramMessage(incoming: {
         await sendInstagramMessage(channel.accessToken, incoming.senderId, replyText);
         console.log(`[Instagram] AI reply sent to ${incoming.senderId}`);
       },
-      consumeCredits: async () => {},
+      consumeCredits: async () => {
+        const credits = imageUsedVision ? 2 : 1;
+        try {
+          await pool.query(
+            `UPDATE subscriptions
+             SET ai_credits_used_current_period = ai_credits_used_current_period + $2,
+                 updated_at = NOW()
+             WHERE organization_id = (SELECT organization_id FROM stores WHERE id = $1)`,
+            [store.id, credits]
+          );
+        } catch (err) {
+          console.error("[Credits] Instagram: failed to consume credits:", err);
+        }
+      },
       checkCredits: async () => {
         const status = await getAiStatus(store.id);
         return status.eligible;

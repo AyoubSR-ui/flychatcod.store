@@ -19,6 +19,7 @@ import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
+import { analyzeImage } from "../lib/analyze-image.js";
 
 export const whatsappRouter = Router();
 
@@ -215,8 +216,10 @@ async function processIncomingWhatsAppMessage(incoming: {
   // 6. Save message
   const msgId = generateId("msg");
 
-  // Resolve WhatsApp image media ID → download URL via Graph API
+  // Resolve WhatsApp image media ID → download URL via Graph API, then analyze
   let msgMetadata: Record<string, unknown> | undefined;
+  let msgContent = incoming.text;
+  let imageUsedVision = false;
   if (incoming.imageMediaId) {
     try {
       const accessToken = channel.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN ?? "";
@@ -227,21 +230,25 @@ async function processIncomingWhatsAppMessage(incoming: {
         const mediaData = await mediaRes.json() as any;
         if (mediaData.url) {
           msgMetadata = { imageUrl: mediaData.url, imageAccessToken: accessToken, isImage: true };
+          const analysis = await analyzeImage(mediaData.url, accessToken, store.id);
+          msgContent = analysis.description;
+          imageUsedVision = analysis.usedVision;
+          console.log(`[WhatsApp] Image analyzed (vision=${imageUsedVision}): ${msgContent.substring(0, 80)}`);
         }
       }
     } catch (err) {
-      console.error("[WhatsApp] Failed to resolve image URL:", err);
+      console.error("[WhatsApp] Failed to resolve/analyze image:", err);
     }
   }
 
   await db.insert(messagesTable).values({
-    id: msgId, conversationId: conversation.id, content: incoming.text,
+    id: msgId, conversationId: conversation.id, content: msgContent,
     sender: "customer", externalId: incoming.messageId, createdAt: incoming.timestamp,
     metadata: msgMetadata,
   });
 
   await db.update(conversationsTable).set({
-    lastMessage: incoming.text,
+    lastMessage: msgContent,
     unreadCount: (conversation.unreadCount ?? 0) + 1,
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));
@@ -319,21 +326,22 @@ async function processIncomingWhatsAppMessage(incoming: {
         console.log(`[WhatsApp] AI reply sent to ${incoming.from}`);
       },
       consumeCredits: async () => {
+        const credits = imageUsedVision ? 2 : 1;
         try {
           await pool.query(
             `UPDATE subscriptions
-             SET ai_credits_used_current_period = ai_credits_used_current_period + 1,
+             SET ai_credits_used_current_period = ai_credits_used_current_period + $2,
                  updated_at = NOW()
              WHERE organization_id = (
                SELECT organization_id FROM stores WHERE id = $1
              )`,
-            [store.id]
+            [store.id, credits]
           );
           await pool.query(
             `INSERT INTO ai_runs
                (id, store_id, conversation_id, credits_charged, status, created_at)
-             VALUES ($1, $2, $3, 1, 'success', NOW())`,
-            [aiRunId, store.id, conversation.id]
+             VALUES ($1, $2, $3, $4, 'success', NOW())`,
+            [aiRunId, store.id, conversation.id, credits]
           );
         } catch (err) {
           console.error("[Credits] Failed to consume credits:", err);
