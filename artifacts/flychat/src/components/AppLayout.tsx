@@ -1,9 +1,9 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { 
+import {
   LayoutDashboard, MessageSquare, ShoppingBag, Users, Package,
   Settings, Zap, Plug, CreditCard, Users2, LogOut, ShieldAlert, Link2,
-  Menu, X, Bot
+  Menu, X, Bot, TrendingUp
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -23,6 +23,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const navItems = [
     { href: "/organization", label: "Organization", icon: Building2, raw: true },
     { href: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
+    { href: "/lead-intelligence", label: "Lead Intelligence", icon: TrendingUp, raw: true },
     { href: "/inbox", label: "nav.inbox", icon: MessageSquare },
     { href: "/orders", label: "nav.orders", icon: ShoppingBag },
     { href: "/customers", label: "nav.customers", icon: Users },

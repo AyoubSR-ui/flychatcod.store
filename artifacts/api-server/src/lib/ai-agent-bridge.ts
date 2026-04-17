@@ -1,6 +1,7 @@
 import { db, pool, conversationsTable, messagesTable, ordersTable, orderItemsTable, storesTable } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
+import { detectLeadIntent, intentToLeadStage, extractConversationState } from "./lead-intent.js";
 
 const AGENT_URL = process.env.AI_AGENT_URL;
 const AGENT_SECRET = process.env.AGENT_SECRET || "";
@@ -47,6 +48,7 @@ interface AgentRequest {
   shippingOptions?: Record<string, unknown>;
   imageUrl?: string;
   imageAccessToken?: string;
+  intentLevel?: string;
 }
 
 interface AgentResponse {
@@ -86,6 +88,67 @@ export async function callAiAgent(payload: AgentRequest): Promise<AgentResponse>
 
 const aiReplyInFlight = new Set<string>();
 const conversationBatch = new Map<string, { timer: any; messageId: string }>();
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEAD TRACKING
+// ═══════════════════════════════════════════════════════════════════════════════
+async function updateLeadTracking(
+  conversationId: string,
+  storeId: string,
+  messages: any[],
+  action: AgentResponse["action"],
+): Promise<void> {
+  try {
+    const state = extractConversationState(messages);
+    const intent = detectLeadIntent(state);
+    const allFieldsPresent = state.hasWilaya && state.hasPhone && state.hasSize;
+    const leadStage = intentToLeadStage(intent, allFieldsPresent);
+
+    const updateFields: Record<string, any> = {
+      intent_level: intent,
+      lead_stage: leadStage,
+      updated_at: new Date(),
+    };
+
+    if (state.hasWilaya && action?.wilaya) updateFields.lead_wilaya = action.wilaya;
+    if (state.hasPhone && action?.customerPhone) updateFields.lead_phone = action.customerPhone;
+    if (state.hasSize && action?.items?.[0]?.variant) updateFields.lead_size = action.items[0].variant;
+    if (state.hasColor && action?.items?.[0]?.variant) updateFields.lead_color = action.items[0].variant;
+    if (state.hasDeliveryType && action?.shippingOption) updateFields.lead_delivery_type = action.shippingOption;
+
+    if (leadStage === 'qualified_lead') {
+      updateFields.qualified_at = new Date();
+    }
+
+    const setClauses = Object.entries(updateFields)
+      .map(([key, _], i) => `${key} = $${i + 2}`)
+      .join(', ');
+    const values = [conversationId, ...Object.values(updateFields)];
+
+    await pool.query(
+      `UPDATE conversations SET ${setClauses} WHERE id = $1`,
+      values
+    );
+
+    if (leadStage === 'qualified_lead') {
+      await pool.query(
+        `INSERT INTO lead_events (id, store_id, conversation_id, event_type, event_data, status, created_at)
+         VALUES ($1, $2, $3, 'lead', $4, 'pending', NOW())
+         ON CONFLICT DO NOTHING`,
+        [
+          generateId('evt'),
+          storeId,
+          conversationId,
+          JSON.stringify({ intent, leadStage, hasWilaya: state.hasWilaya, hasPhone: state.hasPhone, hasSize: state.hasSize }),
+        ]
+      );
+    }
+
+    console.log(`[Lead] conv ${conversationId}: intent=${intent}, stage=${leadStage}`);
+  } catch (err) {
+    console.error('[Lead] updateLeadTracking failed:', err);
+  }
+}
 
 function isRepetitive(newReply: string, recentReplies: string[]): boolean {
   return recentReplies.some((r) => r.trim().toLowerCase() === newReply.trim().toLowerCase());
@@ -165,6 +228,10 @@ export async function callAiBridge(params: {
     const imageUrl = (lastMsgMeta?.imageUrl as string) || undefined;
     const imageAccessToken = (lastMsgMeta?.imageAccessToken as string) || undefined;
 
+    // Compute intent before calling the agent so we can pass it in the payload
+    const intentState = extractConversationState(agentHistory);
+    const intentLevel = detectLeadIntent(intentState);
+
     const agentResponse = await callAiAgent({
       conversationId, storeId, storeName, aiSystemPrompt: aiSystemPromptWithRules,
       history: agentHistory, products, recentOrders,
@@ -173,6 +240,7 @@ export async function callAiBridge(params: {
       shippingOptions,
       imageUrl,
       imageAccessToken,
+      intentLevel,
     });
 
     let { reply, detectedLanguage, action } = agentResponse;
@@ -214,6 +282,13 @@ export async function callAiBridge(params: {
 
     emitNewMessage(conversationId, storeId, replyMsgId, reply);
     await consumeCredits();
+
+    // ── Lead tracking — update intent/stage after every AI reply ─────────────
+    const fullHistory = await db
+      .select().from(messagesTable)
+      .where(eq(messagesTable.conversationId, conversationId))
+      .orderBy(messagesTable.createdAt);
+    await updateLeadTracking(conversationId, storeId, fullHistory, action);
 
     // ── Order action handler ──────────────────────────────────────────────────
     if (action.type === "create_order") {
@@ -523,6 +598,23 @@ async function executeCreateOrderSilent(
     await db.update(conversationsTable)
       .set({ aiFlowState: "order_created", updatedAt: new Date() })
       .where(eq(conversationsTable.id, conversationId));
+
+    // ── Mark conversation as order confirmed in lead tracking ─────────────────
+    await pool.query(
+      `UPDATE conversations SET order_stage = 'order_confirmed', lead_stage = 'order_confirmed', confirmed_at = NOW() WHERE id = $1`,
+      [conversationId]
+    );
+    await pool.query(
+      `INSERT INTO lead_events (id, store_id, conversation_id, event_type, event_data, status, created_at)
+       VALUES ($1, $2, $3, 'purchase', $4, 'pending', NOW())
+       ON CONFLICT DO NOTHING`,
+      [
+        generateId('evt'),
+        storeId,
+        conversationId,
+        JSON.stringify({ orderId, orderNumber, customerPhone: action.customerPhone, wilaya: action.wilaya, total }),
+      ]
+    );
 
     console.log(`[AI Bridge] Order ${orderNumber} created — conv ${conversationId}`);
 

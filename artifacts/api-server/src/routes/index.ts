@@ -24,7 +24,7 @@ import { messengerRouter } from "./messenger.js";
 import shopifyRouter from "./shopify.js";
 import stripeRouter from "./stripe.js";
 import syncRouter from "./sync.js";
-
+import analyticsRouter from "./analytics.js";
 
 
 
@@ -55,6 +55,7 @@ router.use("/messenger", messengerRouter);
 router.use("/shopify", shopifyRouter);
 router.use("/stripe", stripeRouter);
 router.use("/sync", syncRouter);
+router.use("/analytics", analyticsRouter);
 router.use("/", storageRouter);
 
 export default router;

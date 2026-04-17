@@ -36,6 +36,7 @@ import Settings from "@/pages/app/Settings";
 import AiSettings from "@/pages/app/AiSettings";
 import Admin from "@/pages/app/Admin";
 import AdLinks from "@/pages/app/AdLinks";
+import LeadIntelligence from "@/pages/app/LeadIntelligence";
 
 // Embed pages (no auth)
 import WidgetEmbed from "@/pages/embed/WidgetEmbed";
@@ -80,6 +81,7 @@ function Router() {
       {/* App — protected */}
       <Route path="/organization">{() => <ProtectedRoute component={Organization} />}</Route>
       <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
+      <Route path="/lead-intelligence">{() => <ProtectedRoute component={LeadIntelligence} />}</Route>
       <Route path="/inbox">{() => <ProtectedRoute component={Inbox} />}</Route>
       <Route path="/orders">{() => <ProtectedRoute component={Orders} />}</Route>
       <Route path="/orders/:id">{() => <ProtectedRoute component={OrderDetail} />}</Route>
