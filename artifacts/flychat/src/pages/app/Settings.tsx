@@ -137,6 +137,8 @@ export default function Settings() {
   const [applyingChannel, setApplyingChannel] = useState<string | null>(null);
   const [appliedChannel, setAppliedChannel] = useState<string | null>(null);
   const [appliedCount, setAppliedCount] = useState(0);
+  const [applyingAll, setApplyingAll] = useState(false);
+  const [appliedAllCount, setAppliedAllCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (store) setForm({
@@ -209,6 +211,26 @@ export default function Settings() {
       alert("Failed to apply AI to conversations");
     } finally {
       setApplyingChannel(null);
+    }
+  };
+
+  const handleApplyAiToAllConversations = async () => {
+    if (!confirm("This will enable AI autopilot on ALL existing conversations (open + closed, all channels). Are you sure?")) return;
+    setApplyingAll(true);
+    try {
+      const token = localStorage.getItem("flychat_token") || "";
+      const res = await fetch(`${API_BASE}/api/settings/apply-ai-to-all-conversations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setAppliedAllCount(data.updated ?? 0);
+      setTimeout(() => setAppliedAllCount(null), 6000);
+    } catch (err) {
+      console.error("Apply AI to all conversations failed:", err);
+      alert("Failed to apply AI to all conversations");
+    } finally {
+      setApplyingAll(false);
     }
   };
 
@@ -595,6 +617,30 @@ export default function Settings() {
                 {appliedChannel === "all" && (
                   <p className="text-xs text-green-600 font-medium mt-2">
                     ✅ Done — {appliedCount} conversations updated across all channels
+                  </p>
+                )}
+              </div>
+
+              {/* Apply AI to ALL conversations (including old/closed) */}
+              <div className="pt-4 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Apply AI to All Conversations</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Enable AI autopilot on every conversation — all channels, including old and closed ones
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleApplyAiToAllConversations}
+                    disabled={applyingAll}
+                    className="px-4 py-2 border border-border text-sm font-bold rounded-xl hover:bg-secondary/60 transition-colors disabled:opacity-50 text-foreground"
+                  >
+                    {applyingAll ? "Applying..." : "Apply to All Conversations"}
+                  </button>
+                </div>
+                {appliedAllCount !== null && (
+                  <p className="text-xs text-green-600 font-medium mt-2">
+                    ✅ AI enabled on {appliedAllCount} conversations
                   </p>
                 )}
               </div>
