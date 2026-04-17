@@ -7,6 +7,8 @@ import { requireAuth } from "../middlewares/auth.js";
 
 const router = Router();
 
+router.get("/ping", (_req, res) => { res.json({ ok: true }); });
+
 // ─── Instagram Outgoing Sync (callable from scheduler) ───────────────────────
 // Polls Instagram Graph API for all conversation messages and saves any outgoing
 // (agent-sent) messages that arrived since last sync. Runs on-demand and every 6h.
