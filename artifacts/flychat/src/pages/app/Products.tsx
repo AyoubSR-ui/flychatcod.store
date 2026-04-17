@@ -19,7 +19,7 @@ const PRESET_COLORS = [
 ];
 
 interface VariantGroup { label: string; values: string; type: "text" | "color" }
-interface AiImage { url: string; color: string; label: string }
+interface AiImage { url: string; description: string }
 interface ProductForm {
   name: string; description: string; price: string; stock: string;
   isActive: boolean; imageUrl: string; extraImages: string[];
@@ -171,7 +171,7 @@ export default function Products() {
     }
   };
 
-  const addAiImage = () => setForm(f => ({ ...f, aiImages: [...f.aiImages, { url: "", color: "", label: "" }] }));
+  const addAiImage = () => setForm(f => ({ ...f, aiImages: [...f.aiImages, { url: "", description: "" }] }));
   const removeAiImage = (i: number) => setForm(f => ({ ...f, aiImages: f.aiImages.filter((_, idx) => idx !== i) }));
   const updateAiImage = (i: number, field: keyof AiImage, val: string) =>
     setForm(f => ({ ...f, aiImages: f.aiImages.map((img, idx) => idx === i ? { ...img, [field]: val } : img) }));
@@ -553,51 +553,42 @@ export default function Products() {
                 <div className="space-y-2">
                   {form.aiImages.map((img, i) => (
                     <div key={i} className="flex items-center gap-2 p-2.5 border border-border rounded-xl bg-secondary/20">
-                      {img.url ? (
-                        <img src={img.url} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0"
-                          onError={e => (e.currentTarget.style.display = "none")} />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg border border-dashed border-border flex items-center justify-center shrink-0 bg-background">
-                          <Bot className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="flex-1 grid grid-cols-2 gap-1.5 min-w-0">
+                      {/* Thumbnail / upload trigger */}
+                      <label htmlFor={`ai-img-file-${i}`} className="shrink-0 cursor-pointer" title="Click to upload">
+                        {img.url ? (
+                          <img src={img.url} alt="" className="w-10 h-10 rounded-lg object-cover border border-border hover:opacity-80 transition-opacity"
+                            onError={e => (e.currentTarget.style.display = "none")} />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg border border-dashed border-border flex items-center justify-center bg-background hover:bg-secondary transition-colors">
+                            <Upload className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                        )}
+                      </label>
+                      <input id={`ai-img-file-${i}`} type="file" accept="image/*" className="hidden"
+                        onChange={async e => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const url = await uploadImage(file);
+                          if (url) updateAiImage(i, "url", url);
+                          e.target.value = "";
+                        }} />
+
+                      {/* URL + description */}
+                      <div className="flex-1 space-y-1.5 min-w-0">
                         <input
-                          placeholder="Image URL"
+                          placeholder="Image URL (or click thumbnail to upload)"
                           value={img.url}
                           onChange={e => updateAiImage(i, "url", e.target.value)}
-                          className="col-span-2 border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
+                          className="w-full border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
                         />
                         <input
-                          placeholder="Color (e.g. Bleu)"
-                          value={img.color}
-                          onChange={e => updateAiImage(i, "color", e.target.value)}
-                          className="border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
+                          placeholder="Describe what colors/views are in this image…"
+                          value={img.description}
+                          onChange={e => updateAiImage(i, "description", e.target.value)}
+                          className="w-full border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
                         />
-                        <div className="flex gap-1">
-                          <input
-                            placeholder="Label (Vue de face…)"
-                            value={img.label}
-                            onChange={e => updateAiImage(i, "label", e.target.value)}
-                            className="flex-1 border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
-                          />
-                          <label
-                            htmlFor={`ai-img-file-${i}`}
-                            className="flex items-center justify-center px-2 border border-border rounded-lg text-xs font-medium cursor-pointer hover:bg-secondary transition-colors whitespace-nowrap"
-                            title="Upload image"
-                          >
-                            <Upload className="w-3 h-3" />
-                          </label>
-                          <input id={`ai-img-file-${i}`} type="file" accept="image/*" className="hidden"
-                            onChange={async e => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              const url = await uploadImage(file);
-                              if (url) updateAiImage(i, "url", url);
-                              e.target.value = "";
-                            }} />
-                        </div>
                       </div>
+
                       <button onClick={() => removeAiImage(i)} className="p-1.5 hover:bg-red-50 rounded-lg shrink-0">
                         <X className="w-3.5 h-3.5 text-red-400" />
                       </button>

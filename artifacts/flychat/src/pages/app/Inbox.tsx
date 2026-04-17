@@ -869,15 +869,13 @@ export default function Inbox() {
                         <div>
                           <img
                             src={metadata.imageUrl as string}
-                            alt={(metadata.label as string) || (metadata.color as string) || ""}
+                            alt={(metadata.description as string) || ""}
                             className="rounded-xl max-w-[220px] max-h-[220px] object-cover cursor-pointer hover:opacity-90 transition-opacity"
                             onClick={() => window.open(metadata.imageUrl as string, "_blank")}
                             onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                           />
-                          {(metadata.color || metadata.label) && (
-                            <p className="text-xs mt-1 opacity-80">
-                              {[metadata.color, metadata.label].filter(Boolean).join(" — ")}
-                            </p>
+                          {metadata.description && (
+                            <p className="text-xs mt-1 opacity-80">{metadata.description as string}</p>
                           )}
                         </div>
                       ) : (

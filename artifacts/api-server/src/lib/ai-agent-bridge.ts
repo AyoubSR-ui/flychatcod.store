@@ -37,8 +37,7 @@ interface UpdateData {
 
 interface AiProductImage {
   url: string;
-  color: string;
-  label: string;
+  description: string;
 }
 
 interface AgentRequest {
@@ -361,13 +360,12 @@ export async function callAiBridge(params: {
     } else if (action.type === "send_product_images" && action.images?.length) {
       for (const img of action.images) {
         const imgMsgId = generateId("msg");
-        const caption = [img.color, img.label].filter(Boolean).join(" — ");
         await db.insert(messagesTable).values({
           id: imgMsgId,
           conversationId,
-          content: caption || img.url,
+          content: img.description || img.url,
           sender: "bot",
-          metadata: { aiGenerated: true, type: "image", imageUrl: img.url, color: img.color, label: img.label },
+          metadata: { aiGenerated: true, type: "image", imageUrl: img.url, description: img.description },
           createdAt: new Date(),
         });
         emitNewMessage(conversationId, storeId, imgMsgId, img.url);
