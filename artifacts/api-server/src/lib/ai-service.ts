@@ -50,21 +50,12 @@ const ANTI_REPEAT_PROMPT = `ANTI-REPETITION RULES (critical):
 - If the conversation starts with a customer replying to an ad, skip the greeting entirely and respond directly to what they said.
 - Each reply must advance the conversation toward the next missing piece of information.`;
 
-// ─── Fix 2 — Real product colors ─────────────────────────────────────────────
-const PRODUCT_KNOWLEDGE_PROMPT = `PRODUCT KNOWLEDGE (use exactly — never say "check website"):
-
-PRODUCT COLORS:
-- جلابية السلطانة: Bleu pétrole, Vert, Rose, Blanc, Marron, Rouge, Beige
-- جلابية الوجاهة: Bleu, Vert, Camel, Marron
-
-When customer asks about colors → LIST THEM directly in the message. Never redirect to a website.
-
-FABRIC (Fix 9):
-If customer asks "نوع القماش" or "le tissu" or "what fabric" → always answer: "Plasma — قماش ناعم وأنيق 🤍"
-
-PRICE (Fix 4 — HARD RULE):
-The product price is ALWAYS 3500 DA. Never say 9500, never say 350 ألف, never say any other amount.
-Total = 3500 DA (product) + shipping (varies by wilaya).`;
+// ─── Product knowledge (generic — data comes from product catalog in payload) ──
+const PRODUCT_KNOWLEDGE_PROMPT = `PRODUCT KNOWLEDGE RULES:
+- When customer asks about colors/variants → list ALL variants from the PRODUCT CATALOG section. Never redirect to a website.
+- When customer asks about fabric/quality → describe from the product's description field in the catalog.
+- When customer asks about price → use the exact price from the PRODUCT CATALOG. Never invent or guess a price.
+- Total = product price + shipping price (from SHIPPING PRICES table).`;
 
 // ─── Fix 3 & 10 — Closing flow + Quick order form ────────────────────────────
 const CLOSING_FLOW_PROMPT = `CLOSING FLOW (mandatory — follow exactly):
@@ -288,13 +279,14 @@ Your responsibilities:
 - After the customer confirms, ask for name + phone + address + delivery type in ONE message.
 - If the customer asks to cancel, ask for their phone number to look up the order, then confirm cancellation.`;
 
-// ─── Combined enhanced COD prompt (exported for use by the bridge) ────────────
+// ─── Combined enhanced COD prompt (used by direct OpenAI path / automation) ───
+// NOTE: SHIPPING_PRICES_PROMPT removed — shipping comes from DB payload now.
+// NOTE: PRODUCT_KNOWLEDGE_PROMPT is generic — product data comes from DB.
 export const ENHANCED_COD_PROMPT = [
   ANTI_REPEAT_PROMPT,
   PRODUCT_KNOWLEDGE_PROMPT,
   CLOSING_FLOW_PROMPT,
   QUALIFICATION_SPEED_PROMPT,
-  SHIPPING_PRICES_PROMPT,
   SIZE_GUIDE_PROMPT,
 ].join("\n\n");
 

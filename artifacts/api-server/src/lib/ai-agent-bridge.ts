@@ -2,7 +2,6 @@ import { db, pool, conversationsTable, messagesTable, ordersTable, orderItemsTab
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
 import { detectLeadIntent, intentToLeadStage, extractConversationState } from "./lead-intent.js";
-import { ENHANCED_COD_PROMPT } from "./ai-service.js";
 
 const AGENT_URL = process.env.AI_AGENT_URL;
 const AGENT_SECRET = process.env.AGENT_SECRET || "";
@@ -41,13 +40,39 @@ interface AiProductImage {
   description: string;
 }
 
+interface WilayaShipping { home: number; bureau: number; }
+
+interface StoreContext {
+  name: string;
+  persona: string;
+  aiRules: string;
+  language: string;
+}
+
+interface ConversationContext {
+  id: string;
+  channel: string;
+  ad_ref?: string | null;
+  intent_level: string;
+  lead_stage: string;
+}
+
 interface AgentRequest {
+  // ── v2 structured fields (agent.py uses these) ────────────────────────────
+  store: StoreContext;
+  products: Array<{
+    id: string; name: string; price: number; description: string;
+    variants: unknown[]; images: AiProductImage[];
+  }>;
+  shipping: Record<string, WilayaShipping>;
+  conversation: ConversationContext;
+  history: AgentMessage[];
+  message?: string;
+  // ── legacy fields (backward compat) ──────────────────────────────────────
   conversationId: string;
   storeId: string;
   storeName: string;
   aiSystemPrompt?: string;
-  history: AgentMessage[];
-  products: AgentProduct[];
   recentOrders: AgentOrder[];
   aiFlowState?: string;
   detectedLanguage?: string;
@@ -56,11 +81,8 @@ interface AgentRequest {
   imageAccessToken?: string;
   intentLevel?: string;
   productContext?: {
-    id: string;
-    name: string;
-    price: number;
-    aiImages: AiProductImage[];
-    variants?: unknown;
+    id: string; name: string; price: number;
+    aiImages: AiProductImage[]; variants?: unknown;
   };
 }
 
@@ -224,67 +246,102 @@ export async function callAiBridge(params: {
       .filter((m) => m.sender === "bot" && (m.metadata as Record<string, unknown> | null)?.aiGenerated)
       .slice(-3).map((m) => m.content ?? "");
 
-    // ── Fetch shipping options + store metadata (aiRules) ─────────────────────
-    const { rows: shippingRows } = await pool.query(
-      `SELECT shipping_options, metadata FROM stores WHERE id = $1 LIMIT 1`, [storeId]
+    // ── Fetch store: name, metadata (persona, aiRules, aiLanguage), shipping ───
+    const { rows: storeRows } = await pool.query(
+      `SELECT name, metadata, shipping_options, ai_system_prompt FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
     );
-    const shippingOptions = shippingRows[0]?.shipping_options ?? undefined;
-    const storeMeta = shippingRows[0]?.metadata ?? {};
-    const aiRules: string | undefined = storeMeta?.aiRules ?? undefined;
+    const storeMeta = storeRows[0]?.metadata ?? {};
+    const rawShipping = storeRows[0]?.shipping_options ?? {};
+    const storeAiPrompt: string | undefined = storeRows[0]?.ai_system_prompt || aiSystemPrompt || undefined;
 
-    // Append enhanced COD rules + stored AI rules to the system prompt
-    const aiSystemPromptWithRules = [
-      aiSystemPrompt || "",
-      ENHANCED_COD_PROMPT,
-      aiRules ? "ADDITIONAL STORE RULES:\n" + aiRules : "",
-    ].filter(Boolean).join("\n\n");
+    // ── Build shipping map { wilaya: { home, bureau } } ───────────────────────
+    const shippingMap: Record<string, WilayaShipping> = {};
+    const wilayaPrices = (rawShipping as any)?.wilayaPrices ?? {};
+    for (const [wilaya, priceData] of Object.entries(wilayaPrices) as [string, any][]) {
+      const home = Number(priceData?.home ?? 0);
+      shippingMap[wilaya] = { home, bureau: Math.max(400, home - 250) };
+    }
 
-    // ── Fetch product context via ad_ref → ad_product_links → products ─────────
+    // ── Fetch ALL active products with full variant + ai_images data ──────────
+    const { rows: productRows } = await pool.query(
+      `SELECT id, name, price, description, variants, ai_images FROM products
+       WHERE store_id = $1 AND is_active = true ORDER BY created_at DESC`,
+      [storeId]
+    );
+    const productsPayload = productRows.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price),
+      description: p.description || "",
+      variants: Array.isArray(p.variants) ? p.variants : [],
+      images: Array.isArray(p.ai_images) ? p.ai_images : [],
+    }));
+
+    // ── Fetch conversation state (channel, lead_stage, intent_level, ad_ref) ──
+    const { rows: convStateRows } = await pool.query(
+      `SELECT channel, lead_stage, intent_level, ad_ref FROM conversations WHERE id = $1 LIMIT 1`,
+      [conversationId]
+    );
+    const convState = convStateRows[0] ?? {};
+
+    // ── productContext: ad_ref → specific product (for ad-referred convs) ─────
     let productContext: AgentRequest["productContext"] | undefined;
-    const { rows: convExtra } = await pool.query(
-      `SELECT ad_ref FROM conversations WHERE id = $1 LIMIT 1`, [conversationId]
-    );
-    const adRef = convExtra[0]?.ad_ref;
+    const adRef = convState.ad_ref;
     if (adRef) {
       const { rows: adRows } = await pool.query(
         `SELECT p.id, p.name, p.price, p.ai_images, p.variants
-         FROM ad_product_links al
-         JOIN products p ON p.id = al.product_id
+         FROM ad_product_links al JOIN products p ON p.id = al.product_id
          WHERE al.store_id = $1 AND al.ad_ref = $2 LIMIT 1`,
         [storeId, adRef]
       );
       if (adRows[0]) {
         const p = adRows[0];
         productContext = {
-          id: p.id,
-          name: p.name,
-          price: Number(p.price),
+          id: p.id, name: p.name, price: Number(p.price),
           aiImages: Array.isArray(p.ai_images) ? p.ai_images : [],
           variants: p.variants,
         };
       }
     }
 
-    // Check if the last customer message has an image attachment
+    // ── Image attachment on last customer message ─────────────────────────────
     const lastCustomerMsg = history.slice().reverse().find(m => m.sender === "customer");
     const lastMsgMeta = lastCustomerMsg?.metadata as Record<string, unknown> | null;
     const imageUrl = (lastMsgMeta?.imageUrl as string) || undefined;
     const imageAccessToken = (lastMsgMeta?.imageAccessToken as string) || undefined;
 
-    // Compute intent before calling the agent so we can pass it in the payload
+    // ── Intent level ──────────────────────────────────────────────────────────
     const intentState = extractConversationState(agentHistory);
     const intentLevel = detectLeadIntent(intentState);
 
     const agentResponse = await callAiAgent({
-      conversationId, storeId, storeName, aiSystemPrompt: aiSystemPromptWithRules,
-      history: agentHistory, products, recentOrders,
+      // v2 structured fields
+      store: {
+        name: storeRows[0]?.name || storeName,
+        persona: storeMeta?.aiPersona || "",
+        aiRules: storeMeta?.aiRules || "",
+        language: storeMeta?.aiLanguage || "auto",
+      },
+      products: productsPayload,
+      shipping: shippingMap,
+      conversation: {
+        id: conversationId,
+        channel: convState.channel || "unknown",
+        ad_ref: adRef || null,
+        intent_level: convState.intent_level || intentLevel || "low",
+        lead_stage: convState.lead_stage || "interested",
+      },
+      history: agentHistory,
+      message: agentHistory[agentHistory.length - 1]?.content || "",
+      // legacy fields (backward compat with old agent)
+      conversationId, storeId, storeName,
+      aiSystemPrompt: storeAiPrompt,
+      recentOrders,
       aiFlowState: conv.aiFlowState ?? undefined,
       detectedLanguage: conv.aiConversationLanguage ?? undefined,
-      shippingOptions,
-      imageUrl,
-      imageAccessToken,
-      intentLevel,
-      productContext,
+      shippingOptions: rawShipping,
+      imageUrl, imageAccessToken, intentLevel, productContext,
     });
 
     let { reply, detectedLanguage, action } = agentResponse;
