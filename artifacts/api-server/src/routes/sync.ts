@@ -252,7 +252,8 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
 });
 
 // ─── Export Training Data (JSONL) ─────────────────────────────────────────────
-// Returns all meaningful conversations (≥6 messages, ≥1 bot/agent reply) as OpenAI fine-tuning format.
+// Returns high-quality conversations (confirmed orders OR qualified leads, 6+ msgs,
+// customer asked about price/wilaya/size) as clean OpenAI fine-tuning JSONL.
 router.get("/export-training-data", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId!;
@@ -261,52 +262,114 @@ router.get("/export-training-data", requireAuth, async (req, res) => {
       .where(eq(storesTable.id, storeId)).limit(1);
     if (!store) { res.status(404).json({ error: "Store not found" }); return; }
 
-    // All conversations with meaningful back-and-forth — no order required
+    // ── Qualify conversations: confirmed order OR qualified_lead, 6+ messages,
+    //    with at least one customer message touching price/wilaya/size
     const { rows: convs } = await pool.query(`
-      SELECT DISTINCT c.id, c.customer_name, c.channel
+      SELECT c.id, c.customer_name, c.channel
       FROM conversations c
-      JOIN messages m ON m.conversation_id = c.id
       WHERE c.store_id = $1
-      GROUP BY c.id, c.customer_name, c.channel
-      HAVING COUNT(m.id) >= 6
-        AND COUNT(CASE WHEN m.sender IN ('bot', 'agent') THEN 1 END) >= 1
+        AND (
+          c.lead_stage = 'qualified_lead'
+          OR c.lead_stage = 'order_confirmed'
+          OR EXISTS (
+            SELECT 1 FROM orders o
+            WHERE o.conversation_id = c.id
+              AND o.status NOT IN ('cancelled')
+          )
+        )
+        AND (
+          SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id
+        ) >= 6
+        AND EXISTS (
+          SELECT 1 FROM messages m
+          WHERE m.conversation_id = c.id
+            AND m.sender = 'customer'
+            AND (
+              m.content ILIKE '%سعر%' OR m.content ILIKE '%ثمن%' OR m.content ILIKE '%بشحال%'
+              OR m.content ILIKE '%bchhal%' OR m.content ILIKE '%prix%' OR m.content ILIKE '%combien%'
+              OR m.content ILIKE '%ولاية%' OR m.content ILIKE '%wilaya%' OR m.content ILIKE '%توصيل%'
+              OR m.content ILIKE '%مقاس%' OR m.content ILIKE '%taille%' OR m.content ILIKE '%pointure%'
+              OR m.content ILIKE '%size%' OR m.content ILIKE '%livraison%'
+            )
+        )
+      ORDER BY c.created_at DESC
     `, [storeId]);
+
+    // ── Patterns to drop (system noise, FB URLs, voice placeholders)
+    const NOISE_PATTERNS = [
+      /^Auto-label added/i,
+      /^replied to (an|a|your) ad/i,
+      /^facebook\.com\//i,
+      /^https?:\/\/(www\.)?facebook\.com/i,
+      /^\[🎤\s*Voice message\]/i,
+      /^\[voice message\]/i,
+      /^\[attachment\]$/i,
+      /^🎤$/,
+      /^Sticker$/i,
+    ];
+
+    function isNoise(content: string): boolean {
+      const trimmed = content.trim();
+      if (trimmed.length <= 2) return true;
+      return NOISE_PATTERNS.some(p => p.test(trimmed));
+    }
 
     const jsonlLines: string[] = [];
 
     for (const conv of convs) {
-      const { rows: messages } = await pool.query(`
+      const { rows: rawMessages } = await pool.query(`
         SELECT content, sender, created_at
         FROM messages
         WHERE conversation_id = $1
-          AND content NOT IN ('[🎤 Voice message]', '[attachment]')
-          AND LENGTH(content) > 2
         ORDER BY created_at ASC
-        LIMIT 30
       `, [conv.id]);
 
-      if (messages.length < 3) continue;
+      // ── Clean: remove noise
+      const cleaned = rawMessages.filter(
+        (m: any) => !isNoise(m.content ?? "")
+      );
 
+      // ── Clean: remove duplicate consecutive messages from same sender
+      const deduped: typeof cleaned = [];
+      for (const msg of cleaned) {
+        const prev = deduped[deduped.length - 1];
+        if (
+          prev &&
+          prev.sender === msg.sender &&
+          prev.content.trim().toLowerCase() === msg.content.trim().toLowerCase()
+        ) continue;
+        deduped.push(msg);
+      }
+
+      // Need at least 3 turns after cleaning
+      if (deduped.length < 3) continue;
+
+      // ── Build OpenAI fine-tuning format
       const trainingMessages: { role: string; content: string }[] = [
         {
           role: "system",
-          content: `You are a professional COD sales agent for ${store.name}, an e-commerce store in Algeria. You help customers place orders, answer questions, and handle cancellations. Payment is always COD (cash on delivery).`,
+          content: `You are a professional COD sales agent for ${store.name}, an Algerian e-commerce store. Help customers place orders, answer product questions, and handle cancellations. Payment is always COD (cash on delivery). Price is always 3500 DA.`,
         },
       ];
 
-      for (const msg of messages) {
+      for (const msg of deduped) {
         if (msg.sender === "customer") {
-          trainingMessages.push({ role: "user", content: msg.content });
+          trainingMessages.push({ role: "user", content: msg.content.trim() });
         } else if (msg.sender === "agent" || msg.sender === "bot") {
-          trainingMessages.push({ role: "assistant", content: msg.content });
+          trainingMessages.push({ role: "assistant", content: msg.content.trim() });
         }
+        // ignore "system" sender rows
       }
 
-      // Fine-tuning requires the conversation to end with an assistant turn
-      if (trainingMessages[trainingMessages.length - 1].role !== "assistant") continue;
+      // Fine-tuning requires ending with an assistant turn
+      if (trainingMessages[trainingMessages.length - 1]?.role !== "assistant") continue;
+      // Must have at least one user + one assistant turn beyond system
+      if (trainingMessages.length < 3) continue;
 
       jsonlLines.push(JSON.stringify({ messages: trainingMessages }));
     }
+
+    console.log(`[Export] ${jsonlLines.length} training examples from ${convs.length} qualified conversations`);
 
     res.setHeader("Content-Type", "application/jsonl");
     res.setHeader("Content-Disposition", `attachment; filename="training_data_${storeId}.jsonl"`);
