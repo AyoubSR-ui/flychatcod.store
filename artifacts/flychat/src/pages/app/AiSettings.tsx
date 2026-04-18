@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save, RefreshCw, Download } from "lucide-react";
+import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save, RefreshCw, Download, Sparkles, Play } from "lucide-react";
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
@@ -397,6 +397,129 @@ function TrainingDataSection() {
   );
 }
 
+// ─── Communication Optimizer Section ─────────────────────────────────────────
+function OptimizerSection() {
+  const [status, setStatus] = useState<any>(null);
+  const [running, setRunning] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [runError, setRunError] = useState("");
+
+  useEffect(() => {
+    apiFetch("/api/analytics/optimizer/status")
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+
+  async function handleRun() {
+    setRunning(true);
+    setRunError("");
+    try {
+      const result = await apiFetch("/api/analytics/optimizer/run", { method: "POST" });
+      if (result.status === "no_data") {
+        setRunError("No qualifying conversations found in the last 30 days.");
+      } else {
+        const updated = await apiFetch("/api/analytics/optimizer/status");
+        setStatus(updated);
+      }
+    } catch {
+      setRunError("Analysis failed. Try again later.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function handleApprove() {
+    setApproving(true);
+    try {
+      await apiFetch("/api/analytics/optimizer/approve", { method: "POST" });
+      const updated = await apiFetch("/api/analytics/optimizer/status");
+      setStatus(updated);
+    } catch {
+      // silent
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  const lastRun = status?.last_run
+    ? new Date(status.last_run).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : null;
+  const avgScore = status?.avg_score != null ? Number(status.avg_score).toFixed(1) : null;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Analyzes your past conversations using AI and generates communication improvement rules
+        that are automatically injected into the agent. Improvements are only applied after you approve them.
+      </p>
+
+      {status && (
+        <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5 text-sm">
+          {lastRun && (
+            <p className="text-muted-foreground">
+              Last run: <span className="text-foreground font-medium">{lastRun}</span>
+              {status.analyzed_count > 0 && (
+                <> · Analyzed: <span className="text-foreground font-medium">{status.analyzed_count} conversations</span></>
+              )}
+            </p>
+          )}
+          {avgScore && (
+            <p className="text-muted-foreground">
+              Avg quality score: <span className="text-foreground font-medium">{avgScore}/10</span>
+              {status.confidence_score != null && (
+                <> · Confidence: <span className="text-foreground font-medium">{Math.round(status.confidence_score * 100)}%</span></>
+              )}
+            </p>
+          )}
+          {status.has_approved && !status.has_pending && (
+            <p className="text-green-600 dark:text-green-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Improvements approved and active
+            </p>
+          )}
+          {status.has_pending && (
+            <p className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5" /> Improvements pending your approval
+            </p>
+          )}
+          {status.improvement_summary && (
+            <p className="text-muted-foreground text-xs pt-1 border-t border-border">
+              {status.improvement_summary}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={handleRun}
+          disabled={running}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {running ? "Analyzing…" : "Run Analysis"}
+        </button>
+
+        {status?.has_pending && (
+          <button
+            onClick={handleApprove}
+            disabled={approving}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500 text-green-600 dark:text-green-400 text-sm font-medium hover:bg-green-500/10 disabled:opacity-50 transition-colors"
+          >
+            {approving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            {approving ? "Approving…" : "Approve Improvements"}
+          </button>
+        )}
+      </div>
+
+      {runError && (
+        <p className="text-sm text-destructive flex items-center gap-1">
+          <AlertCircle className="w-4 h-4" /> {runError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Section Card ─────────────────────────────────────────────────────────────
 function Section({ icon: Icon, title, children }: { icon: React.ElementType; title: string; children: React.ReactNode }) {
   return (
@@ -445,6 +568,10 @@ export default function AiSettings() {
 
           <Section icon={Download} title="Training Data">
             <TrainingDataSection />
+          </Section>
+
+          <Section icon={Sparkles} title="Communication Optimizer">
+            <OptimizerSection />
           </Section>
         </div>
       </div>
