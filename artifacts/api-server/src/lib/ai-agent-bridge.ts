@@ -2,6 +2,7 @@ import { db, pool, conversationsTable, messagesTable, ordersTable, orderItemsTab
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
 import { detectLeadIntent, intentToLeadStage, extractConversationState } from "./lead-intent.js";
+import { ENHANCED_COD_PROMPT } from "./ai-service.js";
 
 const AGENT_URL = process.env.AI_AGENT_URL;
 const AGENT_SECRET = process.env.AGENT_SECRET || "";
@@ -231,10 +232,12 @@ export async function callAiBridge(params: {
     const storeMeta = shippingRows[0]?.metadata ?? {};
     const aiRules: string | undefined = storeMeta?.aiRules ?? undefined;
 
-    // Append stored AI rules to the system prompt
-    const aiSystemPromptWithRules = aiRules
-      ? (aiSystemPrompt || "") + "\n\nADDITIONAL RULES:\n" + aiRules
-      : aiSystemPrompt;
+    // Append enhanced COD rules + stored AI rules to the system prompt
+    const aiSystemPromptWithRules = [
+      aiSystemPrompt || "",
+      ENHANCED_COD_PROMPT,
+      aiRules ? "ADDITIONAL STORE RULES:\n" + aiRules : "",
+    ].filter(Boolean).join("\n\n");
 
     // ── Fetch product context via ad_ref → ad_product_links → products ─────────
     let productContext: AgentRequest["productContext"] | undefined;
