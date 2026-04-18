@@ -19,8 +19,9 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
-            <Link href="/features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{t("nav.features")}</Link>
-            <Link href="/pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{t("nav.pricing")}</Link>
+            <Link href="/#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Features</Link>
+            <Link href="/#pricing" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{t("nav.pricing")}</Link>
+            <Link href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Docs</Link>
             <Link href="/contact" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">{t("nav.contact")}</Link>
           </nav>
 

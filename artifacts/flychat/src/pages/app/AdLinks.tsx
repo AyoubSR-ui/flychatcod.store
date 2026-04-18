@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Plus, Trash2, Link, Package, AlertCircle, CheckCircle2, X } from "lucide-react";
+import { DocButton } from "@/components/DocButton";
 import { useGetProducts } from "@workspace/api-client-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
@@ -61,9 +62,12 @@ export default function AdLinks() {
         <div className="max-w-4xl mx-auto space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h1 className="text-3xl font-display font-bold text-foreground flex items-center gap-2">
-                <Link className="w-7 h-7 text-primary" /> Ad Product Links
-              </h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-display font-bold text-foreground flex items-center gap-2">
+                  <Link className="w-7 h-7 text-primary" /> Ad Product Links
+                </h1>
+                <DocButton docId="ad-links" />
+              </div>
               <p className="text-muted-foreground mt-1">Link your Facebook/Instagram ads to specific products so AI knows which product to focus on.</p>
             </div>
             <button onClick={() => setShowModal(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">

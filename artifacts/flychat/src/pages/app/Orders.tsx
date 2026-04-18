@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import { Search, Filter, Eye, X, Plus, Trash2, Loader2, Package, PhoneCall } from "lucide-react";
+import { DocButton } from "@/components/DocButton";
 import { useGetOrders, useCreateOrder, getGetOrdersQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -264,7 +265,10 @@ export default function Orders() {
         <div className="max-w-full mx-auto space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h1 className="text-3xl font-display font-bold text-foreground">Orders</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-display font-bold text-foreground">Orders</h1>
+                <DocButton docId="orders" />
+              </div>
               <p className="text-muted-foreground mt-1">Manage and confirm your Cash on Delivery orders.</p>
             </div>
             <button onClick={() => setShowCreate(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2 transition-colors">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { AppLayout } from "@/components/AppLayout";
+import { DocButton } from "@/components/DocButton";
 import {
   Search, Phone, ShoppingBag, Send, User, MessageSquare, Globe,
   Paperclip, Loader2, X, Plus, Minus, Trash2, ChevronRight, ChevronLeft,
@@ -598,7 +599,10 @@ export default function Inbox() {
         {/* ── LEFT PANEL ── */}
         <div className={`w-64 flex-col border-r border-border bg-card z-10 shrink-0 ${activeConvId ? "hidden xl:flex" : "flex"}`}>
           <div className="p-4 border-b border-border/50">
-            <h2 className="text-lg font-bold mb-3">{t("nav.inbox")}</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">{t("nav.inbox")}</h2>
+              <DocButton docId="inbox" variant="ghost" label="" />
+            </div>
             <div className="relative mb-3">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input type="text" placeholder={t("common.search")}

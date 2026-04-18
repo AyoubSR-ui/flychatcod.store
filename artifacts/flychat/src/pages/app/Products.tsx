@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Plus, Search, Pencil, Trash2, ToggleLeft, ToggleRight, X, Upload, Link, Package, Bot } from "lucide-react";
+import { DocButton } from "@/components/DocButton";
 import { useState, useRef } from "react";
 import { useGetProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
@@ -182,7 +183,10 @@ export default function Products() {
         <div className="max-w-7xl mx-auto space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.products")}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.products")}</h1>
+                <DocButton docId="products" />
+              </div>
               <p className="text-muted-foreground mt-1">Manage your product catalog for chat-to-order flows.</p>
             </div>
             <button onClick={openCreate} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">

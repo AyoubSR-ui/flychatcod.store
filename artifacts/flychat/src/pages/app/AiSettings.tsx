@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save, RefreshCw, Download, Sparkles, Play } from "lucide-react";
+import { DocButton } from "@/components/DocButton";
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
@@ -542,9 +543,12 @@ export default function AiSettings() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-6">
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Bot className="w-6 h-6 text-primary" /> AI Settings
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <Bot className="w-6 h-6 text-primary" /> AI Settings
+              </h1>
+              <DocButton docId="ai-settings" />
+            </div>
             <p className="text-sm text-muted-foreground mt-1">
               Configure how your AI agent behaves across all channels.
             </p>

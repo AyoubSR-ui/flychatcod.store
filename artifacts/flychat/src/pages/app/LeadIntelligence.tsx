@@ -5,6 +5,7 @@ import {
   TrendingUp, Users, ShoppingBag, Zap, ChevronRight,
   MessageSquare, MapPin, Phone, Package,
 } from "lucide-react";
+import { DocButton } from "@/components/DocButton";
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
@@ -131,10 +132,13 @@ export default function LeadIntelligence() {
 
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <TrendingUp className="w-6 h-6 text-primary" />
-            Lead Intelligence
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <TrendingUp className="w-6 h-6 text-primary" />
+              Lead Intelligence
+            </h1>
+            <DocButton docId="lead-intelligence" />
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
             Not all messages are equal. This shows you who is a real buyer.
           </p>

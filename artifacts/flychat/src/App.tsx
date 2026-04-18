@@ -18,6 +18,9 @@ import ResetPassword from "@/pages/auth/ResetPassword";
 import Onboarding from "@/pages/auth/Onboarding";
 import AcceptInvite from "@/pages/auth/AcceptInvite";
 
+// Docs
+import Docs from "@/pages/Docs";
+
 // App pages
 import Organization from "@/pages/app/Organization";
 import Dashboard from "@/pages/app/Dashboard";
@@ -67,6 +70,8 @@ function Router() {
       <Route path="/features" component={Features} />
       <Route path="/pricing" component={Pricing} />
       <Route path="/contact" component={Contact} />
+      <Route path="/docs" component={Docs} />
+      <Route path="/docs/:id" component={Docs} />
 
       {/* Embed (no auth) */}
       <Route path="/embed/widget" component={WidgetEmbed} />

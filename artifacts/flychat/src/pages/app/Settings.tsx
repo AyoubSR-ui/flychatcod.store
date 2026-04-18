@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useGetStoreSettings, useUpdateStoreSettings } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 import { Store, Globe, MapPin, Bot, Check, Truck, Package } from "lucide-react";
+import { DocButton } from "@/components/DocButton";
 
 const TABS = ["profile", "language", "shipping", "autopilot"] as const;
 
@@ -287,7 +288,10 @@ export default function Settings() {
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-4xl mx-auto space-y-6">
           <div>
-            <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.settings")}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.settings")}</h1>
+              <DocButton docId="shipping" />
+            </div>
             <p className="text-muted-foreground mt-1">Configure your store profile and preferences.</p>
           </div>
 

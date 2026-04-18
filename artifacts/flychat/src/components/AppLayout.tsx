@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, MessageSquare, ShoppingBag, Users, Package,
   Settings, Zap, Plug, CreditCard, Users2, LogOut, ShieldAlert, Link2,
-  Menu, X, Bot, TrendingUp
+  Menu, X, Bot, TrendingUp, BookOpen
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -37,6 +37,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { href: "/organization", label: "Organization", icon: Building2 },
     { href: "/ai-settings", label: "AI Settings", icon: Bot, raw: true },
     { href: "/settings", label: "nav.settings", icon: Settings },
+    { href: "/docs", label: "Documentation", icon: BookOpen, raw: true },
   ];
 
   if (user?.role === "superadmin") {
