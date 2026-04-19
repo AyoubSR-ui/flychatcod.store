@@ -117,65 +117,118 @@ async function proxyToOptimizer(path: string, body: unknown) {
   return res.json();
 }
 
+// ── Shared helper: fetch qualifying conversations for a store ─────────────────
+async function fetchOptimizerConversations(storeId: string, limit = 150) {
+  const { rows } = await pool.query(`
+    SELECT
+      c.id            AS conversation_id,
+      c.store_id,
+      c.lead_stage,
+      c.intent_level,
+      c.order_stage,
+      c.qualified_at,
+      c.confirmed_at,
+      c.channel,
+      COUNT(m.id)     AS message_count,
+      json_agg(
+        json_build_object(
+          'sender',     m.sender,
+          'content',    m.content,
+          'created_at', m.created_at
+        ) ORDER BY m.created_at
+      ) AS messages
+    FROM conversations c
+    JOIN messages m ON m.conversation_id = c.id
+    WHERE c.store_id = $1
+      AND c.created_at > NOW() - INTERVAL '30 days'
+      AND (
+        c.lead_stage IN ('engaged', 'qualified_lead', 'order_confirmed')
+        OR c.intent_level = 'high'
+      )
+    GROUP BY c.id
+    HAVING COUNT(m.id) >= 6
+    ORDER BY c.created_at DESC
+    LIMIT $2
+  `, [storeId, limit]);
+
+  return rows.map((c: any) => ({
+    conversation_id: c.conversation_id,
+    store_id: c.store_id,
+    messages: c.messages,
+    outcome: c.order_stage === "order_confirmed" ? "confirmed" : c.lead_stage,
+    lead_stage: c.lead_stage,
+    order_confirmed: c.order_stage === "order_confirmed",
+    message_count: parseInt(c.message_count, 10),
+    qualified_at: c.qualified_at,
+    confirmed_at: c.confirmed_at,
+    channel: c.channel,
+  }));
+}
+
+// ── Helper: get store plan ────────────────────────────────────────────────────
+async function getStorePlan(storeId: string): Promise<string> {
+  const { rows } = await pool.query(
+    `SELECT s.organization_id, sub.plan
+     FROM stores s
+     LEFT JOIN subscriptions sub ON sub.organization_id = s.organization_id
+     WHERE s.id = $1 LIMIT 1`,
+    [storeId]
+  );
+  return rows[0]?.plan ?? "starter";
+}
+
+// GET /api/analytics/optimizer/estimate
+// Estimates credit cost before running — no API calls, no credit deduction
+router.post("/optimizer/estimate", requireAuth, async (req, res) => {
+  try {
+    if (!AGENT_URL) {
+      res.json({ ready_to_run: false, error: "AI agent not configured" });
+      return;
+    }
+    const storeId = req.user!.storeId!;
+    const plan = await getStorePlan(storeId);
+    const conversations = await fetchOptimizerConversations(storeId, 150);
+
+    if (!conversations.length) {
+      res.json({
+        ready_to_run: false,
+        conversations_available: 0,
+        conversations_to_analyze: 0,
+        credits_required: 0,
+        message: "No qualifying conversations found in the last 30 days."
+      });
+      return;
+    }
+
+    const result = await proxyToOptimizer("/optimize/estimate", {
+      conversations,
+      storeId,
+      plan,
+    });
+    res.json(result);
+  } catch (err: any) {
+    console.error("[Optimizer] Estimate failed:", err);
+    res.status(500).json({ error: "Estimate failed", detail: err?.message });
+  }
+});
+
 // POST /api/analytics/optimizer/run
 // Fetches last 30 days of qualified conversations and sends to Python for analysis
 router.post("/optimizer/run", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId!;
-
-    const { rows: conversations } = await pool.query(`
-      SELECT
-        c.id            AS conversation_id,
-        c.store_id,
-        c.lead_stage,
-        c.intent_level,
-        c.order_stage,
-        c.qualified_at,
-        c.confirmed_at,
-        c.channel,
-        COUNT(m.id)     AS message_count,
-        json_agg(
-          json_build_object(
-            'sender',     m.sender,
-            'content',    m.content,
-            'created_at', m.created_at
-          ) ORDER BY m.created_at
-        ) AS messages
-      FROM conversations c
-      JOIN messages m ON m.conversation_id = c.id
-      WHERE c.store_id = $1
-        AND c.created_at > NOW() - INTERVAL '30 days'
-        AND (
-          c.lead_stage IN ('engaged', 'qualified_lead', 'order_confirmed')
-          OR c.intent_level = 'high'
-        )
-      GROUP BY c.id
-      HAVING COUNT(m.id) >= 6
-      ORDER BY c.created_at DESC
-      LIMIT 100
-    `, [storeId]);
+    const plan = await getStorePlan(storeId);
+    const conversations = await fetchOptimizerConversations(storeId, 150);
 
     if (!conversations.length) {
       res.json({ status: "no_data", message: "No qualifying conversations found in the last 30 days." });
       return;
     }
 
-    const formatted = conversations.map((c: any) => ({
-      conversation_id: c.conversation_id,
-      store_id: c.store_id,
-      messages: c.messages,
-      outcome: c.order_stage === "order_confirmed" ? "confirmed" : c.lead_stage,
-      lead_stage: c.lead_stage,
-      order_confirmed: c.order_stage === "order_confirmed",
-      message_count: parseInt(c.message_count, 10),
-      qualified_at: c.qualified_at,
-      confirmed_at: c.confirmed_at,
-      channel: c.channel,
-    }));
-
     const result = await proxyToOptimizer("/optimize", {
-      conversations: formatted,
+      conversations,
       storeId,
+      plan,
       autoApprove: false,
     });
 

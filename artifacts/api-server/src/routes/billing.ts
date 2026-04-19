@@ -1,8 +1,51 @@
-import { Router } from "express";
-import { db, subscriptionsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { Router, Request, Response, NextFunction } from "express";
+import { db, pool, subscriptionsTable, storesTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
+
+// ── Agent-secret middleware (for Python optimizer calls) ──────────────────────
+function requireAgentSecret(req: Request, res: Response, next: NextFunction) {
+  const secret = process.env.AGENT_SECRET;
+  const provided = req.headers["x-agent-secret"];
+  if (!secret || provided !== secret) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  next();
+}
+
+// ── Ensure optimizer_runs table exists (lazy init on first request) ───────────
+let optimizerTableReady = false;
+async function ensureOptimizerTable() {
+  if (optimizerTableReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS optimizer_runs (
+      id TEXT PRIMARY KEY,
+      store_id TEXT NOT NULL,
+      selected_model TEXT,
+      provider TEXT,
+      conversations_requested INT DEFAULT 0,
+      conversations_processed INT DEFAULT 0,
+      batch_count INT DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      estimated_input_tokens INT DEFAULT 0,
+      estimated_output_tokens INT DEFAULT 0,
+      actual_input_tokens INT DEFAULT 0,
+      actual_output_tokens INT DEFAULT 0,
+      estimated_provider_cost_usd DECIMAL(10,6) DEFAULT 0,
+      actual_provider_cost_usd DECIMAL(10,6) DEFAULT 0,
+      estimated_credit_charge INT DEFAULT 0,
+      actual_credit_charge INT DEFAULT 0,
+      credits_reserved INT DEFAULT 0,
+      credits_finalized INT DEFAULT 0,
+      margin_target DECIMAL(5,2) DEFAULT 25.0,
+      created_at TIMESTAMP DEFAULT NOW(),
+      completed_at TIMESTAMP
+    )
+  `);
+  optimizerTableReady = true;
+}
 
 const router = Router();
 
@@ -134,7 +177,6 @@ router.get("/ai-status", requireAuth, async (req, res) => {
   }
 });
 
-export default router;
 router.post("/top-up", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
@@ -164,3 +206,131 @@ router.post("/top-up", requireAuth, async (req, res) => {
     res.status(500).json({ error: "internal_error" });
   }
 });
+
+// ─── Optimizer Credit Endpoints (called by Python agent, not browser) ─────────
+
+// GET /api/billing/credits/:storeId
+router.get("/credits/:storeId", requireAgentSecret, async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const status = await getAiStatus(storeId);
+    res.json({ credits_remaining: status.creditsRemaining });
+  } catch (err) {
+    console.error("[Billing] credits fetch error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// POST /api/billing/credits/reserve
+router.post("/credits/reserve", requireAgentSecret, async (req, res) => {
+  try {
+    await ensureOptimizerTable();
+    const { storeId, amount, runId } = req.body as { storeId: string; amount: number; runId: string };
+
+    // Get organization id for this store
+    const [store] = await db.select({ organizationId: storesTable.organizationId })
+      .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+    if (!store) { res.status(404).json({ error: "store_not_found" }); return; }
+
+    // Increment used credits to reserve them (fail if not enough)
+    const result = await db.update(subscriptionsTable).set({
+      aiCreditsUsedCurrentPeriod: sql`${subscriptionsTable.aiCreditsUsedCurrentPeriod} + ${amount}`,
+      updatedAt: new Date(),
+    }).where(eq(subscriptionsTable.organizationId, store.organizationId)).returning({
+      used: subscriptionsTable.aiCreditsUsedCurrentPeriod,
+      included: subscriptionsTable.aiMonthlyCreditsIncluded,
+      extra: subscriptionsTable.aiExtraCreditsPurchased,
+    });
+
+    if (!result.length) { res.status(404).json({ error: "subscription_not_found" }); return; }
+
+    // Log reservation in optimizer_runs
+    await pool.query(
+      `INSERT INTO optimizer_runs (id, store_id, status, credits_reserved, created_at)
+       VALUES ($1, $2, 'running', $3, NOW())
+       ON CONFLICT (id) DO UPDATE SET credits_reserved = $3, status = 'running'`,
+      [runId, storeId, amount]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Billing] reserve error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// POST /api/billing/credits/finalize
+router.post("/credits/finalize", requireAgentSecret, async (req, res) => {
+  try {
+    await ensureOptimizerTable();
+    const { storeId, runId, actualAmount } = req.body as { storeId: string; runId: string; actualAmount: number };
+
+    // Get reserved amount to compute refund
+    const { rows } = await pool.query<{ credits_reserved: number }>(
+      `SELECT credits_reserved FROM optimizer_runs WHERE id = $1`,
+      [runId]
+    );
+    const reserved = rows[0]?.credits_reserved ?? actualAmount;
+    const refund = Math.max(0, reserved - actualAmount);
+
+    if (refund > 0) {
+      const [store] = await db.select({ organizationId: storesTable.organizationId })
+        .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+      if (store) {
+        await db.update(subscriptionsTable).set({
+          aiCreditsUsedCurrentPeriod: sql`GREATEST(0, ${subscriptionsTable.aiCreditsUsedCurrentPeriod} - ${refund})`,
+          updatedAt: new Date(),
+        }).where(eq(subscriptionsTable.organizationId, store.organizationId));
+      }
+    }
+
+    await pool.query(
+      `UPDATE optimizer_runs
+       SET status = 'completed', credits_finalized = $1, actual_credit_charge = $2, completed_at = NOW()
+       WHERE id = $3`,
+      [actualAmount, actualAmount, runId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Billing] finalize error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// POST /api/billing/credits/release
+router.post("/credits/release", requireAgentSecret, async (req, res) => {
+  try {
+    await ensureOptimizerTable();
+    const { storeId, runId } = req.body as { storeId: string; runId: string };
+
+    const { rows } = await pool.query<{ credits_reserved: number }>(
+      `SELECT credits_reserved FROM optimizer_runs WHERE id = $1`,
+      [runId]
+    );
+    const reserved = rows[0]?.credits_reserved ?? 0;
+
+    if (reserved > 0) {
+      const [store] = await db.select({ organizationId: storesTable.organizationId })
+        .from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+      if (store) {
+        await db.update(subscriptionsTable).set({
+          aiCreditsUsedCurrentPeriod: sql`GREATEST(0, ${subscriptionsTable.aiCreditsUsedCurrentPeriod} - ${reserved})`,
+          updatedAt: new Date(),
+        }).where(eq(subscriptionsTable.organizationId, store.organizationId));
+      }
+    }
+
+    await pool.query(
+      `UPDATE optimizer_runs SET status = 'failed', completed_at = NOW() WHERE id = $1`,
+      [runId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Billing] release error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+export default router;

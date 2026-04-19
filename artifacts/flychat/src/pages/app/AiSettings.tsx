@@ -400,15 +400,22 @@ function TrainingDataSection() {
 
 // ─── Communication Optimizer Section ─────────────────────────────────────────
 function OptimizerSection() {
+  const [estimate, setEstimate] = useState<any>(null);
+  const [estimateLoading, setEstimateLoading] = useState(true);
   const [status, setStatus] = useState<any>(null);
   const [running, setRunning] = useState(false);
   const [approving, setApproving] = useState(false);
   const [runError, setRunError] = useState("");
 
+  // Phase 1: load estimate on mount (no credits deducted)
   useEffect(() => {
-    apiFetch("/api/analytics/optimizer/status")
-      .then(setStatus)
-      .catch(() => setStatus(null));
+    Promise.all([
+      apiFetch("/api/analytics/optimizer/estimate", { method: "POST" }).catch(() => null),
+      apiFetch("/api/analytics/optimizer/status").catch(() => null),
+    ]).then(([est, stat]) => {
+      setEstimate(est);
+      setStatus(stat);
+    }).finally(() => setEstimateLoading(false));
   }, []);
 
   async function handleRun() {
@@ -416,14 +423,26 @@ function OptimizerSection() {
     setRunError("");
     try {
       const result = await apiFetch("/api/analytics/optimizer/run", { method: "POST" });
+
+      // Billing blocked — show top-up message
+      if (result.blocked || result.status === "blocked_insufficient_credits") {
+        setEstimate((prev: any) => ({ ...prev, ...result.billing, blocked: true }));
+        return;
+      }
       if (result.status === "no_data") {
         setRunError("No qualifying conversations found in the last 30 days.");
-      } else {
-        const updated = await apiFetch("/api/analytics/optimizer/status");
-        setStatus(updated);
+        return;
       }
+
+      // Refresh status after successful run
+      const [updatedStatus, updatedEstimate] = await Promise.all([
+        apiFetch("/api/analytics/optimizer/status").catch(() => null),
+        apiFetch("/api/analytics/optimizer/estimate", { method: "POST" }).catch(() => null),
+      ]);
+      setStatus(updatedStatus);
+      setEstimate(updatedEstimate);
     } catch {
-      setRunError("Analysis failed. Try again later.");
+      setRunError("Analysis failed. Please try again.");
     } finally {
       setRunning(false);
     }
@@ -433,7 +452,7 @@ function OptimizerSection() {
     setApproving(true);
     try {
       await apiFetch("/api/analytics/optimizer/approve", { method: "POST" });
-      const updated = await apiFetch("/api/analytics/optimizer/status");
+      const updated = await apiFetch("/api/analytics/optimizer/status").catch(() => null);
       setStatus(updated);
     } catch {
       // silent
@@ -442,39 +461,95 @@ function OptimizerSection() {
     }
   }
 
-  const lastRun = status?.last_run
-    ? new Date(status.last_run).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+  const lastRunAt = status?.last_run_at
+    ? new Date(status.last_run_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
     : null;
-  const avgScore = status?.avg_score != null ? Number(status.avg_score).toFixed(1) : null;
+
+  const isBlocked = estimate?.blocked || estimate?.status === "blocked_insufficient_credits";
+  const creditsRequired = estimate?.credits_required ?? 0;
+  const creditsAvailable = estimate?.credits_available ?? 0;
+  const creditsMissing = estimate?.credits_missing ?? 0;
+  const hasConversations = (estimate?.conversations_to_analyze ?? 0) > 0;
+  const canRun = hasConversations && !isBlocked && creditsRequired > 0;
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Analyzes your past conversations using AI and generates communication improvement rules
-        that are automatically injected into the agent. Improvements are only applied after you approve them.
+        injected into the agent. Improvements are only applied after you approve them.
       </p>
 
-      {status && (
-        <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5 text-sm">
-          {lastRun && (
-            <p className="text-muted-foreground">
-              Last run: <span className="text-foreground font-medium">{lastRun}</span>
-              {status.analyzed_count > 0 && (
-                <> · Analyzed: <span className="text-foreground font-medium">{status.analyzed_count} conversations</span></>
+      {/* Phase 1 & 2: Estimate card */}
+      {estimateLoading ? (
+        <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+          <Loader2 className="w-4 h-4 animate-spin" /> Checking your conversations…
+        </div>
+      ) : estimate && (
+        <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-2 text-sm">
+          {hasConversations ? (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Conversations eligible</span>
+                <span className="font-medium text-foreground">{estimate.conversations_to_analyze}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Model</span>
+                <span className="font-medium text-foreground">{estimate.model_label ?? estimate.model}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Credits required</span>
+                <span className="font-medium text-foreground">{creditsRequired}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Your credits</span>
+                <span className={`font-medium ${isBlocked ? "text-destructive" : "text-foreground"}`}>
+                  {creditsAvailable}
+                </span>
+              </div>
+
+              {/* Phase 2B: blocked */}
+              {isBlocked && (
+                <div className="pt-2 border-t border-border space-y-2">
+                  <p className="text-destructive text-sm flex items-start gap-1.5">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    You need {creditsRequired} credits but only have {creditsAvailable}.
+                    Top up {creditsMissing} or more credits to run this analysis.
+                  </p>
+                  <a
+                    href="/billing?action=topup"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium hover:bg-destructive/90 transition-colors"
+                  >
+                    Top Up Credits →
+                  </a>
+                </div>
               )}
+
+              {/* Phase 2A: ready */}
+              {!isBlocked && (
+                <p className="text-green-600 dark:text-green-400 flex items-center gap-1 pt-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Ready to run
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-muted-foreground">
+              No qualifying conversations found in the last 30 days.
             </p>
           )}
-          {avgScore && (
+        </div>
+      )}
+
+      {/* Phase 3/4: prior run status */}
+      {status && (status.has_pending || status.has_approved) && (
+        <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5 text-sm">
+          {lastRunAt && (
             <p className="text-muted-foreground">
-              Avg quality score: <span className="text-foreground font-medium">{avgScore}/10</span>
-              {status.confidence_score != null && (
-                <> · Confidence: <span className="text-foreground font-medium">{Math.round(status.confidence_score * 100)}%</span></>
-              )}
+              Last run: <span className="text-foreground font-medium">{lastRunAt}</span>
             </p>
           )}
           {status.has_approved && !status.has_pending && (
             <p className="text-green-600 dark:text-green-400 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Improvements approved and active
+              <CheckCircle2 className="w-3.5 h-3.5" /> Active ✅ — improvements injected into agent
             </p>
           )}
           {status.has_pending && (
@@ -487,19 +562,28 @@ function OptimizerSection() {
               {status.improvement_summary}
             </p>
           )}
+          {status.confidence_score != null && (
+            <p className="text-muted-foreground text-xs">
+              Confidence: {Math.round(status.confidence_score * 100)}%
+            </p>
+          )}
         </div>
       )}
 
+      {/* Phase 3: action buttons */}
       <div className="flex flex-wrap gap-3">
-        <button
-          onClick={handleRun}
-          disabled={running}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          {running ? "Analyzing…" : "Run Analysis"}
-        </button>
+        {!isBlocked && canRun && (
+          <button
+            onClick={handleRun}
+            disabled={running}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {running ? "Analyzing…" : "Run Analysis"}
+          </button>
+        )}
 
+        {/* Phase 4: approve button */}
         {status?.has_pending && (
           <button
             onClick={handleApprove}
