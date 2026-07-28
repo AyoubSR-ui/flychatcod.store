@@ -602,15 +602,18 @@ async function registerWebhooks(shop: string, accessToken: string, storeId: stri
 }
 
 // ─── Helper: map Shopify status ───────────────────────────────────────────────
+// order_status enum only allows: new, awaiting_confirmation, confirmed, shipped,
+// delivered, cancelled, suspicious — any other value fails the insert/update.
 function mapShopifyStatus(financialStatus: string): string {
   const map: Record<string, string> = {
     paid: "confirmed",
-    pending: "pending",
+    pending: "new",
     voided: "cancelled",
     refunded: "cancelled",
-    partially_paid: "pending",
+    partially_paid: "new",
+    partially_refunded: "new",
   };
-  return map[financialStatus] || "pending";
+  return map[financialStatus] || "new";
 }
 
 export default router;

@@ -4,37 +4,81 @@ import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
+import { ensureOrderStatusValues, ensureOrdersAgentColumn } from "../lib/schema-bootstrap.js";
+import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/order-filters.js";
+import { dispatchOrderToCarrier } from "./carriers.js";
 
 const router = Router();
+
+// ─── GET /api/orders/stats — KPI summary bar ───────────────────────────────────
+// Respects the same filters as the list (minus pagination) so "Livrées/période"
+// etc. track whatever date range / filters are currently active in the UI.
+router.get("/stats", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.json({ total: 0, today: 0, confirmed: 0, confirmedRate: 0, cancelled: 0, cancelledRate: 0, deliveryFailed: 0, deliveryFailedRate: 0, deliveryRate: 0, delivered: 0 }); return; }
+    await ensureOrderStatusValues();
+
+    const { whereSQL, values } = await buildOrderFilters(storeId, req.query as Record<string, string>);
+    const { rows } = await pool.query(
+      `${ORDERS_BASE_CTE}
+       SELECT
+         COUNT(*) AS total,
+         COUNT(*) FILTER (WHERE b.created_at >= date_trunc('day', now())) AS today,
+         COUNT(*) FILTER (WHERE b.status IN ('confirmed','self_confirmed','shipped','delivered')) AS confirmed,
+         COUNT(*) FILTER (WHERE b.status = 'cancelled') AS cancelled,
+         COUNT(*) FILTER (WHERE b.shipment_status = 'failed') AS delivery_failed,
+         COUNT(*) FILTER (WHERE b.status = 'delivered' OR b.shipment_status = 'delivered') AS delivered
+       FROM base b WHERE ${whereSQL}`,
+      values
+    );
+    const r = rows[0];
+    const total = Number(r.total) || 0;
+    const pct = (n: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
+    res.json({
+      total,
+      today: Number(r.today) || 0,
+      confirmed: Number(r.confirmed) || 0,
+      confirmedRate: pct(Number(r.confirmed) || 0),
+      cancelled: Number(r.cancelled) || 0,
+      cancelledRate: pct(Number(r.cancelled) || 0),
+      deliveryFailed: Number(r.delivery_failed) || 0,
+      deliveryFailedRate: pct(Number(r.delivery_failed) || 0),
+      delivered: Number(r.delivered) || 0,
+      deliveryRate: pct(Number(r.delivered) || 0),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch order stats" });
+  }
+});
 
 // ─── GET /api/orders ──────────────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ orders: [], total: 0, page: 1, limit: 20 }); return; }
+    await ensureOrderStatusValues();
+    await ensureOrdersAgentColumn();
 
-    const { status, search, page = "1", limit = "20" } = req.query as Record<string, string>;
+    const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, parseInt(limit));
     const offset = (pageNum - 1) * limitNum;
 
-    const whereParts: string[] = ["store_id = $1"];
-    const params: any[] = [storeId];
-    if (status) { params.push(status); whereParts.push(`status = $${params.length}`); }
-    if (search) {
-      params.push(`%${search}%`);
-      whereParts.push(`(customer_name ILIKE $${params.length} OR order_number ILIKE $${params.length} OR customer_phone ILIKE $${params.length})`);
-    }
-    const whereSQL = whereParts.join(" AND ");
+    const { whereSQL, values } = await buildOrderFilters(storeId, req.query as Record<string, string>);
 
     const { rows: countRows } = await pool.query(
-      `SELECT COUNT(*) as total FROM orders WHERE ${whereSQL}`, params
+      `${ORDERS_BASE_CTE} SELECT COUNT(*) as total FROM base b WHERE ${whereSQL}`, values
     );
-    const dataParams = [...params, limitNum, offset];
+    const sortDir = (req.query.sort as string) === "asc" ? "ASC" : "DESC";
+    const dataValues = [...values, limitNum, offset];
     const { rows: orders } = await pool.query(
-      `SELECT * FROM orders WHERE ${whereSQL} ORDER BY created_at DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
-      dataParams
+      `${ORDERS_BASE_CTE} SELECT * FROM base b WHERE ${whereSQL} ORDER BY b.created_at ${sortDir} LIMIT $${dataValues.length - 1} OFFSET $${dataValues.length}`,
+      dataValues
     );
+
+    const dupMatches = await getDuplicateMatches(storeId, orders.map((o: any) => o.id));
 
     const ordersWithItems = await Promise.all(orders.map(async (o: any) => {
       // Use JSONB items for Shopify orders; fall back to order_items table for COD orders
@@ -65,6 +109,7 @@ router.get("/", requireAuth, async (req, res) => {
         fulfillmentStatus: o.fulfillment_status,
         deliveryStatus: o.delivery_status,
         salesChannel: o.sales_channel,
+        source: o.computed_source,
         flags: o.flags || [],
         tags: o.tags,
         items,
@@ -73,6 +118,16 @@ router.get("/", requireAuth, async (req, res) => {
         cancelledBySource: o.cancelled_by_source,
         confirmedBySource: o.confirmed_by_source,
         sellerNote: o.seller_note,
+        assignedAgentId: o.assigned_agent_id,
+        assignedAgentName: o.agent_name,
+        shipment: o.shipment_id ? {
+          id: o.shipment_id,
+          carrier: o.shipment_carrier,
+          carrierConnectionId: o.shipment_carrier_connection_id,
+          trackingNumber: o.shipment_tracking_number,
+          status: o.shipment_status,
+        } : null,
+        duplicateOf: dupMatches.get(o.id) || [],
         createdAt: o.created_at,
         updatedAt: o.updated_at,
       };
@@ -153,13 +208,23 @@ router.get("/", requireAuth, async (req, res) => {
     const total = (itemsTotal + Number(shippingFee)).toFixed(2);
     const orderId = generateId("ord");
 
+    // ─── Inherit agent assignment from the conversation, if any ────────────────
+    await ensureOrdersAgentColumn();
+    let assignedAgentId: string | null = null;
+    if (conversationId) {
+      const [conv] = await db.select({ assignedToId: conversationsTable.assignedToId })
+        .from(conversationsTable)
+        .where(and(eq(conversationsTable.id, conversationId), eq(conversationsTable.storeId, storeId))).limit(1);
+      assignedAgentId = conv?.assignedToId || null;
+    }
+
     await pool.query(
       `INSERT INTO orders (id, order_number, store_id, customer_id, conversation_id, customer_name, customer_phone,
-        customer_email, wilaya, address, seller_note, total, shipping_fee, shipping_option, is_cod, status, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,'new',NOW(),NOW())`,
+        customer_email, wilaya, address, seller_note, total, shipping_fee, shipping_option, is_cod, status, assigned_agent_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,'new',$15,NOW(),NOW())`,
       [orderId, generateOrderNumber(), storeId, finalCustomerId || null, conversationId || null,
        customerName, customerPhone, customerEmail || null, wilaya, address || null,
-       sellerNote || null, total, String(shippingFee || 0), shippingOption || null]
+       sellerNote || null, total, String(shippingFee || 0), shippingOption || null, assignedAgentId]
     );
 
     for (const item of items) {
@@ -232,15 +297,22 @@ router.get("/", requireAuth, async (req, res) => {
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
+    await ensureOrdersAgentColumn();
     const { rows } = await pool.query(
-      `SELECT id, order_number as "orderNumber", store_id as "storeId", customer_id as "customerId",
-       conversation_id as "conversationId", customer_name as "customerName", customer_phone as "customerPhone",
-       customer_email as "customerEmail", wilaya, address, status, is_cod as "isCod",
-       total, seller_note as "sellerNote", created_by_source as "createdBySource",
-       cancelled_by_source as "cancelledBySource", shipping_fee as "shippingFee",
-       shipping_option as "shippingOption", created_at as "createdAt", updated_at as "updatedAt"
-       FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`,
-      [req.params.id, storeId]
+      `${ORDERS_BASE_CTE}
+       SELECT b.id, b.order_number as "orderNumber", b.store_id as "storeId", b.customer_id as "customerId",
+       b.conversation_id as "conversationId", b.customer_name as "customerName", b.customer_phone as "customerPhone",
+       b.customer_email as "customerEmail", b.wilaya, b.address, b.status, b.is_cod as "isCod",
+       b.total, b.seller_note as "sellerNote", b.created_by_source as "createdBySource",
+       b.cancelled_by_source as "cancelledBySource", b.confirmed_by_source as "confirmedBySource",
+       b.shipping_fee as "shippingFee", b.shipping_option as "shippingOption",
+       b.computed_source as "source", b.assigned_agent_id as "assignedAgentId", b.agent_name as "assignedAgentName",
+       b.shipment_id as "shipmentId", b.shipment_carrier as "shipmentCarrier",
+       b.shipment_carrier_connection_id as "shipmentCarrierConnectionId",
+       b.shipment_tracking_number as "shipmentTrackingNumber", b.shipment_status as "shipmentStatus",
+       b.created_at as "createdAt", b.updated_at as "updatedAt"
+       FROM base b WHERE b.id = $2 AND b.store_id = $1 LIMIT 1`,
+      [storeId, req.params.id]
     );
     if (!rows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
     const order = rows[0];
@@ -250,12 +322,22 @@ router.get("/:id", requireAuth, async (req, res) => {
       const [c] = await db.select().from(customersTable).where(eq(customersTable.id, order.customerId)).limit(1);
       customer = c || null;
     }
+    const dupMatches = await getDuplicateMatches(String(storeId), [order.id]);
+
     res.json({
       ...order,
       total: Number(order.total),
       shippingFee: Number(order.shippingFee || 0),
       shippingOption: order.shippingOption || null,
       items: items.map(i => ({ ...i, price: Number(i.price) })),
+      shipment: order.shipmentId ? {
+        id: order.shipmentId,
+        carrier: order.shipmentCarrier,
+        carrierConnectionId: order.shipmentCarrierConnectionId,
+        trackingNumber: order.shipmentTrackingNumber,
+        status: order.shipmentStatus,
+      } : null,
+      duplicateOf: dupMatches.get(order.id) || [],
       customer,
       conversation: null,
     });
@@ -269,7 +351,9 @@ router.get("/:id", requireAuth, async (req, res) => {
 router.patch("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
-    const { status, sellerNote, wilaya, address, shippingFee, shippingOption } = req.body;
+    await ensureOrderStatusValues();
+    await ensureOrdersAgentColumn();
+    const { status, sellerNote, wilaya, address, shippingFee, shippingOption, assignedAgentId } = req.body;
 
     const setClauses: string[] = ["updated_at = NOW()"];
     const params: any[] = [];
@@ -280,6 +364,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (address !== undefined) { params.push(address); setClauses.push(`address = $${params.length}`); }
     if (shippingFee !== undefined) { params.push(String(shippingFee)); setClauses.push(`shipping_fee = $${params.length}`); }
     if (shippingOption !== undefined) { params.push(shippingOption); setClauses.push(`shipping_option = $${params.length}`); }
+    if (assignedAgentId !== undefined) { params.push(assignedAgentId || null); setClauses.push(`assigned_agent_id = $${params.length}`); }
 
     params.push(req.params.id, storeId);
     const { rows } = await pool.query(
@@ -300,6 +385,22 @@ router.patch("/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to update order" });
+  }
+});
+
+// ─── POST /api/orders/:id/dispatch — create a shipment (colis) with a carrier ─
+router.post("/:id/dispatch", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    const { carrierConnectionId } = req.body as { carrierConnectionId?: string };
+    if (!carrierConnectionId) { res.status(400).json({ error: "validation_error", message: "carrierConnectionId is required" }); return; }
+
+    const result = await dispatchOrderToCarrier(String(storeId), String(req.params.id), carrierConnectionId);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("[Orders] Dispatch error:", err);
+    res.status(400).json({ error: "dispatch_failed", message: err.message || "Failed to create shipment" });
   }
 });
 

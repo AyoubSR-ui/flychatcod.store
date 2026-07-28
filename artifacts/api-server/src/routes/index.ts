@@ -25,6 +25,7 @@ import shopifyRouter from "./shopify.js";
 import stripeRouter from "./stripe.js";
 import syncRouter from "./sync.js";
 import analyticsRouter from "./analytics.js";
+import carriersRouter from "./carriers.js";
 
 
 
@@ -56,6 +57,7 @@ router.use("/shopify", shopifyRouter);
 router.use("/stripe", stripeRouter);
 router.use("/sync", syncRouter);
 router.use("/analytics", analyticsRouter);
+router.use("/carriers", carriersRouter);
 router.use("/", storageRouter);
 
 export default router;

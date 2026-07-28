@@ -1,15 +1,18 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
-import { Search, Filter, Eye, X, Plus, Trash2, Loader2, Package, PhoneCall } from "lucide-react";
+import {
+  Search, Plus, Trash2, Loader2, Package, PhoneCall, AlertTriangle, Truck,
+  ShoppingBag, CheckCircle2, XCircle, TrendingUp, CalendarClock, Send,
+} from "lucide-react";
 import { DocButton } from "@/components/DocButton";
-import { useGetOrders, useCreateOrder, getGetOrdersQueryKey } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCreateOrder, useGetProducts, useGetTeamMembers, getGetOrdersQueryKey } from "@workspace/api-client-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
-import { Badge } from "@/components/ui/badge";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
 const WILAYAS = [
   "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
@@ -22,13 +25,77 @@ const WILAYAS = [
   "In Salah","In Guezzam","Touggourt","Djanet","El M'Ghair","El Méniaa",
 ];
 
-interface OrderItem {
-  productName: string;
-  variant: string;
-  quantity: number;
-  price: number;
+const STATUS_OPTIONS = [
+  "new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed",
+  "no_answer", "callback", "shipped", "delivered", "cancelled", "suspicious",
+] as const;
+
+const STATUS_COLORS: Record<string, string> = {
+  new: "bg-blue-100 text-blue-800 border-blue-200",
+  awaiting_confirmation: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  self_confirmation: "bg-amber-100 text-amber-800 border-amber-200",
+  self_confirmed: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  confirmed: "bg-green-100 text-green-800 border-green-200",
+  no_answer: "bg-gray-100 text-gray-700 border-gray-200",
+  callback: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  shipped: "bg-purple-100 text-purple-800 border-purple-200",
+  delivered: "bg-teal-100 text-teal-800 border-teal-200",
+  cancelled: "bg-red-100 text-red-800 border-red-200",
+  suspicious: "bg-orange-100 text-orange-800 border-orange-200",
+};
+
+const DELIVERY_OPTIONS = [
+  { value: "not_shipped", label: "Non expédiée" },
+  { value: "label_created", label: "Étiquette créée" },
+  { value: "label_purchased", label: "Étiquette achetée" },
+  { value: "label_printed", label: "Étiquette imprimée" },
+  { value: "confirmed", label: "Confirmé" },
+  { value: "in_transit", label: "En transit" },
+  { value: "out_for_delivery", label: "En cours de livraison" },
+  { value: "delivered", label: "Livré" },
+  { value: "failed", label: "Échec" },
+  { value: "cancelled", label: "Annulé" },
+];
+
+const DELIVERY_COLORS: Record<string, string> = {
+  not_shipped: "bg-gray-100 text-gray-500",
+  label_created: "bg-slate-100 text-slate-700",
+  label_purchased: "bg-blue-100 text-blue-700",
+  label_printed: "bg-cyan-100 text-cyan-700",
+  confirmed: "bg-green-100 text-green-700",
+  in_transit: "bg-indigo-100 text-indigo-700",
+  out_for_delivery: "bg-orange-100 text-orange-700",
+  delivered: "bg-teal-100 text-teal-700",
+  failed: "bg-red-100 text-red-700",
+  cancelled: "bg-red-100 text-red-700",
+};
+
+// Real, currently-integrated order sources only — no placeholder entries for
+// channels FlyChat COD doesn't actually connect to yet (e.g. TikTok, Snapchat,
+// Google Sheets aren't wired anywhere in this codebase).
+const SOURCE_OPTIONS = [
+  { value: "shopify", label: "Shopify" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "instagram", label: "Instagram" },
+  { value: "messenger", label: "Facebook" },
+  { value: "widget", label: "Widget" },
+  { value: "manual", label: "Manuel" },
+];
+
+function SourceIcon({ source, className = "w-3.5 h-3.5" }: { source?: string; className?: string }) {
+  const map: Record<string, { emoji: string; color: string }> = {
+    shopify: { emoji: "🛍️", color: "text-green-600" },
+    whatsapp: { emoji: "💬", color: "text-green-500" },
+    instagram: { emoji: "📷", color: "text-pink-500" },
+    messenger: { emoji: "💠", color: "text-blue-500" },
+    widget: { emoji: "🌐", color: "text-blue-400" },
+    manual: { emoji: "✍️", color: "text-gray-400" },
+  };
+  const s = map[source || ""] || map.manual;
+  return <span className={`${className} ${s.color} inline-flex items-center justify-center leading-none`} title={source}>{s.emoji}</span>;
 }
 
+interface OrderItem { productName: string; variant: string; quantity: number; price: number; }
 const defaultItem = (): OrderItem => ({ productName: "", variant: "", quantity: 1, price: 0 });
 
 function CreateOrderModal({ onClose }: { onClose: () => void }) {
@@ -60,7 +127,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = () => {
     if (!validate()) return;
-    createMutation.mutate({ data: { customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail || undefined, wilaya: form.wilaya, address: form.address || undefined, sellerNote: form.sellerNote || undefined, items: items.map(i => ({ productName: i.productName, variant: i.variant || undefined, quantity: i.quantity, price: i.price })) } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() }); onClose(); } });
+    createMutation.mutate({ data: { customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail || undefined, wilaya: form.wilaya, address: form.address || undefined, sellerNote: form.sellerNote || undefined, items: items.map(i => ({ productName: i.productName, variant: i.variant || undefined, quantity: i.quantity, price: i.price })) } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() }); queryClient.invalidateQueries({ queryKey: ["orders-list"] }); queryClient.invalidateQueries({ queryKey: ["orders-stats"] }); onClose(); } });
   };
 
   return (
@@ -71,7 +138,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
             <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center"><Package className="w-5 h-5 text-primary" /></div>
             <div><h2 className="text-lg font-bold text-foreground">Create New Order</h2><p className="text-xs text-muted-foreground">Cash on Delivery</p></div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary transition-colors"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary transition-colors">✕</button>
         </div>
         <div className="overflow-y-auto flex-1 p-6 space-y-6">
           <div>
@@ -154,113 +221,200 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── Badge helpers ────────────────────────────────────────────────────────────
-function PaymentBadge({ status }: { status?: string }) {
-  if (!status) return null;
-  const map: Record<string, string> = {
-    paid: "bg-green-100 text-green-700 border-green-200",
-    pending: "bg-yellow-100 text-yellow-700 border-yellow-200",
-    refunded: "bg-red-100 text-red-700 border-red-200",
-    voided: "bg-gray-100 text-gray-600 border-gray-200",
-    partially_paid: "bg-orange-100 text-orange-700 border-orange-200",
-    partially_refunded: "bg-pink-100 text-pink-700 border-pink-200",
+// ─── Dispatch modal — pick a connected carrier account to create a colis ──────
+function DispatchModal({ orderId, onClose, onDone }: { orderId: string; onClose: () => void; onDone: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["carriers"],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() });
+      return res.json();
+    },
+  });
+  const [carrierConnectionId, setCarrierConnectionId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const connections = data?.connections || [];
+
+  const handleDispatch = async () => {
+    if (!carrierConnectionId) { setError("Choisissez un compte transporteur."); return; }
+    setSubmitting(true); setError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${orderId}/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ carrierConnectionId }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.message || "Échec de la création du colis");
+      onDone(); onClose();
+    } catch (err: any) {
+      setError(err.message || "Échec de la création du colis");
+    } finally { setSubmitting(false); }
   };
+
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${map[status] || "bg-gray-100 text-gray-600 border-gray-200"}`}>
-      {status.replace(/_/g, " ")}
-    </span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center"><Truck className="w-5 h-5 text-primary" /></div>
+          <div><h2 className="font-bold text-foreground text-lg">Créer un colis</h2><p className="text-xs text-muted-foreground">Choisir un transporteur connecté</p></div>
+        </div>
+        {isLoading ? (
+          <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : connections.length === 0 ? (
+          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl text-yellow-800 text-sm">
+            Aucun compte transporteur connecté. Rendez-vous sur la page Livraison pour en connecter un.
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">Compte transporteur</label>
+            <select value={carrierConnectionId} onChange={e => setCarrierConnectionId(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30">
+              <option value="">Sélectionner...</option>
+              {connections.map((c: any) => <option key={c.id} value={c.id}>{c.label} ({c.carrier})</option>)}
+            </select>
+          </div>
+        )}
+        {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>}
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">Annuler</button>
+          <button onClick={handleDispatch} disabled={submitting || connections.length === 0} className="flex-1 py-2.5 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-2">
+            {submitting && <Loader2 className="w-4 h-4 animate-spin" />} Créer le colis
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function FulfillmentBadge({ status }: { status?: string }) {
-  if (!status) return null;
-  const map: Record<string, string> = {
-    fulfilled: "bg-green-100 text-green-700 border-green-200",
-    unfulfilled: "bg-gray-100 text-gray-500 border-gray-200",
-    partial: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  };
+// ─── KPI summary bar ────────────────────────────────────────────────────────────
+function KpiCard({ icon, iconBg, label, value, sub }: { icon: React.ReactNode; iconBg: string; label: string; value: string | number; sub?: string }) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${map[status] || "bg-gray-100 text-gray-500 border-gray-200"}`}>
-      {status.replace(/_/g, " ")}
-    </span>
+    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-2 min-w-0">
+      <div className="flex items-center gap-2">
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>{icon}</div>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground truncate">{label}</span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-2xl font-bold text-foreground">{value}</span>
+        {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+      </div>
+    </div>
   );
 }
 
-function DeliveryBadge({ status }: { status?: string }) {
-  if (!status || status === "pending") return <span className="text-xs text-muted-foreground">—</span>;
-  const map: Record<string, string> = {
-    delivered: "bg-teal-100 text-teal-700",
-    in_transit: "bg-blue-100 text-blue-700",
-    out_for_delivery: "bg-orange-100 text-orange-700",
-    attempted_delivery: "bg-red-100 text-red-700",
-    failure: "bg-red-100 text-red-700",
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${map[status] || "bg-gray-100 text-gray-600"}`}>
-      {status.replace(/_/g, " ")}
-    </span>
-  );
+interface Filters {
+  search: string; status: string; source: string; delivery: string;
+  carrier: string; agent: string; product: string; dateFrom: string; dateTo: string;
 }
-
-function ChannelBadge({ channel }: { channel?: string }) {
-  if (!channel) return null;
-  const map: Record<string, string> = {
-    online_store: "bg-blue-50 text-blue-700",
-    messenger: "bg-blue-50 text-blue-600",
-    instagram: "bg-pink-50 text-pink-700",
-    web: "bg-green-50 text-green-700",
-    draft_orders: "bg-gray-100 text-gray-600",
-    pos: "bg-orange-50 text-orange-700",
-  };
-  const label = channel === "online_store" ? "Online Store"
-    : channel === "draft_orders" ? "Draft"
-    : channel.charAt(0).toUpperCase() + channel.slice(1);
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${map[channel] || "bg-gray-100 text-gray-600"}`}>
-      {label}
-    </span>
-  );
-}
+const EMPTY_FILTERS: Filters = { search: "", status: "all", source: "all", delivery: "all", carrier: "all", agent: "all", product: "all", dateFrom: "", dateTo: "" };
 
 export default function Orders() {
   const [showCreate, setShowCreate] = useState(false);
   const [callingOrderId, setCallingOrderId] = useState<string | null>(null);
-  const { data: ordersData, isLoading } = useGetOrders({ limit: 50 });
+  const [dispatchOrderId, setDispatchOrderId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [dateTab, setDateTab] = useState<"all" | "today" | "yesterday" | "week" | "custom">("all");
+  const [sort, setSort] = useState<"asc" | "desc">("desc");
   const { t } = useI18n();
+  const queryClient = useQueryClient();
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'new': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'awaiting_confirmation': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'confirmed': return 'bg-green-100 text-green-800 border-green-200';
-      case 'shipped': return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'delivered': return 'bg-teal-100 text-teal-800 border-teal-200';
-      case 'cancelled': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+  const { data: productsData } = useGetProducts({ limit: 200 });
+  const { data: teamData } = useGetTeamMembers();
+
+  const queryParams = useMemo(() => {
+    const p: Record<string, string> = { limit: "50", sort };
+    if (filters.search) p.search = filters.search;
+    if (filters.status !== "all") p.status = filters.status;
+    if (filters.source !== "all") p.source = filters.source;
+    if (filters.delivery !== "all") p.delivery = filters.delivery;
+    if (filters.carrier !== "all") p.carrier = filters.carrier;
+    if (filters.agent !== "all") p.agent = filters.agent;
+    if (filters.product !== "all") p.product = filters.product;
+    if (filters.dateFrom) p.dateFrom = filters.dateFrom;
+    if (filters.dateTo) p.dateTo = filters.dateTo;
+    return p;
+  }, [filters, sort]);
+
+  const { data: ordersData, isLoading } = useQuery({
+    queryKey: ["orders-list", queryParams],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/orders?${new URLSearchParams(queryParams)}`, { headers: authHeaders() });
+      return res.json();
+    },
+  });
+
+  const { data: statsData } = useQuery({
+    queryKey: ["orders-stats", queryParams],
+    queryFn: async () => {
+      const qp = { ...queryParams }; delete (qp as any).limit; delete (qp as any).sort;
+      const res = await fetch(`${API_BASE}/api/orders/stats?${new URLSearchParams(qp)}`, { headers: authHeaders() });
+      return res.json();
+    },
+  });
+
+  const { data: carriersData } = useQuery({
+    queryKey: ["carriers"],
+    queryFn: async () => { const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() }); return res.json(); },
+  });
+
+  const invalidateOrders = () => {
+    queryClient.invalidateQueries({ queryKey: ["orders-list"] });
+    queryClient.invalidateQueries({ queryKey: ["orders-stats"] });
+  };
+
+  const applyDateTab = (tab: typeof dateTab) => {
+    setDateTab(tab);
+    const now = new Date();
+    const startOf = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+    const endOf = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
+    if (tab === "all") { setFilters(f => ({ ...f, dateFrom: "", dateTo: "" })); }
+    else if (tab === "today") { setFilters(f => ({ ...f, dateFrom: startOf(now).toISOString(), dateTo: endOf(now).toISOString() })); }
+    else if (tab === "yesterday") {
+      const y = new Date(now); y.setDate(y.getDate() - 1);
+      setFilters(f => ({ ...f, dateFrom: startOf(y).toISOString(), dateTo: endOf(y).toISOString() }));
+    } else if (tab === "week") {
+      const start = new Date(now); start.setDate(start.getDate() - start.getDay());
+      setFilters(f => ({ ...f, dateFrom: startOf(start).toISOString(), dateTo: endOf(now).toISOString() }));
     }
+  };
+
+  const handleStatusChange = async (orderId: string, status: string) => {
+    await fetch(`${API_BASE}/api/orders/${orderId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ status }),
+    });
+    invalidateOrders();
+  };
+
+  const handleAssignAgent = async (orderId: string, agentId: string) => {
+    await fetch(`${API_BASE}/api/orders/${orderId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ assignedAgentId: agentId || null }),
+    });
+    invalidateOrders();
   };
 
   const handleVoiceCall = async (orderId: string) => {
     setCallingOrderId(orderId);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${API_BASE}/api/voice/call-order/${orderId}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`${API_BASE}/api/voice/call-order/${orderId}`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (data.success) alert("✅ AI call initiated! Customer will receive a call shortly.");
+      if (data.success) { alert("✅ AI call initiated! Customer will receive a call shortly."); invalidateOrders(); }
       else alert("❌ " + (data.message || "Failed to initiate call. Check voice configuration."));
-    } catch {
-      alert("❌ Network error. Please try again.");
-    } finally {
-      setCallingOrderId(null);
-    }
+    } catch { alert("❌ Network error. Please try again."); }
+    finally { setCallingOrderId(null); }
   };
+
+  const orders = ordersData?.orders || [];
+  const products = productsData?.products || [];
+  const teamMembers = teamData?.members || [];
+  const carrierConnections = carriersData?.connections || [];
 
   return (
     <AppLayout>
       {showCreate && <CreateOrderModal onClose={() => setShowCreate(false)} />}
+      {dispatchOrderId && <DispatchModal orderId={dispatchOrderId} onClose={() => setDispatchOrderId(null)} onDone={invalidateOrders} />}
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-full mx-auto space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -276,188 +430,212 @@ export default function Orders() {
             </button>
           </div>
 
+          {/* ── KPI summary bar ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <KpiCard icon={<ShoppingBag className="w-4 h-4 text-blue-600" />} iconBg="bg-blue-100" label="Total commandes" value={statsData?.total ?? "—"} sub={statsData ? `${statsData.today} aujourd'hui` : undefined} />
+            <KpiCard icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} iconBg="bg-green-100" label="Confirmées" value={statsData?.confirmed ?? "—"} sub={statsData ? `${statsData.confirmedRate}%` : undefined} />
+            <KpiCard icon={<XCircle className="w-4 h-4 text-red-600" />} iconBg="bg-red-100" label="Annulées" value={statsData?.cancelled ?? "—"} sub={statsData ? `${statsData.cancelledRate}%` : undefined} />
+            <KpiCard icon={<AlertTriangle className="w-4 h-4 text-orange-600" />} iconBg="bg-orange-100" label="Échec livraison" value={statsData?.deliveryFailed ?? "—"} sub={statsData ? `${statsData.deliveryFailedRate}%` : undefined} />
+            <KpiCard icon={<TrendingUp className="w-4 h-4 text-teal-600" />} iconBg="bg-teal-100" label="Taux de livraison" value={statsData ? `${statsData.deliveryRate}%` : "—"} />
+            <KpiCard icon={<Truck className="w-4 h-4 text-purple-600" />} iconBg="bg-purple-100" label="Livrées / période" value={statsData?.delivered ?? "—"} />
+          </div>
+
           <div className="bg-card border border-border rounded-2xl shadow-sm flex flex-col">
-            <div className="p-4 border-b border-border flex flex-col sm:flex-row gap-4 justify-between items-center">
-              <div className="flex gap-2 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input type="text" placeholder="Search order #, customer, phone..." className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
-                </div>
-                <button className="px-4 py-2.5 border border-border rounded-xl flex items-center gap-2 text-sm font-medium hover:bg-secondary">
-                  <Filter className="w-4 h-4" /> Filter
-                </button>
+            {/* ── Date quick tabs ── */}
+            <div className="p-4 border-b border-border flex flex-wrap items-center gap-2">
+              {[["all", "Tout"], ["today", "Aujourd'hui"], ["yesterday", "Hier"], ["week", "Cette semaine"]].map(([key, label]) => (
+                <button key={key} onClick={() => applyDateTab(key as any)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${dateTab === key ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"}`}>{label}</button>
+              ))}
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => setDateTab("custom")} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${dateTab === "custom" ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"}`}>Plus</button>
+                {dateTab === "custom" && (
+                  <>
+                    <input type="date" onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value ? new Date(e.target.value).toISOString() : "" }))} className="px-2 py-1 border border-border rounded-lg text-xs" />
+                    <span className="text-xs text-muted-foreground">→</span>
+                    <input type="date" onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value ? new Date(e.target.value + "T23:59:59").toISOString() : "" }))} className="px-2 py-1 border border-border rounded-lg text-xs" />
+                  </>
+                )}
               </div>
+            </div>
+
+            {/* ── Filter bar ── */}
+            <div className="p-4 border-b border-border flex flex-wrap gap-2 items-center">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} type="text" placeholder="Order #, customer, phone..." className="w-full pl-9 pr-4 py-2 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
+              </div>
+
+              <select value={filters.source} onChange={e => setFilters(f => ({ ...f, source: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <option value="all">All sources</option>
+                {SOURCE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+
+              <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <option value="all">All statuses</option>
+                <option value="duplicate">⚠ Duplicate</option>
+                {STATUS_OPTIONS.map(s => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
+              </select>
+
+              <select value={filters.delivery} onChange={e => setFilters(f => ({ ...f, delivery: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <option value="all">All delivery</option>
+                {DELIVERY_OPTIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+
+              <select value={filters.carrier} onChange={e => setFilters(f => ({ ...f, carrier: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <option value="all">All companies</option>
+                <option value="none">Sans colis</option>
+                {carrierConnections.map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+
+              <select value={filters.agent} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <option value="all">All agents</option>
+                <option value="unassigned">Unassigned</option>
+                {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
+              </select>
+
+              <select value={filters.product} onChange={e => setFilters(f => ({ ...f, product: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <option value="all">All products</option>
+                {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Order</th>
-                    <th className="px-4 py-3 font-medium">Date</th>
-                    <th className="px-4 py-3 font-medium">Customer</th>
-                    <th className="px-4 py-3 font-medium">Channel</th>
-                    <th className="px-4 py-3 font-medium">Items</th>
-                    <th className="px-4 py-3 font-medium">Total</th>
-                    <th className="px-4 py-3 font-medium">Payment</th>
-                    <th className="px-4 py-3 font-medium">Fulfillment</th>
-                    <th className="px-4 py-3 font-medium">Delivery</th>
-                    <th className="px-4 py-3 font-medium">Method</th>
-                    <th className="px-4 py-3 font-medium">Tags</th>
-                    <th className="px-4 py-3 font-medium">Destination</th>
-                    <th className="px-4 py-3 font-medium text-right">Actions</th>
+                    <th className="px-4 py-3 font-medium">Commande</th>
+                    <th className="px-4 py-3 font-medium">Agent</th>
+                    <th className="px-4 py-3 font-medium">Suivi</th>
+                    <th className="px-4 py-3 font-medium">Client</th>
+                    <th className="px-4 py-3 font-medium">Ville</th>
+                    <th className="px-4 py-3 font-medium">Statut</th>
+                    <th className="px-4 py-3 font-medium">Exécution</th>
+                    <th className="px-4 py-3 font-medium text-right">Total</th>
+                    <th className="px-4 py-3 font-medium cursor-pointer select-none" onClick={() => setSort(s => s === "desc" ? "asc" : "desc")}>
+                      Date {sort === "desc" ? "↓" : "↑"}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
-                    <tr><td colSpan={13} className="px-6 py-8 text-center">{t("common.loading")}</td></tr>
-                  ) : ordersData?.orders.length === 0 ? (
+                    <tr><td colSpan={9} className="px-6 py-8 text-center">{t("common.loading")}</td></tr>
+                  ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="px-6 py-16 text-center">
+                      <td colSpan={9} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center"><Package className="w-7 h-7" /></div>
-                          <p className="font-medium">No orders yet</p>
+                          <p className="font-medium">No orders found</p>
                           <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">Create your first order →</button>
                         </div>
                       </td>
                     </tr>
-                  ) : ordersData?.orders.map((order) => {
-                    const o = order as any;
-                    const flags: string[] = o.flags || [];
-                    const items: any[] = o.items || [];
-                    const firstItem = items[0];
-                    const displayOrderNum = o.shopifyOrderNumber || order.orderNumber;
+                  ) : orders.map((order: any) => {
+                    const displayOrderNum = order.shopifyOrderNumber || order.orderNumber;
+                    const dup: string[] = order.duplicateOf || [];
+                    const shipment = order.shipment;
                     return (
                       <tr key={order.id} className="hover:bg-secondary/30 transition-colors">
-                        {/* Order # + flags */}
+                        {/* Commande */}
                         <td className="px-4 py-3">
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <SourceIcon source={order.source} />
                             <Link href={`/orders/${order.id}`} className="font-bold text-foreground hover:text-primary hover:underline">
                               {displayOrderNum}
                             </Link>
-                            {flags.length > 0 && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px] font-bold w-fit">
-                                ⚠ {flags.length} flag{flags.length > 1 ? "s" : ""}
+                            {dup.length > 0 && (
+                              <span className="relative group inline-flex">
+                                <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+                                <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:block whitespace-nowrap bg-gray-900 text-white text-[11px] rounded-lg px-2.5 py-1.5 z-20 shadow-lg">
+                                  Possible duplicate of: {dup.join(", ")}
+                                </span>
                               </span>
                             )}
-                            {/* Source badges */}
-                            {order.createdBySource === 'ai' && order.cancelledBySource !== 'ai' && (
-                              <Badge className="bg-violet-100 text-violet-700 border-violet-200 gap-1 w-fit text-[10px]">
-                                ✦ AI
-                              </Badge>
-                            )}
-                            {order.cancelledBySource === 'ai' && (
-                              <Badge className="bg-orange-100 text-orange-700 border-orange-200 gap-1 w-fit text-[10px]">
-                                ✦ AI Cancelled
-                              </Badge>
-                            )}
                           </div>
+                          {order.createdBySource === 'ai' && order.cancelledBySource !== 'ai' && (
+                            <span className="mt-0.5 inline-flex items-center px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded text-[10px] font-bold w-fit">✦ AI</span>
+                          )}
                         </td>
-                        {/* Date */}
-                        <td className="px-4 py-3 text-muted-foreground text-xs">
-                          {format(new Date(order.createdAt), 'MMM dd, yyyy')}
-                          <div className="text-[10px]">{format(new Date(order.createdAt), 'HH:mm')}</div>
-                        </td>
-                        {/* Customer */}
+
+                        {/* Agent */}
                         <td className="px-4 py-3">
-                          <div className="font-medium text-foreground">{order.customerName}</div>
-                          {o.customerEmail && <div className="text-[11px] text-muted-foreground">{o.customerEmail}</div>}
+                          <select
+                            value={order.assignedAgentId || ""}
+                            onChange={e => handleAssignAgent(order.id, e.target.value)}
+                            className={`px-2 py-1 rounded-lg text-xs font-semibold border outline-none cursor-pointer ${order.assignedAgentId ? "bg-secondary text-foreground border-border" : "bg-gray-50 text-muted-foreground border-gray-200"}`}
+                          >
+                            <option value="">Unassigned</option>
+                            {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
+                          </select>
+                        </td>
+
+                        {/* Suivi */}
+                        <td className="px-4 py-3">
+                          {shipment ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold w-fit ${DELIVERY_COLORS[shipment.status] || "bg-gray-100 text-gray-600"}`}>
+                                {String(shipment.carrier).slice(0, 3).toUpperCase()}
+                              </span>
+                              {shipment.trackingNumber && <span className="text-[10px] text-muted-foreground">{shipment.trackingNumber}</span>}
+                            </div>
+                          ) : order.status === "confirmed" || order.status === "self_confirmed" ? (
+                            <button onClick={() => setDispatchOrderId(order.id)} className="inline-flex items-center gap-1 px-2 py-1 text-primary bg-primary/10 hover:bg-primary/20 rounded-lg text-[11px] font-bold transition-colors">
+                              <Send className="w-3 h-3" /> Créer colis
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Sans colis</span>
+                          )}
+                        </td>
+
+                        {/* Client */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 font-medium text-foreground">
+                            <SourceIcon source={order.source} className="w-3 h-3" />
+                            {order.customerName}
+                          </div>
                           <div className="text-[11px] text-muted-foreground">{order.customerPhone}</div>
                         </td>
-                        {/* Channel */}
+
+                        {/* Ville */}
+                        <td className="px-4 py-3 text-xs font-medium text-foreground">{order.wilaya || "—"}</td>
+
+                        {/* Statut */}
                         <td className="px-4 py-3">
-                          <ChannelBadge channel={o.salesChannel} />
+                          <select
+                            value={order.status}
+                            onChange={e => handleStatusChange(order.id, e.target.value)}
+                            className={`px-2 py-1 rounded-lg border font-bold text-[11px] outline-none cursor-pointer ${STATUS_COLORS[order.status] || ""}`}
+                          >
+                            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
+                          </select>
                         </td>
-                        {/* Items */}
+
+                        {/* Exécution */}
                         <td className="px-4 py-3">
-                          {items.length > 0 ? (
-                            <div>
-                              <div className="text-xs font-medium text-foreground max-w-[140px] truncate">
-                                {firstItem?.title || firstItem?.productName || "—"}
-                              </div>
-                              {firstItem?.variant_title && (
-                                <div className="text-[10px] text-muted-foreground">{firstItem.variant_title}</div>
-                              )}
-                              <div className="text-[10px] text-muted-foreground">
-                                {items.length > 1 ? `+${items.length - 1} more · ` : ""}
-                                qty {items.reduce((s: number, i: any) => s + (i.quantity || 1), 0)}
-                              </div>
-                            </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${DELIVERY_COLORS[shipment?.status || "not_shipped"]}`}>
+                            {DELIVERY_OPTIONS.find(d => d.value === (shipment?.status || "not_shipped"))?.label}
+                          </span>
                         </td>
+
                         {/* Total */}
-                        <td className="px-4 py-3 font-bold text-foreground">
-                          DZD {Number(order.total).toLocaleString()}
-                        </td>
-                        {/* Payment status */}
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1">
-                            <PaymentBadge status={o.financialStatus} />
-                            {/* FlyChat internal status if no Shopify financial status */}
-                            {!o.financialStatus && (
-                              <span className={`inline-flex border items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${getStatusColor(order.status)}`}>
-                                {t(`status.${order.status}`)}
-                              </span>
-                            )}
-                            {o.confirmedBySource === 'ai_call' && order.status === 'confirmed' && (
-                              <Badge className="bg-green-100 text-green-700 border-green-200 w-fit text-[10px]">🤖 AI Call</Badge>
-                            )}
-                          </div>
-                        </td>
-                        {/* Fulfillment */}
-                        <td className="px-4 py-3">
-                          <FulfillmentBadge status={o.fulfillmentStatus} />
-                        </td>
-                        {/* Delivery status */}
-                        <td className="px-4 py-3">
-                          <DeliveryBadge status={o.deliveryStatus} />
-                        </td>
-                        {/* Delivery method */}
-                        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[100px] truncate">
-                          {order.shippingOption || o.shippingOption || "—"}
-                        </td>
-                        {/* Tags */}
-                        <td className="px-4 py-3">
-                          {o.tags ? (
-                            <div className="flex flex-wrap gap-1 max-w-[120px]">
-                              {String(o.tags).split(",").slice(0, 3).map((tag: string) => (
-                                <span key={tag} className="px-1.5 py-0.5 bg-secondary text-muted-foreground rounded text-[10px]">
-                                  {tag.trim()}
-                                </span>
-                              ))}
+                        <td className="px-4 py-3 font-bold text-foreground text-right">DZD {Number(order.total).toLocaleString()}</td>
+
+                        {/* Date */}
+                        <td className="px-4 py-3 text-muted-foreground text-xs">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              {format(new Date(order.createdAt), 'MMM dd, yyyy')}
+                              <div className="text-[10px]">{format(new Date(order.createdAt), 'HH:mm')}</div>
                             </div>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
-                        </td>
-                        {/* Destination */}
-                        <td className="px-4 py-3">
-                          <div className="text-xs font-medium text-foreground">{order.wilaya || "—"}</div>
-                          {o.shippingAddress?.city && o.shippingAddress.city !== order.wilaya && (
-                            <div className="text-[10px] text-muted-foreground">{o.shippingAddress.city}</div>
-                          )}
-                          {o.shippingAddress?.province && (
-                            <div className="text-[10px] text-muted-foreground">{o.shippingAddress.province}</div>
-                          )}
-                        </td>
-                        {/* Actions */}
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {(order.status === "awaiting_confirmation" || order.status === "new") && (
+                            {(order.status === "new" || order.status === "awaiting_confirmation") && (
                               <button
                                 onClick={() => handleVoiceCall(order.id)}
                                 disabled={callingOrderId === order.id}
                                 title="Trigger AI confirmation call"
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-orange-500 hover:text-white hover:bg-orange-500 bg-orange-50 border border-orange-200 rounded-lg transition-colors disabled:opacity-50 text-xs font-bold"
+                                className="inline-flex items-center p-1.5 text-orange-500 hover:text-white hover:bg-orange-500 bg-orange-50 border border-orange-200 rounded-lg transition-colors disabled:opacity-50"
                               >
-                                {callingOrderId === order.id
-                                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  : <PhoneCall className="w-3.5 h-3.5" />
-                                }
-                                {callingOrderId === order.id ? "Calling..." : "AI Call"}
+                                {callingOrderId === order.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PhoneCall className="w-3.5 h-3.5" />}
                               </button>
                             )}
-                            <Link href={`/orders/${order.id}`} className="inline-flex p-2 text-muted-foreground hover:text-primary bg-secondary hover:bg-primary/10 rounded-lg transition-colors">
-                              <Eye className="w-4 h-4" />
-                            </Link>
                           </div>
                         </td>
                       </tr>
@@ -468,11 +646,7 @@ export default function Orders() {
             </div>
 
             <div className="p-4 border-t border-border flex justify-between items-center text-sm text-muted-foreground">
-              <span>Showing {ordersData?.orders.length || 0} orders</span>
-              <div className="flex gap-2">
-                <button className="px-3 py-1 border border-border rounded hover:bg-secondary disabled:opacity-50">Prev</button>
-                <button className="px-3 py-1 border border-border rounded hover:bg-secondary disabled:opacity-50">Next</button>
-              </div>
+              <span className="flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5" /> Showing {orders.length} of {ordersData?.total ?? 0} orders</span>
             </div>
           </div>
         </div>

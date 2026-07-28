@@ -10,6 +10,10 @@ export const orderStatusEnum = pgEnum("order_status", [
   "delivered",
   "cancelled",
   "suspicious",
+  "self_confirmation",
+  "self_confirmed",
+  "no_answer",
+  "callback",
 ]);
 
 export const ordersTable = pgTable("orders", {
@@ -34,6 +38,7 @@ export const ordersTable = pgTable("orders", {
   shopifyOrderId: text("shopify_order_id"),
   confirmedBySource: text("confirmed_by_source"),
   voiceCallSid: text("voice_call_sid"),
+  assignedAgentId: text("assigned_agent_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

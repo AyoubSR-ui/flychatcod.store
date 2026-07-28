@@ -33,6 +33,7 @@ import Products from "@/pages/app/Products";
 import Widget from "@/pages/app/Widget";
 import Automation from "@/pages/app/Automation";
 import Channels from "@/pages/app/Channels";
+import Delivery from "@/pages/app/Delivery";
 import Team from "@/pages/app/Team";
 import Billing from "@/pages/app/Billing";
 import Settings from "@/pages/app/Settings";
@@ -97,6 +98,7 @@ function Router() {
       <Route path="/widget">{() => <ProtectedRoute component={Widget} />}</Route>
       <Route path="/automation">{() => <ProtectedRoute component={Automation} />}</Route>
       <Route path="/channels">{() => <ProtectedRoute component={Channels} />}</Route>
+      <Route path="/delivery">{() => <ProtectedRoute component={Delivery} />}</Route>
       <Route path="/team">{() => <ProtectedRoute component={Team} />}</Route>
       <Route path="/billing">{() => <ProtectedRoute component={Billing} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>

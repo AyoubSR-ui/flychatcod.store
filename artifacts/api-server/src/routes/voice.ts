@@ -107,10 +107,10 @@ router.post("/keypress", async (req, res) => {
   if (digit === "1") {
     try {
       await pool.query(
-        `UPDATE orders SET status = 'confirmed', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1`,
+        `UPDATE orders SET status = 'self_confirmed', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1`,
         [orderId]
       );
-      console.log(`[Voice] Order ${orderId} CONFIRMED via call`);
+      console.log(`[Voice] Order ${orderId} SELF-CONFIRMED via call`);
     } catch (err) {
       console.error("[Voice] Confirm failed:", err);
     }
@@ -136,7 +136,32 @@ router.post("/keypress", async (req, res) => {
   <Hangup/>
 </Response>`;
 
+  } else if (digit === "3") {
+    try {
+      await pool.query(
+        `UPDATE orders SET status = 'callback', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1`,
+        [orderId]
+      );
+      console.log(`[Voice] Order ${orderId} CALLBACK requested via call`);
+    } catch (err) {
+      console.error("[Voice] Callback flag failed:", err);
+    }
+    twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say language="fr-FR">Un agent va vous rappeler pour répondre à votre question. Merci!</Say>
+  <Hangup/>
+</Response>`;
+
   } else {
+    // Call was answered but no digit was pressed before Gather timed out.
+    try {
+      await pool.query(
+        `UPDATE orders SET status = 'no_answer', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1 AND status = 'self_confirmation'`,
+        [orderId]
+      );
+    } catch (err) {
+      console.error("[Voice] No-answer flag failed:", err);
+    }
     twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say language="fr-FR">Un agent va vous contacter très prochainement. Merci!</Say>
@@ -154,6 +179,21 @@ router.post("/status", async (req, res) => {
   const callStatus = req.body?.CallStatus;
   const callDuration = req.body?.CallDuration;
   console.log(`[Voice] Call status for order ${orderId}: ${callStatus}, duration: ${callDuration}s`);
+
+  // The call never connected at all — /keypress never fired, so this is the
+  // only place we learn the customer didn't answer. Only overwrite the
+  // transient "self_confirmation" state, never a real keypress outcome.
+  if (orderId && ["no-answer", "busy", "failed"].includes(callStatus)) {
+    try {
+      await pool.query(
+        `UPDATE orders SET status = 'no_answer', updated_at = NOW() WHERE id = $1 AND status = 'self_confirmation'`,
+        [orderId]
+      );
+    } catch (err) {
+      console.error("[Voice] No-answer status update failed:", err);
+    }
+  }
+
   res.json({ received: true });
 });
 

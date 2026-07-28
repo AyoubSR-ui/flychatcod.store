@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, MessageSquare, ShoppingBag, Users, Package,
   Settings, Zap, Plug, CreditCard, Users2, LogOut, ShieldAlert, Link2,
-  Menu, X, Bot, TrendingUp, BookOpen
+  Menu, X, Bot, TrendingUp, BookOpen, Truck
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
@@ -32,6 +32,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { href: "/widget", label: "nav.widget", icon: MessageSquare },
     { href: "/automation", label: "nav.automation", icon: Zap },
     { href: "/channels", label: "nav.channels", icon: Plug },
+    { href: "/delivery", label: "Delivery", icon: Truck, raw: true },
     { href: "/team", label: "nav.team", icon: Users2 },
     { href: "/billing", label: "nav.billing", icon: CreditCard },
     { href: "/organization", label: "Organization", icon: Building2 },

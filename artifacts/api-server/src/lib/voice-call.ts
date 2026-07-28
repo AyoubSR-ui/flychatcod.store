@@ -134,9 +134,9 @@ export async function triggerOrderConfirmationCall(params: CallOrderParams): Pro
     // Consume one call credit
     await consumeVoiceCall(params.storeId);
 
-    // Save call SID to order
+    // Save call SID to order and mark it as awaiting the customer's self-confirmation response
     await pool.query(
-      `UPDATE orders SET voice_call_sid = $1, updated_at = NOW() WHERE id = $2`,
+      `UPDATE orders SET voice_call_sid = $1, status = 'self_confirmation', updated_at = NOW() WHERE id = $2`,
       [call.sid, params.orderId]
     ).catch(() => {});
 
