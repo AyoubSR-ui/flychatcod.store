@@ -207,10 +207,26 @@ export async function refreshShipmentStatus(storeId: string, orderId: string) {
 
   const result = await adapter.getStatus(shipment.tracking_number);
 
-  await pool.query(
-    `UPDATE shipments SET raw_response = $1, updated_at = NOW() WHERE id = $2`,
-    [JSON.stringify(result.raw), shipment.id]
-  );
+  // result.status isn't always a valid shipments.status enum value — Ecotrack
+  // returns "manual_tracking_required" (no real status API exists there), and
+  // writing that into the enum column would throw. Only persist recognized
+  // values; always persist raw_response so the frontend can still surface a
+  // manual tracking link when the status itself isn't a known enum member.
+  const KNOWN_SHIPMENT_STATUSES = new Set([
+    "not_shipped", "label_created", "label_purchased", "label_printed",
+    "confirmed", "in_transit", "out_for_delivery", "delivered", "failed", "cancelled",
+  ]);
+  if (KNOWN_SHIPMENT_STATUSES.has(result.status)) {
+    await pool.query(
+      `UPDATE shipments SET status = $1, raw_response = $2, updated_at = NOW() WHERE id = $3`,
+      [result.status, JSON.stringify(result.raw), shipment.id]
+    );
+  } else {
+    await pool.query(
+      `UPDATE shipments SET raw_response = $1, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(result.raw), shipment.id]
+    );
+  }
 
   return { status: result.status, raw: result.raw };
 }

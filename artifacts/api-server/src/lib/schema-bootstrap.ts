@@ -57,6 +57,40 @@ export async function ensureOrderEventsTable(): Promise<void> {
   orderEventsTableReady = true;
 }
 
+let scheduledParcelsReady = false;
+export async function ensureScheduledParcelsTable(): Promise<void> {
+  if (scheduledParcelsReady) return;
+
+  // order_events must exist first — order_event_type is only ALTERable once created.
+  await ensureOrderEventsTable();
+
+  await pool.query(`ALTER TYPE order_status ADD VALUE IF NOT EXISTS 'scheduled'`);
+  await pool.query(`ALTER TYPE order_event_type ADD VALUE IF NOT EXISTS 'parcel_scheduled'`);
+  await pool.query(`ALTER TYPE order_event_type ADD VALUE IF NOT EXISTS 'schedule_cancelled'`);
+
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_ship_date TIMESTAMP`);
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS schedule_note TEXT`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scheduled_parcels (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      store_id TEXT NOT NULL,
+      carrier_connection_id TEXT NOT NULL,
+      scheduled_date TIMESTAMP NOT NULL,
+      note TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_by TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      executed_at TIMESTAMP,
+      result JSONB
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS scheduled_parcels_due_idx ON scheduled_parcels (status, scheduled_date)`);
+
+  scheduledParcelsReady = true;
+}
+
 let carrierTablesReady = false;
 export async function ensureCarrierTables(): Promise<void> {
   if (carrierTablesReady) return;

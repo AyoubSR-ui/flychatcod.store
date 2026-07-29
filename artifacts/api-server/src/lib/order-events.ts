@@ -2,7 +2,7 @@ import { pool } from "@workspace/db";
 import { generateId } from "./id.js";
 import { ensureOrderEventsTable } from "./schema-bootstrap.js";
 
-export type OrderEventType = "status_change" | "parcel_created" | "label_created" | "note_added";
+export type OrderEventType = "status_change" | "parcel_created" | "label_created" | "note_added" | "parcel_scheduled" | "schedule_cancelled";
 
 export async function logOrderEvent(params: {
   orderId: string;

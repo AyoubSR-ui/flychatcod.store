@@ -2,6 +2,7 @@ import { createServer } from "http";
 import app from "./app";
 import { setupSocketIO } from "./socket.js";
 import { startInstagramTokenRefreshCron } from "./lib/instagram-token-refresh.js";
+import { startScheduledParcelsCron } from "./lib/scheduled-parcels.js";
 import { pool } from "@workspace/db";
 import { syncInstagramOutgoing } from "./routes/sync.js";
 
@@ -37,6 +38,7 @@ if (Number.isNaN(port) || port <= 0) {
 const httpServer = createServer(app);
 setupSocketIO(httpServer);
 startInstagramTokenRefreshCron();
+startScheduledParcelsCron();
 
 runMigrations().then(() => {
   httpServer.listen(port, () => {

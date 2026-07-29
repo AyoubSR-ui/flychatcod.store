@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Link, useParams } from "wouter";
 import {
   ArrowLeft, Phone, MapPin, MessageSquare, Package, StickyNote, Truck,
-  Printer, Copy, RefreshCw, CheckCircle2, Loader2, Plus, Trash2, Pencil,
+  Printer, Copy, RefreshCw, CheckCircle2, Loader2, Plus, Trash2, Pencil, CalendarClock,
 } from "lucide-react";
 import React, { useState } from "react";
 import { useGetOrder, useUpdateOrder } from "@workspace/api-client-react";
@@ -25,7 +25,7 @@ function classifyDeliveryType(raw: string | null | undefined): "home" | "stopdes
 
 const STATUS_OPTIONS = [
   "new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed",
-  "no_answer", "callback", "shipped", "delivered", "cancelled", "suspicious",
+  "no_answer", "callback", "scheduled", "shipped", "delivered", "cancelled", "suspicious",
 ] as const;
 
 const STATUS_COLORS: Record<string, string> = {
@@ -36,6 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
   confirmed: "bg-green-100 text-green-800 border-green-200",
   no_answer: "bg-gray-100 text-gray-700 border-gray-200",
   callback: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  scheduled: "bg-blue-100 text-blue-800 border-blue-200",
   shipped: "bg-blue-100 text-blue-800 border-blue-200",
   delivered: "bg-teal-100 text-teal-800 border-teal-200",
   cancelled: "bg-red-100 text-red-800 border-red-200",
@@ -139,6 +140,11 @@ export default function OrderDetail() {
   const [savingItems, setSavingItems] = useState(false);
   const [syncingShopify, setSyncingShopify] = useState(false);
   const [syncMessage, setSyncMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [scheduleMode, setScheduleMode] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleNote, setScheduleNote] = useState("");
+  const [scheduling, setScheduling] = useState(false);
+  const [cancellingSchedule, setCancellingSchedule] = useState(false);
   const { t } = useI18n();
 
   const { data: carriersData } = useQuery({
@@ -157,7 +163,10 @@ export default function OrderDetail() {
   });
   const events: any[] = eventsData?.events || [];
   const statusEvents = events.filter(e => e.eventType === "status_change");
-  const deliveryEvents = events.filter(e => e.eventType === "parcel_created" || e.eventType === "label_created");
+  const deliveryEvents = events.filter(e =>
+    e.eventType === "parcel_created" || e.eventType === "label_created" ||
+    e.eventType === "parcel_scheduled" || e.eventType === "schedule_cancelled"
+  );
 
   const handleStatusChange = async (status: string) => {
     await updateOrder.mutateAsync({ id: id!, data: { status: status as any } });
@@ -188,6 +197,37 @@ export default function OrderDetail() {
   };
 
   const handlePrint = () => window.print();
+
+  const handleSchedule = async () => {
+    if (!selectedCarrierId) { setDispatchError("Choisissez un transporteur."); return; }
+    if (!scheduleDate) { setDispatchError("Choisissez une date d'expédition."); return; }
+    setScheduling(true); setDispatchError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ carrierConnectionId: selectedCarrierId, scheduledDate: new Date(scheduleDate).toISOString(), note: scheduleNote || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec de la programmation");
+      setScheduleMode(false); setScheduleDate(""); setScheduleNote("");
+      refetch(); refetchEvents();
+    } catch (err: any) {
+      setDispatchError(err.message || "Échec de la programmation");
+    } finally { setScheduling(false); }
+  };
+
+  const handleCancelSchedule = async () => {
+    setCancellingSchedule(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${id}/schedule`, { method: "DELETE", headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec de l'annulation");
+      refetch(); refetchEvents();
+    } catch (err: any) {
+      alert(err.message || "Échec de l'annulation");
+    } finally { setCancellingSchedule(false); }
+  };
 
   const handleSyncShopify = async () => {
     setSyncingShopify(true); setSyncMessage(null);
@@ -270,6 +310,7 @@ export default function OrderDetail() {
   // just because a shipment already exists.
   const SHIPPABLE_STATUSES = ["new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed", "shipped"];
   const canCreateParcel = SHIPPABLE_STATUSES.includes(o.status);
+  const isScheduled = o.status === "scheduled" && !!o.scheduledShipDate;
   const wilayaMatch = ALGERIA_WILAYAS.find(w => w.name.toLowerCase() === String(order.wilaya || "").toLowerCase());
   const communesForWilaya: string[] = wilayaMatch?.communes || [];
 
@@ -429,10 +470,48 @@ export default function OrderDetail() {
                   )}
                 </div>
 
-                {canCreateParcel && (
+                {isScheduled && (
+                  <div className="pt-3 border-t border-border">
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-bold text-blue-800 flex items-center gap-1.5">
+                          <CalendarClock className="w-4 h-4" /> Expédition programmée
+                        </p>
+                        <button
+                          onClick={handleCancelSchedule}
+                          disabled={cancellingSchedule}
+                          className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {cancellingSchedule ? "..." : "Annuler"}
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-600">
+                        {new Date(o.scheduledShipDate).toLocaleDateString("fr-DZ", { weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                      {o.scheduleNote && <p className="text-xs text-blue-500 italic">"{o.scheduleNote}"</p>}
+                    </div>
+                  </div>
+                )}
+
+                {canCreateParcel && !isScheduled && (
                   <div className="pt-3 border-t border-border space-y-2.5">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setScheduleMode(false)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${!scheduleMode ? "bg-purple-600 text-white" : "border border-border text-muted-foreground hover:bg-secondary"}`}
+                      >
+                        📦 Expédier maintenant
+                      </button>
+                      <button
+                        onClick={() => setScheduleMode(true)}
+                        className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${scheduleMode ? "bg-blue-600 text-white" : "border border-border text-muted-foreground hover:bg-secondary"}`}
+                      >
+                        📅 Programmer
+                      </button>
+                    </div>
+
                     <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block">
-                      {shipment ? "Créer un colis de remplacement" : "Créer un colis"}
+                      {scheduleMode ? "Programmer un colis" : shipment ? "Créer un colis de remplacement" : "Créer un colis"}
                     </label>
                     {connectedCarriers.length === 0 ? (
                       <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
@@ -448,18 +527,45 @@ export default function OrderDetail() {
                         {connectedCarriers.map(c => <option key={c.id} value={c.id}>{c.label} ({c.carrier})</option>)}
                       </select>
                     )}
+
+                    {scheduleMode && (
+                      <div className="space-y-2.5 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                        <div>
+                          <label className="text-xs font-medium text-blue-700 mb-1 block">📅 Date d'expédition</label>
+                          <input
+                            type="datetime-local"
+                            value={scheduleDate}
+                            onChange={e => setScheduleDate(e.target.value)}
+                            min={new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16)}
+                            className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-blue-700 mb-1 block">📝 Note (optionnel)</label>
+                          <input
+                            type="text"
+                            value={scheduleNote}
+                            onChange={e => setScheduleNote(e.target.value)}
+                            placeholder="ex. Client a demandé jeudi..."
+                            className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+                        <p className="text-xs text-blue-500">⚡ Le colis sera créé automatiquement à la date programmée.</p>
+                      </div>
+                    )}
+
                     {dispatchError && <p className="text-xs text-red-600">{dispatchError}</p>}
                     <button
-                      onClick={handleCreateParcel}
-                      disabled={!selectedCarrierId || dispatching}
-                      className="w-full py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
+                      onClick={scheduleMode ? handleSchedule : handleCreateParcel}
+                      disabled={!selectedCarrierId || dispatching || scheduling || (scheduleMode && !scheduleDate)}
+                      className={`w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors text-white ${scheduleMode ? "bg-blue-600 hover:bg-blue-700" : "bg-purple-600 hover:bg-purple-700"}`}
                     >
-                      {dispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
-                      {dispatching ? "Creating parcel..." : shipment ? "📦 Créer colis de remplacement" : "📦 Créer le colis"}
+                      {(dispatching || scheduling) ? <Loader2 className="w-4 h-4 animate-spin" /> : scheduleMode ? <CalendarClock className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
+                      {dispatching ? "Creating parcel..." : scheduling ? "Programmation..." : scheduleMode ? "📅 Programmer le colis" : shipment ? "📦 Créer colis de remplacement" : "📦 Créer le colis"}
                     </button>
                   </div>
                 )}
-                {!canCreateParcel && (
+                {!canCreateParcel && !isScheduled && (
                   <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">Parcel creation isn't available for this order's current status.</p>
                 )}
               </div>
@@ -478,6 +584,13 @@ export default function OrderDetail() {
                         {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
+                    {shipment.manualTrackingUrl ? (
+                      <a href={shipment.manualTrackingUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-xs text-primary hover:underline font-medium">
+                        Suivre sur le site du transporteur ↗
+                      </a>
+                    ) : (
+                      <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">{String(shipment.status || "not_shipped").replace(/_/g, " ")}</span>
+                    )}
                   </div>
                   {deliveryEvents.length > 0 && (
                     <div className="pt-2">
@@ -628,16 +741,25 @@ export default function OrderDetail() {
                 <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
                   <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">Delivery Status</h3>
                   <div>
-                    {deliveryEvents.map((e, idx) => (
-                      <TimelineEvent
-                        key={e.id}
-                        dotColor={e.eventType === "parcel_created" ? "bg-purple-500" : "bg-green-500"}
-                        title={e.eventType === "parcel_created" ? "Colis créé" : "Label Created"}
-                        subtitle={e.description}
-                        timestamp={e.createdAt}
-                        by={idx === deliveryEvents.length - 1 ? e.createdBy : undefined}
-                      />
-                    ))}
+                    {deliveryEvents.map((e, idx) => {
+                      const meta: Record<string, { dot: string; title: string }> = {
+                        parcel_created: { dot: "bg-purple-500", title: "Colis créé" },
+                        label_created: { dot: "bg-green-500", title: "Label Created" },
+                        parcel_scheduled: { dot: "bg-blue-500", title: "Colis programmé" },
+                        schedule_cancelled: { dot: "bg-gray-400", title: "Programmation annulée" },
+                      };
+                      const m = meta[e.eventType] || { dot: "bg-gray-400", title: e.eventType };
+                      return (
+                        <TimelineEvent
+                          key={e.id}
+                          dotColor={m.dot}
+                          title={m.title}
+                          subtitle={e.description}
+                          timestamp={e.createdAt}
+                          by={idx === deliveryEvents.length - 1 ? e.createdBy : undefined}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               )}

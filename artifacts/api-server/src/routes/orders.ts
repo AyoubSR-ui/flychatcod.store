@@ -4,7 +4,7 @@ import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
-import { ensureOrderStatusValues, ensureOrdersAgentColumn } from "../lib/schema-bootstrap.js";
+import { ensureOrderStatusValues, ensureOrdersAgentColumn, ensureScheduledParcelsTable } from "../lib/schema-bootstrap.js";
 import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/order-filters.js";
 import { dispatchOrderToCarrier, refreshShipmentStatus } from "./carriers.js";
 import { logOrderEvent } from "../lib/order-events.js";
@@ -62,6 +62,7 @@ router.get("/", requireAuth, async (req, res) => {
     if (!storeId) { res.json({ orders: [], total: 0, page: 1, limit: 20 }); return; }
     await ensureOrderStatusValues();
     await ensureOrdersAgentColumn();
+    await ensureScheduledParcelsTable();
 
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
@@ -122,12 +123,15 @@ router.get("/", requireAuth, async (req, res) => {
         sellerNote: o.seller_note,
         assignedAgentId: o.assigned_agent_id,
         assignedAgentName: o.agent_name,
+        scheduledShipDate: o.scheduled_ship_date,
+        scheduleNote: o.schedule_note,
         shipment: o.shipment_id ? {
           id: o.shipment_id,
           carrier: o.shipment_carrier,
           carrierConnectionId: o.shipment_carrier_connection_id,
           trackingNumber: o.shipment_tracking_number,
           status: o.shipment_status,
+          manualTrackingUrl: o.shipment_manual_tracking_url || null,
         } : null,
         duplicateOf: dupMatches.get(o.id) || [],
         createdAt: o.created_at,
@@ -300,6 +304,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await ensureOrdersAgentColumn();
+    await ensureScheduledParcelsTable();
     const { rows } = await pool.query(
       `${ORDERS_BASE_CTE}
        SELECT b.id, b.order_number as "orderNumber", b.store_id as "storeId", b.customer_id as "customerId",
@@ -312,6 +317,8 @@ router.get("/:id", requireAuth, async (req, res) => {
        b.shipment_id as "shipmentId", b.shipment_carrier as "shipmentCarrier",
        b.shipment_carrier_connection_id as "shipmentCarrierConnectionId",
        b.shipment_tracking_number as "shipmentTrackingNumber", b.shipment_status as "shipmentStatus",
+       b.shipment_manual_tracking_url as "shipmentManualTrackingUrl",
+       b.scheduled_ship_date as "scheduledShipDate", b.schedule_note as "scheduleNote",
        b.items as "jsonItems",
        b.created_at as "createdAt", b.updated_at as "updatedAt"
        FROM base b WHERE b.id = $2 AND b.store_id = $1 LIMIT 1`,
@@ -346,6 +353,7 @@ router.get("/:id", requireAuth, async (req, res) => {
         carrierConnectionId: order.shipmentCarrierConnectionId,
         trackingNumber: order.shipmentTrackingNumber,
         status: order.shipmentStatus,
+        manualTrackingUrl: order.shipmentManualTrackingUrl || null,
       } : null,
       duplicateOf: dupMatches.get(order.id) || [],
       customer,
@@ -569,6 +577,83 @@ router.post("/:id/sync-shopify", requireAuth, async (req, res) => {
   } catch (err: any) {
     console.error("[Orders] Shopify sync error:", err);
     res.status(500).json({ error: "internal_error", message: err.message || "Failed to sync to Shopify" });
+  }
+});
+
+// ─── POST /api/orders/:id/schedule — defer parcel creation to a future date ───
+router.post("/:id/schedule", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    await ensureScheduledParcelsTable();
+
+    const { carrierConnectionId, scheduledDate, note } = req.body as { carrierConnectionId?: string; scheduledDate?: string; note?: string };
+    if (!carrierConnectionId || !scheduledDate) {
+      res.status(400).json({ error: "validation_error", message: "carrierConnectionId and scheduledDate are required" });
+      return;
+    }
+    const date = new Date(scheduledDate);
+    if (Number.isNaN(date.getTime()) || date <= new Date()) {
+      res.status(400).json({ error: "validation_error", message: "scheduledDate must be a valid date in the future" });
+      return;
+    }
+
+    const { rows: connRows } = await pool.query(`SELECT id FROM carrier_connections WHERE id = $1 AND store_id = $2 LIMIT 1`, [carrierConnectionId, storeId]);
+    if (!connRows[0]) { res.status(400).json({ error: "validation_error", message: "Carrier account not found" }); return; }
+
+    const { rows: orderRows } = await pool.query(`SELECT id, status FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`, [req.params.id, storeId]);
+    if (!orderRows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
+
+    await pool.query(
+      `UPDATE orders SET status = 'scheduled', scheduled_ship_date = $1, schedule_note = $2, updated_at = NOW() WHERE id = $3 AND store_id = $4`,
+      [date, note || null, req.params.id, storeId]
+    );
+
+    const scheduleId = generateId("sch");
+    await pool.query(
+      `INSERT INTO scheduled_parcels (id, order_id, store_id, carrier_connection_id, scheduled_date, note, status, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, NOW())`,
+      [scheduleId, req.params.id, storeId, carrierConnectionId, date, note || null, req.user!.name || req.user!.email || "System"]
+    );
+
+    logOrderEvent({
+      orderId: String(req.params.id), eventType: "parcel_scheduled", fromStatus: orderRows[0].status, toStatus: "scheduled",
+      createdBy: req.user!.name || req.user!.email || "System",
+      description: `Colis programmé pour le ${date.toLocaleDateString("fr-DZ")}${note ? ` — ${note}` : ""}`,
+    }).catch(err => console.error("[Orders] Failed to log parcel_scheduled event:", err));
+
+    res.json({ success: true, scheduleId, scheduledDate: date });
+  } catch (err: any) {
+    console.error("[Orders] Schedule error:", err);
+    res.status(500).json({ error: "internal_error", message: err.message || "Failed to schedule parcel" });
+  }
+});
+
+// ─── DELETE /api/orders/:id/schedule — cancel a pending scheduled parcel ──────
+router.delete("/:id/schedule", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    await ensureScheduledParcelsTable();
+
+    const { rows: orderRows } = await pool.query(`SELECT id, status FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`, [req.params.id, storeId]);
+    if (!orderRows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
+
+    await pool.query(`UPDATE scheduled_parcels SET status = 'cancelled' WHERE order_id = $1 AND store_id = $2 AND status = 'pending'`, [req.params.id, storeId]);
+    await pool.query(
+      `UPDATE orders SET status = 'confirmed', scheduled_ship_date = NULL, schedule_note = NULL, updated_at = NOW() WHERE id = $1 AND store_id = $2`,
+      [req.params.id, storeId]
+    );
+
+    logOrderEvent({
+      orderId: String(req.params.id), eventType: "schedule_cancelled", fromStatus: "scheduled", toStatus: "confirmed",
+      createdBy: req.user!.name || req.user!.email || "System", description: "Programmation annulée",
+    }).catch(err => console.error("[Orders] Failed to log schedule_cancelled event:", err));
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("[Orders] Cancel schedule error:", err);
+    res.status(500).json({ error: "internal_error", message: err.message || "Failed to cancel schedule" });
   }
 });
 

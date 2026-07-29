@@ -28,7 +28,7 @@ const WILAYAS = [
 
 const STATUS_OPTIONS = [
   "new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed",
-  "no_answer", "callback", "shipped", "delivered", "cancelled", "suspicious",
+  "no_answer", "callback", "scheduled", "shipped", "delivered", "cancelled", "suspicious",
 ] as const;
 
 const STATUS_COLORS: Record<string, string> = {
@@ -39,6 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
   confirmed: "bg-green-100 text-green-800 border-green-200",
   no_answer: "bg-gray-100 text-gray-700 border-gray-200",
   callback: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  scheduled: "bg-sky-100 text-sky-800 border-sky-200",
   shipped: "bg-purple-100 text-purple-800 border-purple-200",
   delivered: "bg-teal-100 text-teal-800 border-teal-200",
   cancelled: "bg-red-100 text-red-800 border-red-200",
@@ -513,6 +514,10 @@ export default function Orders() {
                               </span>
                               {shipment.trackingNumber && <span className="text-[10px] text-muted-foreground">{shipment.trackingNumber}</span>}
                             </div>
+                          ) : order.status === "scheduled" && order.scheduledShipDate ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold w-fit bg-sky-100 text-sky-700" title={new Date(order.scheduledShipDate).toLocaleString("fr-DZ")}>
+                              📅 {format(new Date(order.scheduledShipDate), "MMM dd")}
+                            </span>
                           ) : order.status === "confirmed" || order.status === "self_confirmed" ? (
                             <button onClick={() => setDispatchOrderId(order.id)} className="inline-flex items-center gap-1 px-2 py-1 text-primary bg-primary/10 hover:bg-primary/20 rounded-lg text-[11px] font-bold transition-colors">
                               <Send className="w-3 h-3" /> Créer colis

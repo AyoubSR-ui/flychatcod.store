@@ -58,7 +58,8 @@ export const ORDERS_BASE_CTE = `
       sh.carrier AS shipment_carrier,
       sh.carrier_connection_id AS shipment_carrier_connection_id,
       sh.tracking_number AS shipment_tracking_number,
-      sh.status AS shipment_status
+      sh.status AS shipment_status,
+      sh.raw_response->>'trackingUrl' AS shipment_manual_tracking_url
     FROM orders o
     LEFT JOIN conversations c ON c.id = o.conversation_id
     LEFT JOIN team_members tm ON tm.id = o.assigned_agent_id
