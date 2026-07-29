@@ -1,5 +1,5 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
-import { getWilayaCode } from "./wilaya-codes.js";
+import { getWilayaCode, resolveCommuneName } from "./wilaya-codes.js";
 import { normalizeAlgerianPhone } from "./phone-format.js";
 
 // ─── Ecotrack adapter (generic, per-tenant) ────────────────────────────────────
@@ -81,7 +81,7 @@ export class EcotrackAdapter implements CarrierAdapter {
       telephone: normalizeAlgerianPhone(params.customerPhone),
       telephone_2: params.customerPhone2 ? normalizeAlgerianPhone(params.customerPhone2) : "",
       adresse: params.address,
-      commune: params.toCommune,
+      commune: resolveCommuneName(params.toCommune, getWilayaCode(params.toWilaya)),
       code_wilaya: getWilayaCode(params.toWilaya),
       montant: params.price,
       remarque: params.note || "",

@@ -1,5 +1,5 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
-import { getWilayaCode } from "./wilaya-codes.js";
+import { getWilayaCode, resolveCommuneName } from "./wilaya-codes.js";
 import { normalizeAlgerianPhone } from "./phone-format.js";
 
 // ─── ZR Express (Procolis) adapter ─────────────────────────────────────────────
@@ -47,7 +47,7 @@ export class ZRExpressAdapter implements CarrierAdapter {
           MobileB: params.customerPhone2 ? normalizeAlgerianPhone(params.customerPhone2) : "",
           Adresse: params.address,
           IDWilaya: String(getWilayaCode(params.toWilaya)),
-          Commune: params.toCommune,
+          Commune: resolveCommuneName(params.toCommune, getWilayaCode(params.toWilaya)),
           Total: String(params.price),
           Note: params.note || "",
           TProduit: params.productList,

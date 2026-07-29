@@ -35,8 +35,27 @@ for (const w of ALGERIA_WILAYAS) {
 
 // Strips Arabic script and extra whitespace, keeping only the Latin-script
 // part of a value like "BIR TOUTA بئر توتة" -> "BIR TOUTA".
-function stripNonLatin(value: string): string {
+export function stripNonLatin(value: string): string {
   return value.replace(/[؀-ۿݐ-ݿ]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// Couriers like Ecotrack validate the commune against their own official
+// list and reject anything that doesn't match exactly — "El Oued" or
+// "EL OUED الوادي" both get rejected as "commune mal écrite" when their
+// records expect "El-Oued". Normalize by stripping Arabic script and
+// ignoring case/hyphen/space differences, then return the dataset's exact
+// official spelling for that wilaya. Falls back to the cleaned raw value
+// (never blocks dispatch) if no match is found — a courier may still accept
+// a slightly different spelling than our dataset.
+const communeKey = (s: string) => s.toLowerCase().replace(/[-\s]+/g, "");
+
+export function resolveCommuneName(raw: string, wilayaCode: number): string {
+  const cleaned = stripNonLatin(raw);
+  const wilaya = ALGERIA_WILAYAS.find(w => w.code === wilayaCode);
+  if (!wilaya) return cleaned || raw;
+  const target = communeKey(cleaned);
+  const match = wilaya.communes.find(c => communeKey(c) === target);
+  return match || cleaned || raw;
 }
 
 // Throws when a name can't be resolved as either a wilaya or a commune —
