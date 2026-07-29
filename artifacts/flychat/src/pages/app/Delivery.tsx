@@ -7,8 +7,20 @@ const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-product
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
 interface CredentialField { key: string; label: string; placeholder: string; secret?: boolean; }
-interface CarrierMeta { id: string; name: string; implemented: boolean; credentialFields: CredentialField[]; }
+interface CarrierMeta { id: string; name: string; implemented: boolean; credentialFields: CredentialField[]; logo?: string; }
 interface CarrierConnection { id: string; carrier: string; label: string; status: string; created_at: string; }
+
+function CarrierLogo({ logo, name, size = "w-9 h-9" }: { logo?: string; name: string; size?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (logo && !failed) {
+    return <img src={logo} alt={name} className={`${size} rounded-xl object-contain bg-white border border-border shrink-0 p-1`} onError={() => setFailed(true)} />;
+  }
+  return (
+    <div className={`${size} bg-primary/10 rounded-xl flex items-center justify-center shrink-0`}>
+      <Truck className="w-4 h-4 text-primary" />
+    </div>
+  );
+}
 
 function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose: () => void; onSuccess: () => void }) {
   const [label, setLabel] = useState("");
@@ -37,7 +49,7 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center"><Truck className="w-5 h-5 text-primary" /></div>
+          <CarrierLogo logo={meta.logo} name={meta.name} size="w-10 h-10" />
           <div><h2 className="font-bold text-foreground text-lg">Connect {meta.name}</h2><p className="text-xs text-muted-foreground">Add a carrier account</p></div>
         </div>
         <div className="space-y-4">
@@ -86,6 +98,7 @@ export default function Delivery() {
 
   const registry = data?.registry || [];
   const connections = data?.connections || [];
+  const registryById = Object.fromEntries(registry.map(m => [m.id, m]));
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["carriers"] });
 
@@ -117,9 +130,12 @@ export default function Delivery() {
               <div className="divide-y divide-border/50">
                 {connections.map(c => (
                   <div key={c.id} className="px-5 py-3 flex items-center justify-between">
-                    <div>
-                      <div className="font-semibold text-foreground text-sm">{c.label}</div>
-                      <div className="text-xs text-muted-foreground">{c.carrier}</div>
+                    <div className="flex items-center gap-3">
+                      <CarrierLogo logo={registryById[c.carrier]?.logo} name={c.carrier} size="w-8 h-8" />
+                      <div>
+                        <div className="font-semibold text-foreground text-sm">{c.label}</div>
+                        <div className="text-xs text-muted-foreground">{c.carrier}</div>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200"><CheckCircle2 className="w-3 h-3" /> Connected</span>
@@ -139,7 +155,7 @@ export default function Delivery() {
               {registry.map(meta => (
                 <div key={meta.id} className={`bg-card border rounded-2xl shadow-sm p-5 space-y-3 ${meta.implemented ? "border-border" : "border-border opacity-60"}`}>
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center shrink-0"><Truck className="w-4 h-4 text-primary" /></div>
+                    <CarrierLogo logo={meta.logo} name={meta.name} />
                     <div className="font-bold text-foreground">{meta.name}</div>
                   </div>
                   {meta.implemented ? (

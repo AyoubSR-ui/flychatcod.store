@@ -65,4 +65,7 @@ export interface CarrierMeta {
   name: string;
   implemented: boolean;
   credentialFields: CredentialField[];
+  // Real logo URL, verified to actually resolve to an image (not guessed) —
+  // omitted entirely for carriers without one rather than faking a path.
+  logo?: string;
 }
