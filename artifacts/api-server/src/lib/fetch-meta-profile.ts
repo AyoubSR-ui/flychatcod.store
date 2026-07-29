@@ -19,13 +19,9 @@ export async function fetchMessengerProfile(psid: string, pageToken: string): Pr
   try {
     const url = `https://graph.facebook.com/v18.0/${psid}?fields=name,first_name,last_name,profile_pic&access_token=${pageToken}`;
     const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`[MetaProfile] Messenger fetch failed for ${psid}: ${res.status}`);
-      return emptyProfile();
-    }
-    const data = await res.json() as any;
-    if (data.error) {
-      console.warn(`[MetaProfile] Messenger API error for ${psid}:`, data.error.message);
+    const data = await res.json().catch(() => ({})) as any;
+    if (!res.ok || data.error) {
+      console.warn(`[MetaProfile] Messenger fetch failed for ${psid}: ${res.status} — ${JSON.stringify(data.error || data)}`);
       return emptyProfile();
     }
     return {
@@ -45,13 +41,9 @@ export async function fetchInstagramProfile(igsid: string, pageToken: string): P
   try {
     const url = `https://graph.facebook.com/v18.0/${igsid}?fields=name,username,profile_pic&access_token=${pageToken}`;
     const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`[MetaProfile] Instagram fetch failed for ${igsid}: ${res.status}`);
-      return emptyProfile();
-    }
-    const data = await res.json() as any;
-    if (data.error) {
-      console.warn(`[MetaProfile] Instagram API error for ${igsid}:`, data.error.message);
+    const data = await res.json().catch(() => ({})) as any;
+    if (!res.ok || data.error) {
+      console.warn(`[MetaProfile] Instagram fetch failed for ${igsid}: ${res.status} — ${JSON.stringify(data.error || data)}`);
       return emptyProfile();
     }
     return {
