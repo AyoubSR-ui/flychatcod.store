@@ -28,7 +28,7 @@ router.get("/backfill-names", requireAuth, async (req, res) => {
               ch.access_token as "accessToken"
        FROM conversations c
        JOIN customers cu ON cu.id = c.customer_id
-       JOIN channel_connections ch ON ch.store_id = c.store_id AND ch.channel = c.channel AND ch.status = 'connected'
+       JOIN channel_connections ch ON ch.store_id = c.store_id AND ch.channel::text = c.channel::text AND ch.status = 'connected'
        WHERE c.store_id = $1
          AND c.channel IN ('messenger', 'instagram')
          AND cu.phone IS NOT NULL
