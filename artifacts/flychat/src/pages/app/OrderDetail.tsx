@@ -137,6 +137,8 @@ export default function OrderDetail() {
   const [editingItems, setEditingItems] = useState(false);
   const [itemsDraft, setItemsDraft] = useState<Array<{ productName: string; variant: string; quantity: number; price: number }>>([]);
   const [savingItems, setSavingItems] = useState(false);
+  const [syncingShopify, setSyncingShopify] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const { t } = useI18n();
 
   const { data: carriersData } = useQuery({
@@ -186,6 +188,19 @@ export default function OrderDetail() {
   };
 
   const handlePrint = () => window.print();
+
+  const handleSyncShopify = async () => {
+    setSyncingShopify(true); setSyncMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${id}/sync-shopify`, { method: "POST", headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Sync failed");
+      setSyncMessage({ ok: true, text: "Synced to Shopify" });
+      refetchEvents();
+    } catch (err: any) {
+      setSyncMessage({ ok: false, text: err.message || "Sync failed" });
+    } finally { setSyncingShopify(false); }
+  };
 
   const handleCreateParcel = async () => {
     if (!selectedCarrierId) { setDispatchError("Choisissez un transporteur."); return; }
@@ -249,7 +264,12 @@ export default function OrderDetail() {
   const items = order.items || [];
   const subtotal = items.reduce((sum: number, i: any) => sum + Number(i.price ?? 0) * (i.quantity ?? 1), 0);
   const shippingFee = Number(o.shippingFee || 0);
-  const canCreateParcel = (o.status === "confirmed" || o.status === "self_confirmed") && !shipment;
+  // Parcel creation is available at any stage before the order is fully
+  // resolved — a failed dispatch means "try again", a successful one means
+  // "create a replacement" (relabel, wrong carrier, etc). It never disappears
+  // just because a shipment already exists.
+  const SHIPPABLE_STATUSES = ["new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed", "shipped"];
+  const canCreateParcel = SHIPPABLE_STATUSES.includes(o.status);
   const wilayaMatch = ALGERIA_WILAYAS.find(w => w.name.toLowerCase() === String(order.wilaya || "").toLowerCase());
   const communesForWilaya: string[] = wilayaMatch?.communes || [];
 
@@ -284,10 +304,26 @@ export default function OrderDetail() {
               {STATUS_OPTIONS.map(s => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
             </select>
 
+            {o.source === "shopify" && (
+              <button
+                onClick={handleSyncShopify}
+                disabled={syncingShopify}
+                title="FlyChat edits never auto-sync to Shopify — this pushes the current status/tracking note manually."
+                className="shrink-0 px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {syncingShopify ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Sync to Shopify
+              </button>
+            )}
+
             <button onClick={handlePrint} className="shrink-0 px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-1.5 transition-colors">
               <Printer className="w-4 h-4" /> Print
             </button>
           </div>
+          {syncMessage && (
+            <div className="max-w-5xl mx-auto pt-2">
+              <p className={`text-xs ${syncMessage.ok ? "text-green-700" : "text-red-600"}`}>{syncMessage.text}</p>
+            </div>
+          )}
         </div>
 
         {/* ── Page Body ── */}
@@ -387,15 +423,17 @@ export default function OrderDetail() {
                   </div>
                   {shipment && (
                     <div className="flex items-center justify-between pt-3 border-t border-border">
-                      <span className="text-muted-foreground">Delivery Company</span>
-                      <span className="font-bold text-foreground">{String(shipment.carrier).toUpperCase()}</span>
+                      <span className="text-muted-foreground">Current Parcel</span>
+                      <span className="font-bold text-foreground">{String(shipment.carrier).toUpperCase()} · {shipment.trackingNumber || "—"}</span>
                     </div>
                   )}
                 </div>
 
                 {canCreateParcel && (
                   <div className="pt-3 border-t border-border space-y-2.5">
-                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block">Delivery Company</label>
+                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block">
+                      {shipment ? "Créer un colis de remplacement" : "Créer un colis"}
+                    </label>
                     {connectedCarriers.length === 0 ? (
                       <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                         No courier connected. <Link href="/delivery" className="underline font-medium">Connect one in Delivery</Link>.
@@ -417,12 +455,12 @@ export default function OrderDetail() {
                       className="w-full py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
                     >
                       {dispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
-                      {dispatching ? "Creating parcel..." : "Create Parcel"}
+                      {dispatching ? "Creating parcel..." : shipment ? "📦 Créer colis de remplacement" : "📦 Créer le colis"}
                     </button>
                   </div>
                 )}
-                {!shipment && !canCreateParcel && (
-                  <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">Confirm the order to create a parcel.</p>
+                {!canCreateParcel && (
+                  <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">Parcel creation isn't available for this order's current status.</p>
                 )}
               </div>
 

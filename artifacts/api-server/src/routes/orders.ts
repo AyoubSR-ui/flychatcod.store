@@ -507,6 +507,69 @@ router.post("/:id/refresh-tracking", requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /api/orders/:id/sync-shopify — voluntary, manual push of note/tags ──
+// to the ALREADY-EXISTING Shopify order. FlyChat edits never auto-sync to
+// Shopify (confirmed: no such call exists in PATCH /:id) — this is the only
+// way data flows from FlyChat back to Shopify, and it only touches note/tags,
+// never price/items/customer — those stay Shopify's source of truth.
+router.post("/:id/sync-shopify", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { rows } = await pool.query(
+      `SELECT shopify_order_id, order_number, status FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`,
+      [req.params.id, storeId]
+    );
+    const order = rows[0];
+    if (!order) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
+    if (!order.shopify_order_id) {
+      res.status(400).json({ error: "not_shopify_order", message: "This order didn't come from Shopify — there's nothing to sync." });
+      return;
+    }
+
+    const { rows: storeRows } = await pool.query(
+      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const shop = storeRows[0]?.shopify_shop;
+    const accessToken = storeRows[0]?.shopify_access_token;
+    if (!shop || !accessToken) {
+      res.status(400).json({ error: "shopify_not_connected", message: "Shopify isn't connected for this store." });
+      return;
+    }
+
+    const { rows: shipmentRows } = await pool.query(
+      `SELECT tracking_number, carrier FROM shipments WHERE order_id = $1 AND store_id = $2 ORDER BY created_at DESC LIMIT 1`,
+      [req.params.id, storeId]
+    );
+    const shipment = shipmentRows[0];
+
+    const note = `FlyChat COD — status: ${order.status}` + (shipment?.tracking_number ? ` | tracking: ${shipment.tracking_number} (${shipment.carrier})` : "");
+
+    const shopifyRes = await fetch(`https://${shop}/admin/api/2024-01/orders/${order.shopify_order_id}.json`, {
+      method: "PUT",
+      headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" },
+      body: JSON.stringify({ order: { id: order.shopify_order_id, note, tags: "flychat-cod" } }),
+    });
+    if (!shopifyRes.ok) {
+      const errorText = await shopifyRes.text();
+      res.status(400).json({ error: "shopify_error", message: `Shopify rejected the sync (${shopifyRes.status}): ${errorText}` });
+      return;
+    }
+
+    await logOrderEvent({
+      orderId: String(req.params.id), eventType: "note_added", createdBy: req.user!.name || req.user!.email || "System",
+      description: "Synced to Shopify (note + tags)",
+    }).catch(err => console.error("[Orders] Failed to log sync-shopify event:", err));
+
+    res.json({ success: true, message: "Synced to Shopify" });
+  } catch (err: any) {
+    console.error("[Orders] Shopify sync error:", err);
+    res.status(500).json({ error: "internal_error", message: err.message || "Failed to sync to Shopify" });
+  }
+});
+
 // ─── POST /api/orders/:id/dispatch — create a shipment (colis) with a carrier ─
 router.post("/:id/dispatch", requireAuth, async (req, res) => {
   try {
