@@ -370,6 +370,14 @@ async function processIncomingInstagramMessage(incoming: {
     const profile = await fetchInstagramProfile(incoming.senderId, channel.accessToken);
     resolvedName = profile.name || profile.username || GENERIC_INSTAGRAM_NAME;
     resolvedProfilePic = profile.profilePic || resolvedProfilePic;
+    // A dead token doesn't just break name lookups — it breaks outgoing sends
+    // too (same token). Flag the connection as errored so it shows up as
+    // broken in Channels instead of silently failing on every message.
+    if (profile.tokenInvalid) {
+      await pool.query(`UPDATE channel_connections SET status = 'error', updated_at = NOW() WHERE id = $1`, [channel.id])
+        .catch(err => console.error("[Instagram] Failed to flag connection as errored:", err));
+      console.error(`[Instagram] Page token invalid for store ${store.id} — connection flagged 'error', needs reconnect.`);
+    }
   }
 
   if (!customer) {

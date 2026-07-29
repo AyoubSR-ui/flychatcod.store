@@ -9,10 +9,16 @@ interface MetaProfile {
   lastName: string | null;
   username: string | null; // Instagram only
   profilePic: string | null;
+  // Meta OAuthException code 190 — the page access token itself is dead
+  // (owner changed their Facebook password, token revoked, etc). No retry or
+  // code fix can recover this; the store must reconnect the channel. Distinct
+  // from a one-off fetch failure so callers can flag the connection broken
+  // instead of silently failing on every message forever.
+  tokenInvalid: boolean;
 }
 
-function emptyProfile(): MetaProfile {
-  return { name: null, firstName: null, lastName: null, username: null, profilePic: null };
+function emptyProfile(tokenInvalid = false): MetaProfile {
+  return { name: null, firstName: null, lastName: null, username: null, profilePic: null, tokenInvalid };
 }
 
 export async function fetchMessengerProfile(psid: string, pageToken: string): Promise<MetaProfile> {
@@ -22,7 +28,7 @@ export async function fetchMessengerProfile(psid: string, pageToken: string): Pr
     const data = await res.json().catch(() => ({})) as any;
     if (!res.ok || data.error) {
       console.warn(`[MetaProfile] Messenger fetch failed for ${psid}: ${res.status} — ${JSON.stringify(data.error || data)}`);
-      return emptyProfile();
+      return emptyProfile(data.error?.code === 190);
     }
     return {
       name: data.name || null,
@@ -30,6 +36,7 @@ export async function fetchMessengerProfile(psid: string, pageToken: string): Pr
       lastName: data.last_name || null,
       username: null,
       profilePic: data.profile_pic || null,
+      tokenInvalid: false,
     };
   } catch (err) {
     console.error(`[MetaProfile] fetchMessengerProfile error:`, err);
@@ -44,7 +51,7 @@ export async function fetchInstagramProfile(igsid: string, pageToken: string): P
     const data = await res.json().catch(() => ({})) as any;
     if (!res.ok || data.error) {
       console.warn(`[MetaProfile] Instagram fetch failed for ${igsid}: ${res.status} — ${JSON.stringify(data.error || data)}`);
-      return emptyProfile();
+      return emptyProfile(data.error?.code === 190);
     }
     return {
       name: data.name || data.username || null,
@@ -52,6 +59,7 @@ export async function fetchInstagramProfile(igsid: string, pageToken: string): P
       lastName: null,
       username: data.username || null,
       profilePic: data.profile_pic || null,
+      tokenInvalid: false,
     };
   } catch (err) {
     console.error(`[MetaProfile] fetchInstagramProfile error:`, err);

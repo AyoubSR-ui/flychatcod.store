@@ -351,6 +351,14 @@ async function processIncomingMessengerMessage(incoming: {
     const profile = await fetchMessengerProfile(incoming.senderId, channel.accessToken);
     resolvedName = profile.name || [profile.firstName, profile.lastName].filter(Boolean).join(" ") || GENERIC_MESSENGER_NAME;
     resolvedProfilePic = profile.profilePic || resolvedProfilePic;
+    // A dead page token doesn't just break name lookups — it breaks outgoing
+    // sends too (same token). Flag the connection as errored so it shows up
+    // as broken in Channels instead of silently failing on every message.
+    if (profile.tokenInvalid) {
+      await pool.query(`UPDATE channel_connections SET status = 'error', updated_at = NOW() WHERE id = $1`, [channel.id])
+        .catch(err => console.error("[Messenger] Failed to flag connection as errored:", err));
+      console.error(`[Messenger] Page token invalid for store ${store.id} — connection flagged 'error', needs reconnect.`);
+    }
   }
 
   if (!customer) {
