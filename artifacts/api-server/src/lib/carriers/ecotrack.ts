@@ -24,11 +24,14 @@ import { normalizeAlgerianPhone } from "./phone-format.js";
 // Noest/Maystro/ZR Express each have their own separate unresolved gaps and
 // remain stubbed.
 
-// Domains verified directly from CourierDZ's ShippingProviders — each of
-// these tenants' apiDomain() returns exactly this URL, cross-checked against
-// the {tenant}.ecotrack.dz pattern used across all of them.
+// Domains sourced from CourierDZ's ShippingProviders, then independently
+// DNS-checked against all 22 (2026-07-29) — 2 of the 22 (anderson, world_express)
+// had no DNS record at all under CourierDZ's domain and were corrected here
+// to the real domains found via direct search + DNS/HTTP verification.
 export const ECOTRACK_TENANTS: Record<string, { name: string; domain: string }> = {
-  anderson_ecotrack: { name: "Anderson Delivery", domain: "https://anderson.ecotrack.dz/" },
+  // CourierDZ's domain (anderson.ecotrack.dz) has no DNS record — corrected
+  // to anderson-ecommerce.ecotrack.dz, verified via DNS + HTTP response.
+  anderson_ecotrack: { name: "Anderson Delivery", domain: "https://anderson-ecommerce.ecotrack.dz/" },
   dhd: { name: "DHD", domain: "https://dhd.ecotrack.dz/" },
   areex: { name: "Areex", domain: "https://areex.ecotrack.dz/" },
   ba_consult: { name: "BA Consult", domain: "https://bacexpress.ecotrack.dz/" },
@@ -49,7 +52,9 @@ export const ECOTRACK_TENANTS: Record<string, { name: string; domain: string }> 
   salva_delivery: { name: "Salva Delivery", domain: "https://salvadelivery.ecotrack.dz/" },
   speed_delivery: { name: "Speed Delivery", domain: "https://speeddelivery.ecotrack.dz/" },
   tsl_express: { name: "TSL Express", domain: "https://tsl.ecotrack.dz/" },
-  world_express: { name: "WorldExpress", domain: "https://worldexpress.ecotrack.dz/" },
+  // CourierDZ's domain (worldexpress.ecotrack.dz) has no DNS record —
+  // corrected to world-express.ecotrack.dz (hyphenated), verified via DNS + HTTP.
+  world_express: { name: "WorldExpress", domain: "https://world-express.ecotrack.dz/" },
 };
 
 export class EcotrackAdapter implements CarrierAdapter {

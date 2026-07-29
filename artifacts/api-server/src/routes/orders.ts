@@ -519,8 +519,20 @@ router.post("/:id/dispatch", requireAuth, async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err: any) {
     console.error("[Orders] Dispatch error:", err);
-    res.status(400).json({ error: "dispatch_failed", message: err.message || "Failed to create shipment" });
+    res.status(400).json({ error: "dispatch_failed", message: describeDispatchError(err) });
   }
 });
+
+// Node's fetch() throws a generic "fetch failed" TypeError for any network-level
+// failure — the actual reason lives in err.cause. Surface it so a DNS/TLS/
+// connection problem doesn't show up as an opaque "fetch failed" to the merchant.
+function describeDispatchError(err: any): string {
+  const cause = err?.cause;
+  if (cause?.code === "ENOTFOUND") return `Carrier's server domain (${cause.hostname || "unknown"}) could not be found — its API domain may have changed.`;
+  if (cause?.code === "ECONNREFUSED") return `Carrier's server refused the connection (${cause.address || cause.hostname || "unknown"}).`;
+  if (cause?.code === "ETIMEDOUT" || cause?.code === "UND_ERR_CONNECT_TIMEOUT") return "Carrier's server took too long to respond (timed out).";
+  if (cause?.message) return `${err.message}: ${cause.message}`;
+  return err?.message || "Failed to create shipment";
+}
 
 export default router;
