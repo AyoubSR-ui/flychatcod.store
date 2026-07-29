@@ -363,7 +363,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     await ensureOrderStatusValues();
     await ensureOrdersAgentColumn();
-    const { status, sellerNote, wilaya, address, shippingFee, shippingOption, assignedAgentId } = req.body;
+    const { status, sellerNote, wilaya, address, shippingFee, shippingOption, assignedAgentId, customerName, customerPhone } = req.body;
 
     let previousStatus: string | null = null;
     if (status) {
@@ -381,6 +381,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (shippingFee !== undefined) { params.push(String(shippingFee)); setClauses.push(`shipping_fee = $${params.length}`); }
     if (shippingOption !== undefined) { params.push(shippingOption); setClauses.push(`shipping_option = $${params.length}`); }
     if (assignedAgentId !== undefined) { params.push(assignedAgentId || null); setClauses.push(`assigned_agent_id = $${params.length}`); }
+    if (customerName !== undefined) { params.push(customerName); setClauses.push(`customer_name = $${params.length}`); }
+    if (customerPhone !== undefined) { params.push(customerPhone); setClauses.push(`customer_phone = $${params.length}`); }
 
     params.push(req.params.id, storeId);
     const { rows } = await pool.query(
