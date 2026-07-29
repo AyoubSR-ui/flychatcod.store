@@ -1,3 +1,5 @@
+import { ALGERIA_WILAYAS } from "./algeria-communes-data.js";
+
 // Official 58-wilaya numeric codes. Several couriers (Maystro, Ecotrack family,
 // ZR Express) require the numeric code, not the wilaya name.
 const WILAYA_CODES: Record<string, number> = {
@@ -20,14 +22,39 @@ const WILAYA_CODES: Record<string, number> = {
   "El Meniaa": 58, "El Méniaa": 58,
 };
 
-// Throws when a name can't be resolved — silently defaulting to Alger (16)
-// would misroute a real parcel to the wrong wilaya with no indication
-// anything went wrong. Better to fail the dispatch loudly than guess.
+// Real orders regularly have messy wilaya values — commune names instead of
+// the wilaya, or bilingual strings like "BIR TOUTA بئر توتة" (an AI-captured
+// address). Reverse index: commune name (lowercased) -> parent wilaya code,
+// built from the verified 1541-commune dataset.
+const COMMUNE_TO_WILAYA: Record<string, number> = {};
+for (const w of ALGERIA_WILAYAS) {
+  for (const commune of w.communes) {
+    COMMUNE_TO_WILAYA[commune.toLowerCase()] = w.code;
+  }
+}
+
+// Strips Arabic script and extra whitespace, keeping only the Latin-script
+// part of a value like "BIR TOUTA بئر توتة" -> "BIR TOUTA".
+function stripNonLatin(value: string): string {
+  return value.replace(/[؀-ۿݐ-ݿ]/g, "").replace(/\s+/g, " ").trim();
+}
+
+// Throws when a name can't be resolved as either a wilaya or a commune —
+// silently defaulting to Alger (16) would misroute a real parcel with no
+// indication anything went wrong. Better to fail the dispatch loudly.
 export function getWilayaCode(wilayaName: string): number {
   if (WILAYA_CODES[wilayaName]) return WILAYA_CODES[wilayaName];
-  const normalized = wilayaName.trim().toLowerCase();
-  for (const [name, code] of Object.entries(WILAYA_CODES)) {
-    if (name.toLowerCase() === normalized) return code;
+
+  const candidates = [wilayaName, stripNonLatin(wilayaName)]
+    .map(v => v.trim().toLowerCase())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    for (const [name, code] of Object.entries(WILAYA_CODES)) {
+      if (name.toLowerCase() === candidate) return code;
+    }
+    if (COMMUNE_TO_WILAYA[candidate]) return COMMUNE_TO_WILAYA[candidate];
   }
-  throw new Error(`Unknown wilaya "${wilayaName}" — cannot resolve to a numeric code. Check the order's wilaya field.`);
+
+  throw new Error(`Unknown wilaya "${wilayaName}" — doesn't match a wilaya or commune name. Check the order's wilaya field.`);
 }
