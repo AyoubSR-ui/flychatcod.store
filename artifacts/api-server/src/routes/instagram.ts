@@ -15,6 +15,13 @@ import { requireAuth } from "../middlewares/auth.js";
 import jwt from "jsonwebtoken";
 import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 import { analyzeImage } from "../lib/analyze-image.js";
+import { fetchInstagramProfile } from "../lib/fetch-meta-profile.js";
+import { ensureProfilePicColumns } from "../lib/schema-bootstrap.js";
+
+const GENERIC_INSTAGRAM_NAME = "Instagram User";
+function isGenericName(name: string | null | undefined): boolean {
+  return !name || !name.trim() || name === GENERIC_INSTAGRAM_NAME;
+}
 
 export const instagramRouter = Router();
 
@@ -349,24 +356,44 @@ async function processIncomingInstagramMessage(incoming: {
   const store = storeRows[0];
   if (!store) return;
 
+  await ensureProfilePicColumns();
+
   let customer = await db.select().from(customersTable)
     .where(and(eq(customersTable.storeId, store.id), eq(customersTable.phone, incoming.senderId)))
     .limit(1).then(r => r[0] ?? null);
+
+  // Real name is never in the webhook payload — only known from Graph API.
+  // Fetch it once when the customer is new, or self-heal a still-generic name.
+  let resolvedName = customer?.name ?? null;
+  let resolvedProfilePic = customer?.profilePic ?? null;
+  if (!customer || isGenericName(customer.name)) {
+    const profile = await fetchInstagramProfile(incoming.senderId, channel.accessToken);
+    resolvedName = profile.name || profile.username || GENERIC_INSTAGRAM_NAME;
+    resolvedProfilePic = profile.profilePic || resolvedProfilePic;
+  }
 
   if (!customer) {
     const customerId = generateId("cust");
     await db.insert(customersTable).values({
       id: customerId, storeId: store.id, phone: incoming.senderId,
-      name: "Instagram User", createdAt: new Date(), updatedAt: new Date(),
+      name: resolvedName || GENERIC_INSTAGRAM_NAME, profilePic: resolvedProfilePic,
+      createdAt: new Date(), updatedAt: new Date(),
     });
     customer = await db.select().from(customersTable)
       .where(eq(customersTable.id, customerId)).limit(1).then(r => r[0]);
+  } else if (resolvedName && resolvedName !== customer.name) {
+    await pool.query(
+      `UPDATE customers SET name = $1, profile_pic = COALESCE($2, profile_pic), updated_at = NOW()
+       WHERE id = $3 AND (name IS NULL OR name = $4 OR name = '')`,
+      [resolvedName, resolvedProfilePic, customer.id, GENERIC_INSTAGRAM_NAME]
+    );
+    customer = { ...customer, name: resolvedName, profilePic: resolvedProfilePic ?? customer.profilePic };
   }
 
   const { rows: convRows } = await pool.query(
-    `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId" 
-     FROM conversations 
-     WHERE store_id = $1 AND channel = 'instagram' AND customer_id = $2 AND status = 'open' 
+    `SELECT *, ai_mode as "aiMode", unread_count as "unreadCount", last_message as "lastMessage", store_id as "storeId", customer_id as "customerId"
+     FROM conversations
+     WHERE store_id = $1 AND channel = 'instagram' AND customer_id = $2 AND status = 'open'
      ORDER BY created_at ASC LIMIT 1`,
     [store.id, customer!.id]
   );
@@ -380,7 +407,9 @@ async function processIncomingInstagramMessage(incoming: {
 
     await db.insert(conversationsTable).values({
       id: convId, storeId: store.id, customerId: customer!.id,
-      customerName: "Instagram User", channel: "instagram", status: "open",
+      customerName: customer!.name || GENERIC_INSTAGRAM_NAME,
+      customerProfilePic: customer!.profilePic ?? null,
+      channel: "instagram", status: "open",
       aiMode,
       createdAt: new Date(), updatedAt: new Date(),
     });
@@ -389,6 +418,13 @@ async function processIncomingInstagramMessage(incoming: {
       [convId]
     );
     conversation = newRows[0];
+  } else if (isGenericName(conversation.customerName) && !isGenericName(customer!.name)) {
+    await pool.query(
+      `UPDATE conversations SET customer_name = $1, customer_profile_pic = COALESCE($2, customer_profile_pic)
+       WHERE id = $3`,
+      [customer!.name, customer!.profilePic ?? null, conversation.id]
+    );
+    conversation.customerName = customer!.name;
   }
 
   if (!conversation) return;

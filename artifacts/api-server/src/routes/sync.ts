@@ -4,10 +4,82 @@ import { conversationsTable, messagesTable, storesTable, customersTable } from "
 import { eq, and } from "drizzle-orm";
 import { generateId } from "../lib/id.js";
 import { requireAuth } from "../middlewares/auth.js";
+import { fetchMessengerProfile, fetchInstagramProfile } from "../lib/fetch-meta-profile.js";
+import { ensureProfilePicColumns } from "../lib/schema-bootstrap.js";
 
 const router = Router();
 
 router.get("/ping", (_req, res) => { res.json({ ok: true }); });
+
+// ─── Backfill Customer Names (Messenger/Instagram) ───────────────────────────
+// Existing conversations from before real-name fetching was wired up are
+// stuck on "Messenger User" / "Instagram User". This re-resolves their real
+// name via Graph API using the PSID/IGSID stored in customers.phone.
+const GENERIC_NAMES = ["Messenger User", "Instagram User", ""];
+router.get("/backfill-names", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    await ensureProfilePicColumns();
+
+    const { rows: convs } = await pool.query(
+      `SELECT c.id as conversation_id, c.channel, c.customer_name,
+              cu.id as customer_id, cu.phone as external_id, cu.name as customer_current_name,
+              ch.access_token as "accessToken"
+       FROM conversations c
+       JOIN customers cu ON cu.id = c.customer_id
+       JOIN channel_connections ch ON ch.store_id = c.store_id AND ch.channel = c.channel AND ch.status = 'connected'
+       WHERE c.store_id = $1
+         AND c.channel IN ('messenger', 'instagram')
+         AND cu.phone IS NOT NULL
+         AND (c.customer_name = ANY($2) OR cu.name = ANY($2))
+       LIMIT 200`,
+      [storeId, GENERIC_NAMES]
+    );
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const conv of convs) {
+      try {
+        const profile = conv.channel === "messenger"
+          ? await fetchMessengerProfile(conv.external_id, conv.accessToken)
+          : await fetchInstagramProfile(conv.external_id, conv.accessToken);
+
+        const name = profile.name || profile.username;
+        if (!name) { failed++; continue; }
+
+        await pool.query(
+          `UPDATE conversations SET customer_name = $1, customer_profile_pic = COALESCE($2, customer_profile_pic) WHERE id = $3`,
+          [name, profile.profilePic, conv.conversation_id]
+        );
+        await pool.query(
+          `UPDATE customers SET name = $1, profile_pic = COALESCE($2, profile_pic), updated_at = NOW()
+           WHERE id = $3 AND (name IS NULL OR name = ANY($4))`,
+          [name, profile.profilePic, conv.customer_id, GENERIC_NAMES]
+        );
+
+        updated++;
+        // Small delay to avoid hitting Meta rate limits
+        await new Promise(r => setTimeout(r, 100));
+      } catch (err) {
+        console.error(`[BackfillNames] Failed for conv ${conv.conversation_id}:`, err);
+        failed++;
+      }
+    }
+
+    res.json({
+      success: true,
+      updated,
+      failed,
+      total: convs.length,
+      message: `Updated ${updated} customer name${updated === 1 ? "" : "s"}`,
+    });
+  } catch (err) {
+    console.error("[BackfillNames] Error:", err);
+    res.status(500).json({ error: "Backfill failed" });
+  }
+});
 
 // ─── Instagram Outgoing Sync (callable from scheduler) ───────────────────────
 // Polls Instagram Graph API for all conversation messages and saves any outgoing

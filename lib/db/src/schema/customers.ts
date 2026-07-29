@@ -10,6 +10,7 @@ export const customersTable = pgTable("customers", {
   email: text("email"),
   wilaya: text("wilaya"),
   notes: text("notes"),
+  profilePic: text("profile_pic"),
   isRepeat: boolean("is_repeat").notNull().default(false),
   totalOrders: integer("total_orders").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),

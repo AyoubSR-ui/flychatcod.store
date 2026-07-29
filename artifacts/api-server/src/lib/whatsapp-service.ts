@@ -36,6 +36,7 @@ export interface WhatsAppWebhookPayload {
       value: {
         messaging_product: string;
         metadata: { phone_number_id: string; display_phone_number: string };
+        contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
         messages?: WhatsAppMessage[];
         statuses?: Array<{ id: string; status: string; timestamp: string }>;
       };
@@ -86,6 +87,7 @@ export function parseWhatsAppWebhook(body: WhatsAppWebhookPayload): Array<{
   adRef?: string | null;
   isAudio?: boolean;
   imageMediaId?: string;
+  profileName?: string | null;
 }> {
   const results = [];
   for (const entry of body.entry ?? []) {
@@ -93,28 +95,35 @@ export function parseWhatsAppWebhook(body: WhatsAppWebhookPayload): Array<{
       const value = change.value;
       if (!value.messages) continue;
       const phoneNumberId = value.metadata.phone_number_id;
+      // Meta includes the sender's real WhatsApp display name in `contacts`,
+      // keyed by wa_id — matched against each message's `from`.
+      const profileByWaId = new Map<string, string>();
+      for (const contact of value.contacts ?? []) {
+        if (contact.profile?.name) profileByWaId.set(contact.wa_id, contact.profile.name);
+      }
       for (const msg of value.messages) {
         const adRef = msg.referral?.source_id || msg.referral?.ctwa_clid || null;
+        const profileName = profileByWaId.get(msg.from) || null;
         if (msg.type === "audio") {
           results.push({
             phoneNumberId, from: msg.from, messageId: msg.id,
             text: "[🎤 Voice message]",
             timestamp: new Date(parseInt(msg.timestamp) * 1000),
-            adRef, isAudio: true,
+            adRef, isAudio: true, profileName,
           });
         } else if (msg.type === "image" && msg.image?.id) {
           results.push({
             phoneNumberId, from: msg.from, messageId: msg.id,
             text: "📷 Image",
             timestamp: new Date(parseInt(msg.timestamp) * 1000),
-            adRef, imageMediaId: msg.image.id,
+            adRef, imageMediaId: msg.image.id, profileName,
           });
         } else if (msg.type === "text" && msg.text?.body) {
           results.push({
             phoneNumberId, from: msg.from, messageId: msg.id,
             text: msg.text.body,
             timestamp: new Date(parseInt(msg.timestamp) * 1000),
-            adRef,
+            adRef, profileName,
           });
         }
       }

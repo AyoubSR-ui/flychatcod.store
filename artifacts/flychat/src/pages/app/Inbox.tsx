@@ -91,6 +91,37 @@ function ChannelHeaderBadge({ channel }: { channel: string }) {
 
 interface ConversationWithWidget extends Conversation {
   sourcePageUrl?: string | null;
+  customerProfilePic?: string | null;
+}
+
+const AVATAR_COLORS: Record<string, string> = {
+  messenger: "bg-blue-500",
+  instagram: "bg-pink-500",
+  whatsapp: "bg-green-500",
+  widget: "bg-gray-500",
+};
+
+function ConversationAvatar({ name, profilePic, channel, size = "md" }: { name: string; profilePic?: string | null; channel: string; size?: "sm" | "md" }) {
+  const [imgError, setImgError] = useState(false);
+  const dim = size === "sm" ? "w-9 h-9 text-xs" : "w-10 h-10 text-sm";
+  const initial = name?.charAt(0)?.toUpperCase() || "?";
+
+  if (profilePic && !imgError) {
+    return (
+      <img
+        src={profilePic}
+        alt={name}
+        className={`${dim} rounded-full object-cover shrink-0`}
+        onError={() => setImgError(true)}
+      />
+    );
+  }
+
+  return (
+    <div className={`${dim} rounded-full flex items-center justify-center text-white font-bold shrink-0 ${AVATAR_COLORS[channel] || "bg-gray-400"}`}>
+      {initial}
+    </div>
+  );
 }
 
 interface FileAttachment {
@@ -649,15 +680,18 @@ export default function Inbox() {
                 <div className="p-4 text-center text-sm text-muted-foreground">No archived conversations</div>
               ) : archivedConvs.map((conv) => (
                 <div key={conv.id} className={`group w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
-                  <button className="w-full text-left" onClick={() => setActiveConvId(conv.id)}>
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="font-semibold text-sm text-foreground truncate flex-1">{conv.customerName}</span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
+                  <button className="w-full text-left flex gap-2.5" onClick={() => setActiveConvId(conv.id)}>
+                    <ConversationAvatar name={conv.customerName} profilePic={(conv as any).customerProfilePic} channel={conv.channel} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="font-semibold text-sm text-foreground truncate flex-1">{conv.customerName}</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <ChannelBadge channel={conv.channel} />
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{conv.lastMessage || "No messages"}</p>
                     </div>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <ChannelBadge channel={conv.channel} />
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{conv.lastMessage || "No messages"}</p>
                   </button>
                   <button onClick={e => { e.stopPropagation(); unarchiveConv(conv.id); }}
                     title="Unarchive"
@@ -672,31 +706,34 @@ export default function Inbox() {
               <div className="p-4 text-center text-sm text-muted-foreground">No conversations</div>
             ) : filteredConvs.map((conv) => (
               <div key={conv.id} className={`group relative w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
-                <button className="w-full text-left" onClick={() => setActiveConvId(conv.id)}>
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="font-semibold text-sm text-foreground truncate flex-1 pr-6">{conv.customerName}</span>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <ChannelBadge channel={conv.channel} />
-                    {conv.aiMode === "ai_autopilot" && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200">
-                        <Bot className="w-2.5 h-2.5" /> AI
-                      </span>
-                    )}
-                    {(conv as any).leadStage && LEAD_STAGE_BADGE[(conv as any).leadStage] && (
-                      <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-bold ${LEAD_STAGE_BADGE[(conv as any).leadStage].color}`}>
-                        {LEAD_STAGE_BADGE[(conv as any).leadStage].label}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <p className="text-xs text-muted-foreground truncate flex-1 pr-2">{conv.lastMessage || "No messages"}</p>
-                    {conv.unreadCount > 0 && (
-                      <span className="bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-5 text-center">
-                        {conv.unreadCount}
-                      </span>
-                    )}
+                <button className="w-full text-left flex gap-2.5" onClick={() => setActiveConvId(conv.id)}>
+                  <ConversationAvatar name={conv.customerName} profilePic={(conv as any).customerProfilePic} channel={conv.channel} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="font-semibold text-sm text-foreground truncate flex-1 pr-6">{conv.customerName}</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">{format(new Date(conv.updatedAt), "HH:mm")}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <ChannelBadge channel={conv.channel} />
+                      {conv.aiMode === "ai_autopilot" && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200">
+                          <Bot className="w-2.5 h-2.5" /> AI
+                        </span>
+                      )}
+                      {(conv as any).leadStage && LEAD_STAGE_BADGE[(conv as any).leadStage] && (
+                        <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-bold ${LEAD_STAGE_BADGE[(conv as any).leadStage].color}`}>
+                          {LEAD_STAGE_BADGE[(conv as any).leadStage].label}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <p className="text-xs text-muted-foreground truncate flex-1 pr-2">{conv.lastMessage || "No messages"}</p>
+                      {conv.unreadCount > 0 && (
+                        <span className="bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-5 text-center">
+                          {conv.unreadCount}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
                 <button onClick={e => { e.stopPropagation(); archiveConv(conv.id); }}
@@ -722,9 +759,7 @@ export default function Inbox() {
                   className="xl:hidden p-1.5 -ml-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors shrink-0">
                   <ChevronLeft className="w-5 h-5" />
                 </button>
-                <div className="w-9 h-9 lg:w-10 lg:h-10 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold shrink-0 text-sm">
-                  {activeConv.customerName.charAt(0).toUpperCase()}
-                </div>
+                <ConversationAvatar name={activeConv.customerName} profilePic={activeConv.customerProfilePic} channel={activeConv.channel} size="md" />
                 <div className="min-w-0 flex-1">
                   <h3 className="font-bold text-foreground leading-tight truncate text-sm lg:text-base">{activeConv.customerName}</h3>
                   {/* Channel badge row — desktop only (shown in row 2 on mobile) */}

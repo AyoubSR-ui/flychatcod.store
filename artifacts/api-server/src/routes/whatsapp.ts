@@ -122,6 +122,7 @@ async function processIncomingWhatsAppMessage(incoming: {
   adRef?: string | null;
   isAudio?: boolean;
   imageMediaId?: string;
+  profileName?: string | null;
 }) {
   // 1. Find channel
   const { rows: channelRows } = await pool.query(
@@ -176,10 +177,18 @@ async function processIncomingWhatsAppMessage(incoming: {
     const customerId = generateId("cust");
     await db.insert(customersTable).values({
       id: customerId, storeId: store.id, phone: incoming.from,
-      name: incoming.from, createdAt: new Date(), updatedAt: new Date(),
+      name: incoming.profileName || incoming.from, createdAt: new Date(), updatedAt: new Date(),
     });
     customer = await db.select().from(customersTable)
       .where(eq(customersTable.id, customerId)).limit(1).then((r) => r[0]);
+  } else if (incoming.profileName && customer.name === incoming.from) {
+    // Customer was created before their WhatsApp display name was known —
+    // self-heal now that Meta sent it in this message's `contacts` block.
+    await pool.query(
+      `UPDATE customers SET name = $1, updated_at = NOW() WHERE id = $2 AND name = $3`,
+      [incoming.profileName, customer.id, incoming.from]
+    );
+    customer = { ...customer, name: incoming.profileName };
   }
 
   // 4. Find or create conversation
@@ -205,6 +214,12 @@ async function processIncomingWhatsAppMessage(incoming: {
       [convId]
     );
     conversation = convRows[0];
+  } else if (incoming.profileName && conversation.customerName === incoming.from) {
+    await pool.query(
+      `UPDATE conversations SET customer_name = $1 WHERE id = $2`,
+      [incoming.profileName, conversation.id]
+    );
+    conversation.customerName = incoming.profileName;
   }
   if (!conversation) return;
 

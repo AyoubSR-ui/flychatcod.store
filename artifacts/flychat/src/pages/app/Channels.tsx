@@ -356,6 +356,7 @@ export default function Channels() {
   const [voiceStatus, setVoiceStatus] = useState<any>(null);
   const [shopifyStatus, setShopifyStatus] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
+  const [namesSyncing, setNamesSyncing] = useState(false);
 
   const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 
@@ -368,6 +369,19 @@ export default function Channels() {
     else if (success === "shopify_connected") { setSuccessMsg("Shopify connected and products synced!"); fetchShopifyStatus(); window.history.replaceState({}, "", window.location.pathname); }
     else if (error) { setErrorMsg("Connection failed. Please try again."); window.history.replaceState({}, "", window.location.pathname); }
   }, [refetch]);
+
+  const handleSyncNames = async () => {
+    setNamesSyncing(true);
+    const token = localStorage.getItem("flychat_token") || "";
+    try {
+      const res = await fetch(`${API_BASE}/api/sync/backfill-names`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "Sync failed");
+      setSuccessMsg(data.message || `Updated ${data.updated} customer names`);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to sync customer names.");
+    } finally { setNamesSyncing(false); }
+  };
 
   const fetchShopifyStatus = () => {
     const token = localStorage.getItem("flychat_token") || "";
@@ -435,9 +449,19 @@ export default function Channels() {
     <AppLayout>
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-5xl mx-auto space-y-6">
-          <div>
-            <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.channels")}</h1>
-            <p className="text-muted-foreground mt-1">Connect messaging channels to receive all conversations in one inbox.</p>
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.channels")}</h1>
+              <p className="text-muted-foreground mt-1">Connect messaging channels to receive all conversations in one inbox.</p>
+            </div>
+            <button
+              onClick={handleSyncNames}
+              disabled={namesSyncing}
+              className="shrink-0 px-4 py-2.5 border border-border rounded-xl text-sm font-bold hover:bg-secondary disabled:opacity-60 flex items-center gap-2 transition-colors"
+            >
+              {namesSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>🔄</span>}
+              Sync Customer Names
+            </button>
           </div>
 
           {successMsg && (

@@ -23,6 +23,14 @@ export async function ensureOrdersAgentColumn(): Promise<void> {
   ordersAgentColumnReady = true;
 }
 
+let profilePicColumnsReady = false;
+export async function ensureProfilePicColumns(): Promise<void> {
+  if (profilePicColumnsReady) return;
+  await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS profile_pic TEXT`);
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS customer_profile_pic TEXT`);
+  profilePicColumnsReady = true;
+}
+
 let carrierTablesReady = false;
 export async function ensureCarrierTables(): Promise<void> {
   if (carrierTablesReady) return;

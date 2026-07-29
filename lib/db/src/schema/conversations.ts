@@ -13,6 +13,7 @@ export const conversationsTable = pgTable("conversations", {
   customerId: text("customer_id"),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone"),
+  customerProfilePic: text("customer_profile_pic"),
   visitorId: text("visitor_id"),
   sourcePageUrl: text("source_page_url"),
   referrer: text("referrer"),
