@@ -312,26 +312,34 @@ router.get("/:id", requireAuth, async (req, res) => {
        b.shipment_id as "shipmentId", b.shipment_carrier as "shipmentCarrier",
        b.shipment_carrier_connection_id as "shipmentCarrierConnectionId",
        b.shipment_tracking_number as "shipmentTrackingNumber", b.shipment_status as "shipmentStatus",
+       b.items as "jsonItems",
        b.created_at as "createdAt", b.updated_at as "updatedAt"
        FROM base b WHERE b.id = $2 AND b.store_id = $1 LIMIT 1`,
       [storeId, req.params.id]
     );
     if (!rows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
     const order = rows[0];
-    const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
+    // Shopify-synced orders carry their line items in the orders.items JSONB
+    // column, not the order_items table — fall back to it, same as GET /.
+    let items: any[] = Array.isArray(order.jsonItems) && order.jsonItems.length > 0 ? order.jsonItems : [];
+    if (!items.length) {
+      const rows = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, order.id));
+      items = rows.map(i => ({ ...i, price: Number(i.price) }));
+    }
     let customer = null;
     if (order.customerId) {
       const [c] = await db.select().from(customersTable).where(eq(customersTable.id, order.customerId)).limit(1);
       customer = c || null;
     }
     const dupMatches = await getDuplicateMatches(String(storeId), [order.id]);
+    const { jsonItems, ...orderFields } = order;
 
     res.json({
-      ...order,
+      ...orderFields,
       total: Number(order.total),
       shippingFee: Number(order.shippingFee || 0),
       shippingOption: order.shippingOption || null,
-      items: items.map(i => ({ ...i, price: Number(i.price) })),
+      items,
       shipment: order.shipmentId ? {
         id: order.shipmentId,
         carrier: order.shipmentCarrier,
@@ -403,6 +411,65 @@ router.patch("/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to update order" });
+  }
+});
+
+// ─── PUT /api/orders/:id/items — replace order items (add/remove/edit) ────────
+router.put("/:id/items", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { items } = req.body as { items?: Array<{ productId?: string; productName: string; variant?: string; quantity: number; price: number }> };
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: "validation_error", message: "At least one item is required" });
+      return;
+    }
+    for (const item of items) {
+      if (!item.productName?.trim() || item.quantity < 1 || item.price < 0) {
+        res.status(400).json({ error: "validation_error", message: "Each item needs a product name, quantity ≥ 1, and a non-negative price" });
+        return;
+      }
+    }
+
+    const { rows: orderRows } = await pool.query(`SELECT id, shipping_fee FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`, [req.params.id, storeId]);
+    if (!orderRows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
+    const orderId = orderRows[0].id;
+
+    await db.delete(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+    for (const item of items) {
+      await db.insert(orderItemsTable).values({
+        id: generateId("oi"),
+        orderId,
+        productId: item.productId || null,
+        productName: item.productName,
+        variant: item.variant || null,
+        quantity: item.quantity,
+        price: item.price.toString(),
+      });
+    }
+
+    const itemsTotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const shippingFee = Number(orderRows[0].shipping_fee || 0);
+    const newTotal = (itemsTotal + shippingFee).toFixed(2);
+
+    // Editing here makes order_items the source of truth going forward — clear
+    // any stale JSONB items (Shopify-synced orders) so GET /:id and GET / stop
+    // preferring the now-outdated JSONB snapshot over this edit.
+    const { rows } = await pool.query(
+      `UPDATE orders SET total = $1, items = '[]'::jsonb, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [newTotal, orderId]
+    );
+
+    const savedItems = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, orderId));
+    res.json({
+      ...rows[0],
+      total: Number(rows[0].total),
+      shippingFee: Number(rows[0].shipping_fee || 0),
+      shippingOption: rows[0].shipping_option || null,
+      items: savedItems.map(i => ({ ...i, price: Number(i.price) })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to update order items" });
   }
 });
 

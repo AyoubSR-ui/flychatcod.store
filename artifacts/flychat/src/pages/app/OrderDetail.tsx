@@ -2,28 +2,26 @@ import { AppLayout } from "@/components/AppLayout";
 import { Link, useParams } from "wouter";
 import {
   ArrowLeft, Phone, MapPin, MessageSquare, Package, StickyNote, Truck,
-  Printer, Copy, RefreshCw, CheckCircle2, Loader2,
+  Printer, Copy, RefreshCw, CheckCircle2, Loader2, Plus, Trash2, Pencil,
 } from "lucide-react";
 import React, { useState } from "react";
 import { useGetOrder, useUpdateOrder } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
-import { DispatchModal } from "@/components/DispatchModal";
+import { ALGERIA_WILAYAS } from "@/data/algeria-communes";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
-const WILAYAS = [
-  "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
-  "Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger",
-  "Djelfa","Jijel","Sétif","Saïda","Skikda","Sidi Bel Abbès","Annaba","Guelma",
-  "Constantine","Médéa","Mostaganem","M'Sila","Mascara","Ouargla","Oran","El Bayadh",
-  "Illizi","Bordj Bou Arréridj","Boumerdès","El Tarf","Tindouf","Tissemsilt","El Oued",
-  "Khenchela","Souk Ahras","Tipaza","Mila","Aïn Defla","Naâma","Aïn Témouchent",
-  "Ghardaïa","Relizane","Timimoun","Bordj Badji Mokhtar","Ouled Djellal","Béni Abbès",
-  "In Salah","In Guezzam","Touggourt","Djanet","El M'Ghair","El Méniaa",
-];
+// Delivery type isn't always stored as our own 'home_delivery'/'stopdesk'
+// values — Shopify orders carry the merchant's raw shipping-line title
+// (e.g. "Livraison à domicile"), so classify by keyword instead of exact match.
+function classifyDeliveryType(raw: string | null | undefined): "home" | "stopdesk" {
+  const v = (raw || "").toLowerCase();
+  if (v.includes("stop") || v.includes("desk") || v.includes("bureau")) return "stopdesk";
+  return "home";
+}
 
 const STATUS_OPTIONS = [
   "new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed",
@@ -127,13 +125,25 @@ export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: order, isLoading, refetch } = useGetOrder(id!);
   const updateOrder = useUpdateOrder();
+  const queryClient = useQueryClient();
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [dispatchOpen, setDispatchOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [selectedCarrierId, setSelectedCarrierId] = useState("");
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchError, setDispatchError] = useState("");
+  const [editingItems, setEditingItems] = useState(false);
+  const [itemsDraft, setItemsDraft] = useState<Array<{ productName: string; variant: string; quantity: number; price: number }>>([]);
+  const [savingItems, setSavingItems] = useState(false);
   const { t } = useI18n();
+
+  const { data: carriersData } = useQuery({
+    queryKey: ["carriers"],
+    queryFn: async () => { const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() }); return res.json(); },
+  });
+  const connectedCarriers: any[] = carriersData?.connections || [];
 
   const { data: eventsData, refetch: refetchEvents } = useQuery({
     queryKey: ["order-events", id],
@@ -177,6 +187,53 @@ export default function OrderDetail() {
 
   const handlePrint = () => window.print();
 
+  const handleCreateParcel = async () => {
+    if (!selectedCarrierId) { setDispatchError("Choisissez un transporteur."); return; }
+    setDispatching(true); setDispatchError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${id}/dispatch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ carrierConnectionId: selectedCarrierId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec de la création du colis");
+      refetch(); refetchEvents();
+    } catch (err: any) {
+      setDispatchError(err.message || "Échec de la création du colis");
+    } finally { setDispatching(false); }
+  };
+
+  const startEditingItems = (currentItems: any[]) => {
+    setItemsDraft(currentItems.map(i => ({
+      productName: i.productName || i.title || "",
+      variant: i.variant || i.variant_title || "",
+      quantity: i.quantity || 1,
+      price: Number(i.price) || 0,
+    })));
+    setEditingItems(true);
+  };
+
+  const handleSaveItems = async () => {
+    const valid = itemsDraft.filter(i => i.productName.trim());
+    if (valid.length === 0) { alert("At least one item with a product name is required."); return; }
+    setSavingItems(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/orders/${id}/items`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ items: valid }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to save items");
+      setEditingItems(false);
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ["orders-list"] });
+    } catch (err: any) {
+      alert(err.message || "Failed to save items");
+    } finally { setSavingItems(false); }
+  };
+
   if (isLoading) return (
     <AppLayout>
       <div className="p-10 flex justify-center"><div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" /></div>
@@ -193,6 +250,8 @@ export default function OrderDetail() {
   const subtotal = items.reduce((sum: number, i: any) => sum + Number(i.price ?? 0) * (i.quantity ?? 1), 0);
   const shippingFee = Number(o.shippingFee || 0);
   const canCreateParcel = (o.status === "confirmed" || o.status === "self_confirmed") && !shipment;
+  const wilayaMatch = ALGERIA_WILAYAS.find(w => w.name.toLowerCase() === String(order.wilaya || "").toLowerCase());
+  const communesForWilaya: string[] = wilayaMatch?.communes || [];
 
   return (
     <AppLayout>
@@ -225,11 +284,6 @@ export default function OrderDetail() {
               {STATUS_OPTIONS.map(s => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
             </select>
 
-            {canCreateParcel && (
-              <button onClick={() => setDispatchOpen(true)} className="shrink-0 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 flex items-center gap-1.5 transition-colors">
-                <Truck className="w-4 h-4" /> Create Parcel
-              </button>
-            )}
             <button onClick={handlePrint} className="shrink-0 px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-1.5 transition-colors">
               <Printer className="w-4 h-4" /> Print
             </button>
@@ -275,34 +329,47 @@ export default function OrderDetail() {
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Delivery Type</span>
-                    <div className="flex rounded-lg border border-border overflow-hidden text-xs font-bold">
-                      {(["home_delivery", "stopdesk"] as const).map(opt => (
-                        <button
-                          key={opt}
-                          onClick={async () => { await updateOrder.mutateAsync({ id: id!, data: { shippingOption: opt } as any }); refetch(); }}
-                          className={`px-3 py-1.5 transition-colors ${(o.shippingOption || "home_delivery") === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
-                        >
-                          {opt === "home_delivery" ? "🏠 Home" : "🏢 Stop Desk"}
-                        </button>
-                      ))}
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-[11px] text-muted-foreground">via {source.label}</span>
+                      <div className="flex rounded-lg border border-border overflow-hidden text-xs font-bold">
+                        {(["home", "stopdesk"] as const).map(opt => (
+                          <button
+                            key={opt}
+                            onClick={async () => { await updateOrder.mutateAsync({ id: id!, data: { shippingOption: opt === "home" ? "home_delivery" : "stopdesk" } as any }); refetch(); }}
+                            className={`px-3 py-1.5 transition-colors ${classifyDeliveryType(o.shippingOption) === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
+                          >
+                            {opt === "home" ? "🏠 Home" : "🏢 Stop Desk"}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Wilaya</span>
+                    <span className="text-muted-foreground shrink-0">Wilaya</span>
                     <select
                       value={order.wilaya}
-                      onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value } as any }); refetch(); }}
-                      className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer"
+                      onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, address: "" } as any }); refetch(); }}
+                      className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                     >
-                      {WILAYAS.map(w => <option key={w} value={w}>{w}</option>)}
+                      <option value="">Select wilaya...</option>
+                      {ALGERIA_WILAYAS.map(w => <option key={w.code} value={w.name}>{String(w.code).padStart(2, "0")}. {w.name}</option>)}
                     </select>
                   </div>
-                  {order.address && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Commune / Address</span>
-                      <span className="font-medium text-foreground text-right">{order.address}</span>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground shrink-0">Commune</span>
+                    {communesForWilaya.length > 0 ? (
+                      <select
+                        value={order.address || ""}
+                        onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { address: e.target.value } as any }); refetch(); }}
+                        className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
+                      >
+                        <option value="">Select commune...</option>
+                        {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    ) : (
+                      <EditableField icon={null} value={order.address || "—"} onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }} />
+                    )}
+                  </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Shipping Fee</span>
                     <div className="flex items-center gap-1">
@@ -325,7 +392,36 @@ export default function OrderDetail() {
                     </div>
                   )}
                 </div>
-                {!shipment && o.status !== "confirmed" && o.status !== "self_confirmed" && (
+
+                {canCreateParcel && (
+                  <div className="pt-3 border-t border-border space-y-2.5">
+                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block">Delivery Company</label>
+                    {connectedCarriers.length === 0 ? (
+                      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        No courier connected. <Link href="/delivery" className="underline font-medium">Connect one in Delivery</Link>.
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedCarrierId}
+                        onChange={e => setSelectedCarrierId(e.target.value)}
+                        className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background"
+                      >
+                        <option value="">Select delivery company...</option>
+                        {connectedCarriers.map(c => <option key={c.id} value={c.id}>{c.label} ({c.carrier})</option>)}
+                      </select>
+                    )}
+                    {dispatchError && <p className="text-xs text-red-600">{dispatchError}</p>}
+                    <button
+                      onClick={handleCreateParcel}
+                      disabled={!selectedCarrierId || dispatching}
+                      className="w-full py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      {dispatching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+                      {dispatching ? "Creating parcel..." : "Create Parcel"}
+                    </button>
+                  </div>
+                )}
+                {!shipment && !canCreateParcel && (
                   <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">Confirm the order to create a parcel.</p>
                 )}
               </div>
@@ -366,44 +462,107 @@ export default function OrderDetail() {
               <div className="bg-card border border-border rounded-2xl shadow-sm">
                 <div className="px-5 py-4 border-b border-border flex items-center gap-2">
                   <Package className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Order Items</h3>
+                  <h3 className="font-bold text-foreground flex-1">Order Items</h3>
+                  {!editingItems && items.length > 0 && (
+                    <button onClick={() => startEditingItems(items)} className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                      <Pencil className="w-3 h-3" /> Edit
+                    </button>
+                  )}
                 </div>
-                <div className="divide-y divide-border/50">
-                  {items.length === 0 ? (
-                    <div className="px-5 py-6 space-y-2">
-                      <div className="h-4 bg-secondary rounded animate-pulse w-3/4" />
-                      <div className="h-3 bg-secondary rounded animate-pulse w-1/2" />
-                    </div>
-                  ) : items.map((item: any, idx: number) => (
-                    <div key={item.id || idx} className="px-5 py-4 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-foreground">{item.productName || item.title}</p>
-                        {item.variant && <p className="text-xs text-muted-foreground mt-0.5">{item.variant}</p>}
-                        <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+
+                {editingItems ? (
+                  <div className="p-5 space-y-3">
+                    {itemsDraft.map((item, idx) => (
+                      <div key={idx} className="bg-secondary/30 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-muted-foreground">Item {idx + 1}</span>
+                          {itemsDraft.length > 1 && (
+                            <button onClick={() => setItemsDraft(prev => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          value={item.productName}
+                          onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, productName: e.target.value } : it))}
+                          placeholder="Product name"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <input
+                          value={item.variant}
+                          onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, variant: e.target.value } : it))}
+                          placeholder="Variant (color, size...)"
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="number" min={1} value={item.quantity}
+                            onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Number(e.target.value) } : it))}
+                            placeholder="Qty"
+                            className="px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                          <input
+                            type="number" min={0} value={item.price}
+                            onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, price: Number(e.target.value) } : it))}
+                            placeholder="Price DZD"
+                            className="px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                        </div>
                       </div>
-                      <p className="font-bold text-foreground shrink-0">DZD {(Number(item.price) * item.quantity).toLocaleString()}</p>
+                    ))}
+                    <button
+                      onClick={() => setItemsDraft(prev => [...prev, { productName: "", variant: "", quantity: 1, price: 0 }])}
+                      className="w-full py-2 border border-dashed border-border rounded-xl text-xs font-bold text-muted-foreground hover:text-primary hover:border-primary flex items-center justify-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Item
+                    </button>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => setEditingItems(false)} className="flex-1 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">Cancel</button>
+                      <button onClick={handleSaveItems} disabled={savingItems} className="flex-1 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-1.5">
+                        {savingItems && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save
+                      </button>
                     </div>
-                  ))}
-                </div>
-                <div className="px-5 py-3 border-t border-border flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="font-medium text-foreground">DZD {subtotal.toLocaleString()}</span>
-                </div>
-                {shippingFee > 0 && (
-                  <div className="px-5 py-3 border-t border-border flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground flex items-center gap-2">
-                      Shipping
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">
-                        {o.shippingOption === "stopdesk" ? "Stop Desk" : "Home"}
-                      </span>
-                    </span>
-                    <span className="font-medium text-foreground">DZD {shippingFee.toLocaleString()}</span>
                   </div>
+                ) : (
+                  <>
+                    <div className="divide-y divide-border/50">
+                      {items.length === 0 ? (
+                        <div className="px-5 py-6 space-y-2">
+                          <div className="h-4 bg-secondary rounded animate-pulse w-3/4" />
+                          <div className="h-3 bg-secondary rounded animate-pulse w-1/2" />
+                        </div>
+                      ) : items.map((item: any, idx: number) => (
+                        <div key={item.id || idx} className="px-5 py-4 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-foreground">{item.productName || item.title}</p>
+                            {(item.variant || item.variant_title) && <p className="text-xs text-muted-foreground mt-0.5">{item.variant || item.variant_title}</p>}
+                            <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+                          </div>
+                          <p className="font-bold text-foreground shrink-0">DZD {(Number(item.price) * item.quantity).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-5 py-3 border-t border-border flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="font-medium text-foreground">DZD {subtotal.toLocaleString()}</span>
+                    </div>
+                    {shippingFee > 0 && (
+                      <div className="px-5 py-3 border-t border-border flex justify-between items-center text-sm">
+                        <span className="text-muted-foreground flex items-center gap-2">
+                          Shipping
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">
+                            {classifyDeliveryType(o.shippingOption) === "stopdesk" ? "Stop Desk" : "Home"}
+                          </span>
+                        </span>
+                        <span className="font-medium text-foreground">DZD {shippingFee.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="px-5 py-4 border-t border-border flex justify-between items-center bg-secondary/20 rounded-b-2xl">
+                      <span className="font-bold text-foreground">Total</span>
+                      <span className="font-bold text-xl text-foreground">DZD {Number(order.total).toLocaleString()}</span>
+                    </div>
+                  </>
                 )}
-                <div className="px-5 py-4 border-t border-border flex justify-between items-center bg-secondary/20 rounded-b-2xl">
-                  <span className="font-bold text-foreground">Total</span>
-                  <span className="font-bold text-xl text-foreground">DZD {Number(order.total).toLocaleString()}</span>
-                </div>
               </div>
 
               {/* Confirmation Status */}
@@ -493,7 +652,6 @@ export default function OrderDetail() {
         </div>
       </div>
 
-      {dispatchOpen && <DispatchModal orderId={id!} onClose={() => setDispatchOpen(false)} onDone={() => { refetch(); refetchEvents(); }} />}
     </AppLayout>
   );
 }
