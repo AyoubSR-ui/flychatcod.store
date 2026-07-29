@@ -1,5 +1,6 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
 import { getWilayaCode } from "./wilaya-codes.js";
+import { normalizeAlgerianPhone } from "./phone-format.js";
 
 // ─── Ecotrack adapter (generic, per-tenant) ────────────────────────────────────
 // Real field shape verified from the open-source PiteurStudio/CourierDZ client
@@ -16,7 +17,12 @@ import { getWilayaCode } from "./wilaya-codes.js";
 //   implemented" there too) — no verified endpoint for this yet.
 // Cancel: no verified endpoint.
 //
-// Live HTTP calls are intentionally stubbed pending real credentials.
+// Live: enabled 2026-07-29, explicitly requested and accepted as a real-world
+// risk (field shape cross-referenced from CourierDZ, not verified against
+// Ecotrack's actual live behavior; no confirmed cancel endpoint exists — a
+// wrong first call may not be undoable via the API). Scoped to Ecotrack only;
+// Noest/Maystro/ZR Express each have their own separate unresolved gaps and
+// remain stubbed.
 
 // Domains verified directly from CourierDZ's ShippingProviders — each of
 // these tenants' apiDomain() returns exactly this URL, cross-checked against
@@ -67,8 +73,8 @@ export class EcotrackAdapter implements CarrierAdapter {
     const body = {
       reference: params.orderNumber,
       nom_client: `${params.customerFirstName} ${params.customerLastName}`.trim(),
-      telephone: params.customerPhone.replace(/\D/g, ""),
-      telephone_2: params.customerPhone2?.replace(/\D/g, "") || "",
+      telephone: normalizeAlgerianPhone(params.customerPhone),
+      telephone_2: params.customerPhone2 ? normalizeAlgerianPhone(params.customerPhone2) : "",
       adresse: params.address,
       commune: params.toCommune,
       code_wilaya: getWilayaCode(params.toWilaya),
@@ -76,20 +82,26 @@ export class EcotrackAdapter implements CarrierAdapter {
       remarque: params.note || "",
       produit: params.productList,
       stock: 0,
-      type: params.hasExchange ? 2 : 1, // 1 = Livraison, 2 = Echange
+      type: params.hasExchange ? 2 : 1, // 1 = Livraison, 2 = Echange (NOT home/stopdesk — that's stop_desk below)
       stop_desk: params.isStopdesk ? 1 : 0,
     };
 
-    // TODO: uncomment once a store has real credentials connected for this tenant.
-    // const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-    // const data = await res.json() as any;
-    // if (data.success === false) throw new Error(`Ecotrack (${this.carrier}) createShipment failed: ${data.message}`);
-    // return { trackingNumber: data.tracking ?? data.id, status: "label_created", raw: data };
-
-    throw new Error(
-      `[Ecotrack:${this.carrier}] Live API calls are stubbed pending real credentials. ` +
-      `Would POST ${url} with headers ${JSON.stringify(Object.keys(headers))} and body ${JSON.stringify(body)}`
-    );
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const errorText = await res.text();
+      throw new Error(`Ecotrack (${this.carrier}) API error ${res.status}: ${errorText}`);
+    }
+    const data = await res.json() as any;
+    if (data.success === false) {
+      throw new Error(`Ecotrack (${this.carrier}) createShipment failed: ${data.message || JSON.stringify(data)}`);
+    }
+    // Exact response field name is unconfirmed (no live response seen yet) —
+    // check the common candidates rather than assuming one.
+    const trackingNumber = data.tracking ?? data.numero_suivi ?? data.id ?? data.order_id ?? data.numero ?? null;
+    if (!trackingNumber) {
+      throw new Error(`Ecotrack (${this.carrier}) createShipment succeeded but no tracking number field was recognized in the response: ${JSON.stringify(data)}`);
+    }
+    return { trackingNumber: String(trackingNumber), status: "label_created", raw: data };
   }
 
   async getStatus(trackingNumber: string): Promise<ShipmentStatusResult> {

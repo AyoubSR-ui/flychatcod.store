@@ -20,13 +20,14 @@ const WILAYA_CODES: Record<string, number> = {
   "El Meniaa": 58, "El Méniaa": 58,
 };
 
-// Falls back to 16 (Alger) when a name can't be resolved — callers should
-// prefer collecting a real wilaya code from the store/order when possible.
+// Throws when a name can't be resolved — silently defaulting to Alger (16)
+// would misroute a real parcel to the wrong wilaya with no indication
+// anything went wrong. Better to fail the dispatch loudly than guess.
 export function getWilayaCode(wilayaName: string): number {
   if (WILAYA_CODES[wilayaName]) return WILAYA_CODES[wilayaName];
   const normalized = wilayaName.trim().toLowerCase();
   for (const [name, code] of Object.entries(WILAYA_CODES)) {
     if (name.toLowerCase() === normalized) return code;
   }
-  return 16;
+  throw new Error(`Unknown wilaya "${wilayaName}" — cannot resolve to a numeric code. Check the order's wilaya field.`);
 }

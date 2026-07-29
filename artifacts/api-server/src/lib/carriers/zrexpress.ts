@@ -1,5 +1,6 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
 import { getWilayaCode } from "./wilaya-codes.js";
+import { normalizeAlgerianPhone } from "./phone-format.js";
 
 // ─── ZR Express (Procolis) adapter ─────────────────────────────────────────────
 // Real field shape verified from the open-source PiteurStudio/CourierDZ client
@@ -42,8 +43,8 @@ export class ZRExpressAdapter implements CarrierAdapter {
           TypeColis: params.hasExchange ? "1" : "0",
           Confrimee: "1",
           Client: `${params.customerFirstName} ${params.customerLastName}`.trim(),
-          MobileA: params.customerPhone,
-          MobileB: params.customerPhone2 || "",
+          MobileA: normalizeAlgerianPhone(params.customerPhone),
+          MobileB: params.customerPhone2 ? normalizeAlgerianPhone(params.customerPhone2) : "",
           Adresse: params.address,
           IDWilaya: String(getWilayaCode(params.toWilaya)),
           Commune: params.toCommune,

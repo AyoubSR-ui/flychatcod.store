@@ -1,5 +1,6 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
 import { getWilayaCode } from "./wilaya-codes.js";
+import { normalizeAlgerianPhone } from "./phone-format.js";
 
 // ─── Maystro Delivery adapter ──────────────────────────────────────────────────
 // Real field shape verified from the open-source PiteurStudio/CourierDZ client
@@ -42,7 +43,7 @@ export class MaystroAdapter implements CarrierAdapter {
       // carried in destination_text (a real, documented free-text field)
       // instead so at least wilaya-level routing information reaches Maystro.
       destination_text: `${params.toCommune}, ${params.address}`,
-      customer_phone: params.customerPhone.replace(/\D/g, ""),
+      customer_phone: normalizeAlgerianPhone(params.customerPhone),
       customer_name: `${params.customerFirstName} ${params.customerLastName}`.trim(),
       product_price: Math.round(params.price),
       delivery_type: params.isStopdesk ? 1 : 0,
