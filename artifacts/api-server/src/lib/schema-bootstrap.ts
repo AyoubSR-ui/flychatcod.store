@@ -31,6 +31,32 @@ export async function ensureProfilePicColumns(): Promise<void> {
   profilePicColumnsReady = true;
 }
 
+let orderEventsTableReady = false;
+export async function ensureOrderEventsTable(): Promise<void> {
+  if (orderEventsTableReady) return;
+  await pool.query(`
+    DO $$ BEGIN
+      CREATE TYPE order_event_type AS ENUM ('status_change', 'parcel_created', 'label_created', 'note_added');
+    EXCEPTION WHEN duplicate_object THEN null;
+    END $$;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_events (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      event_type order_event_type NOT NULL,
+      from_status TEXT,
+      to_status TEXT,
+      description TEXT,
+      created_by TEXT NOT NULL DEFAULT 'System',
+      metadata JSONB NOT NULL DEFAULT '{}',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS order_events_order_id_idx ON order_events (order_id)`);
+  orderEventsTableReady = true;
+}
+
 let carrierTablesReady = false;
 export async function ensureCarrierTables(): Promise<void> {
   if (carrierTablesReady) return;

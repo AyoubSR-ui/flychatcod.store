@@ -5,6 +5,7 @@ import { generateId } from "../lib/id.js";
 import { ensureCarrierTables } from "../lib/schema-bootstrap.js";
 import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/carriers/index.js";
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
+import { logOrderEvent } from "../lib/order-events.js";
 
 const router = Router();
 
@@ -125,7 +126,9 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
       address: order.address || "",
       fromWilaya: "Alger",
       toWilaya: order.wilaya,
-      toCommune: order.wilaya,
+      // NOTE: orders don't have a dedicated commune column — address is the
+      // closest available field. A real gap, not a placeholder oversight.
+      toCommune: order.address || order.wilaya,
       price: Number(order.total),
       productList,
       isStopdesk: order.shipping_option === "stopdesk",
@@ -139,6 +142,18 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
       [shipmentId, orderId, storeId, carrierConnectionId, connection.carrier, result.trackingNumber, result.labelUrl || null, JSON.stringify(result.raw)]
     );
 
+    const carrierLabel = `${connection.label} (${connection.carrier})`;
+    await logOrderEvent({
+      orderId, eventType: "parcel_created", createdBy: "System",
+      description: `Colis créé — ${carrierLabel}`,
+      metadata: { carrier: connection.carrier, trackingNumber: result.trackingNumber },
+    }).catch(err => console.error("[Carriers] Failed to log parcel_created event:", err));
+    await logOrderEvent({
+      orderId, eventType: "label_created", createdBy: "System",
+      description: `${carrierLabel} – ${result.trackingNumber}`,
+      metadata: { carrier: connection.carrier, trackingNumber: result.trackingNumber, labelUrl: result.labelUrl || null },
+    }).catch(err => console.error("[Carriers] Failed to log label_created event:", err));
+
     return { trackingNumber: result.trackingNumber, status: "label_created" };
   } catch (err: any) {
     await pool.query(
@@ -148,4 +163,32 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
     );
     throw err;
   }
+}
+
+// ─── Refresh helper — mounted under /api/orders/:id/refresh-tracking ─────────
+export async function refreshShipmentStatus(storeId: string, orderId: string) {
+  await ensureCarrierTables();
+
+  const { rows: shipmentRows } = await pool.query(
+    `SELECT * FROM shipments WHERE order_id = $1 AND store_id = $2 ORDER BY created_at DESC LIMIT 1`,
+    [orderId, storeId]
+  );
+  const shipment = shipmentRows[0];
+  if (!shipment) throw new Error("No shipment found for this order");
+
+  const { rows: connRows } = await pool.query(`SELECT * FROM carrier_connections WHERE id = $1 LIMIT 1`, [shipment.carrier_connection_id]);
+  const connection = connRows[0];
+  if (!connection) throw new Error("Carrier account not found");
+
+  const credentials = connection.credentials ? decryptCredentials(connection.credentials) : {};
+  const adapter = createCarrierAdapter(connection.carrier, credentials);
+
+  const result = await adapter.getStatus(shipment.tracking_number);
+
+  await pool.query(
+    `UPDATE shipments SET raw_response = $1, updated_at = NOW() WHERE id = $2`,
+    [JSON.stringify(result.raw), shipment.id]
+  );
+
+  return { status: result.status, raw: result.raw };
 }

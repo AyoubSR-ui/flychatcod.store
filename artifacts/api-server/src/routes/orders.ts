@@ -6,7 +6,9 @@ import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
 import { ensureOrderStatusValues, ensureOrdersAgentColumn } from "../lib/schema-bootstrap.js";
 import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/order-filters.js";
-import { dispatchOrderToCarrier } from "./carriers.js";
+import { dispatchOrderToCarrier, refreshShipmentStatus } from "./carriers.js";
+import { logOrderEvent } from "../lib/order-events.js";
+import { ensureOrderEventsTable } from "../lib/schema-bootstrap.js";
 
 const router = Router();
 
@@ -355,6 +357,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
     await ensureOrdersAgentColumn();
     const { status, sellerNote, wilaya, address, shippingFee, shippingOption, assignedAgentId } = req.body;
 
+    let previousStatus: string | null = null;
+    if (status) {
+      const { rows: current } = await pool.query(`SELECT status FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`, [req.params.id, storeId]);
+      previousStatus = current[0]?.status ?? null;
+    }
+
     const setClauses: string[] = ["updated_at = NOW()"];
     const params: any[] = [];
 
@@ -374,6 +382,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
 
     if (!rows[0]) { res.status(404).json({ error: "not_found", message: "Order not found" }); return; }
 
+    if (status && status !== previousStatus) {
+      logOrderEvent({
+        orderId: rows[0].id,
+        eventType: "status_change",
+        fromStatus: previousStatus,
+        toStatus: status,
+        createdBy: req.user!.name || req.user!.email || "System",
+      }).catch(err => console.error("[Orders] Failed to log status_change event:", err));
+    }
+
     const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, rows[0].id));
     res.json({
       ...rows[0],
@@ -385,6 +403,40 @@ router.patch("/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to update order" });
+  }
+});
+
+// ─── GET /api/orders/:id/events — timeline ────────────────────────────────────
+router.get("/:id/events", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    await ensureOrderEventsTable();
+    const { rows: orderRows } = await pool.query(`SELECT id FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`, [req.params.id, storeId]);
+    if (!orderRows[0]) { res.status(404).json({ error: "not_found" }); return; }
+
+    const { rows } = await pool.query(
+      `SELECT id, event_type as "eventType", from_status as "fromStatus", to_status as "toStatus",
+              description, created_by as "createdBy", metadata, created_at as "createdAt"
+       FROM order_events WHERE order_id = $1 ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ events: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch order events" });
+  }
+});
+
+// ─── POST /api/orders/:id/refresh-tracking — poll carrier for latest status ───
+router.post("/:id/refresh-tracking", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    const result = await refreshShipmentStatus(String(storeId), String(req.params.id));
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.error("[Orders] Refresh tracking error:", err);
+    res.status(400).json({ error: "refresh_failed", message: err.message || "Failed to refresh tracking status" });
   }
 });
 

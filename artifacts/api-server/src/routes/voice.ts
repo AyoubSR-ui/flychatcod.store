@@ -4,6 +4,9 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendVerificationCall, confirmVerificationOtp, generateElevenLabsAudio, triggerOrderConfirmationCall } from "../lib/voice-call.js";
 import { saveCallerPhone, getVoiceStatus } from "../lib/voice-credits.js";
+import { logOrderEvent } from "../lib/order-events.js";
+
+const AI_CALL_ATTRIBUTION = "AI Call";
 
 const router = Router();
 
@@ -110,6 +113,8 @@ router.post("/keypress", async (req, res) => {
         `UPDATE orders SET status = 'self_confirmed', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1`,
         [orderId]
       );
+      logOrderEvent({ orderId, eventType: "status_change", fromStatus: "self_confirmation", toStatus: "self_confirmed", createdBy: AI_CALL_ATTRIBUTION })
+        .catch(err => console.error("[Voice] Failed to log status_change event:", err));
       console.log(`[Voice] Order ${orderId} SELF-CONFIRMED via call`);
     } catch (err) {
       console.error("[Voice] Confirm failed:", err);
@@ -126,6 +131,8 @@ router.post("/keypress", async (req, res) => {
         `UPDATE orders SET status = 'cancelled', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1`,
         [orderId]
       );
+      logOrderEvent({ orderId, eventType: "status_change", fromStatus: "self_confirmation", toStatus: "cancelled", createdBy: AI_CALL_ATTRIBUTION })
+        .catch(err => console.error("[Voice] Failed to log status_change event:", err));
       console.log(`[Voice] Order ${orderId} CANCELLED via call`);
     } catch (err) {
       console.error("[Voice] Cancel failed:", err);
@@ -142,6 +149,8 @@ router.post("/keypress", async (req, res) => {
         `UPDATE orders SET status = 'callback', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1`,
         [orderId]
       );
+      logOrderEvent({ orderId, eventType: "status_change", fromStatus: "self_confirmation", toStatus: "callback", createdBy: AI_CALL_ATTRIBUTION })
+        .catch(err => console.error("[Voice] Failed to log status_change event:", err));
       console.log(`[Voice] Order ${orderId} CALLBACK requested via call`);
     } catch (err) {
       console.error("[Voice] Callback flag failed:", err);
@@ -155,10 +164,14 @@ router.post("/keypress", async (req, res) => {
   } else {
     // Call was answered but no digit was pressed before Gather timed out.
     try {
-      await pool.query(
+      const { rowCount } = await pool.query(
         `UPDATE orders SET status = 'no_answer', confirmed_by_source = 'ai_call', updated_at = NOW() WHERE id = $1 AND status = 'self_confirmation'`,
         [orderId]
       );
+      if (rowCount) {
+        logOrderEvent({ orderId, eventType: "status_change", fromStatus: "self_confirmation", toStatus: "no_answer", createdBy: AI_CALL_ATTRIBUTION })
+          .catch(err => console.error("[Voice] Failed to log status_change event:", err));
+      }
     } catch (err) {
       console.error("[Voice] No-answer flag failed:", err);
     }
@@ -185,10 +198,14 @@ router.post("/status", async (req, res) => {
   // transient "self_confirmation" state, never a real keypress outcome.
   if (orderId && ["no-answer", "busy", "failed"].includes(callStatus)) {
     try {
-      await pool.query(
+      const { rowCount } = await pool.query(
         `UPDATE orders SET status = 'no_answer', updated_at = NOW() WHERE id = $1 AND status = 'self_confirmation'`,
         [orderId]
       );
+      if (rowCount) {
+        logOrderEvent({ orderId, eventType: "status_change", fromStatus: "self_confirmation", toStatus: "no_answer", createdBy: AI_CALL_ATTRIBUTION, description: `Twilio call status: ${callStatus}` })
+          .catch(err => console.error("[Voice] Failed to log status_change event:", err));
+      }
     } catch (err) {
       console.error("[Voice] No-answer status update failed:", err);
     }

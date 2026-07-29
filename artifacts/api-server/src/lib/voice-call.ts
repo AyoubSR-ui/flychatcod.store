@@ -1,6 +1,7 @@
 import twilio from "twilio";
 import { getVoiceStatus, consumeVoiceCall, getCallerPhone } from "./voice-credits.js";
 import { pool } from "@workspace/db";
+import { logOrderEvent } from "./order-events.js";
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
@@ -135,10 +136,16 @@ export async function triggerOrderConfirmationCall(params: CallOrderParams): Pro
     await consumeVoiceCall(params.storeId);
 
     // Save call SID to order and mark it as awaiting the customer's self-confirmation response
+    const { rows: priorRows } = await pool.query(`SELECT status FROM orders WHERE id = $1 LIMIT 1`, [params.orderId]).catch(() => ({ rows: [] as any[] }));
+    const priorStatus = priorRows[0]?.status ?? null;
     await pool.query(
       `UPDATE orders SET voice_call_sid = $1, status = 'self_confirmation', updated_at = NOW() WHERE id = $2`,
       [call.sid, params.orderId]
     ).catch(() => {});
+    if (priorStatus && priorStatus !== "self_confirmation") {
+      logOrderEvent({ orderId: params.orderId, eventType: "status_change", fromStatus: priorStatus, toStatus: "self_confirmation", createdBy: "AI Call" })
+        .catch(err => console.error("[Voice] Failed to log status_change event:", err));
+    }
 
     return true;
   } catch (err) {
