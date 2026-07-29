@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Truck, CheckCircle2, XCircle, AlertCircle, Loader2, Plus, Trash2 } from "lucide-react";
+import { Truck, CheckCircle2, XCircle, AlertCircle, Loader2, Plus, Trash2, Pencil, Check, X } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -87,6 +87,9 @@ export default function Delivery() {
   const queryClient = useQueryClient();
   const [connectMeta, setConnectMeta] = useState<CarrierMeta | null>(null);
   const [successMsg, setSuccessMsg] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["carriers"],
@@ -100,11 +103,34 @@ export default function Delivery() {
   const connections = data?.connections || [];
   const registryById = Object.fromEntries(registry.map(m => [m.id, m]));
 
+  // Group connections by carrier so accounts of the same courier (e.g. two
+  // Anderson Ecotrack accounts) render together instead of a flat list.
+  const connectionsByCarrier = connections.reduce<Record<string, CarrierConnection[]>>((acc, c) => {
+    (acc[c.carrier] ||= []).push(c);
+    return acc;
+  }, {});
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["carriers"] });
 
   const handleDisconnect = async (id: string) => {
     await fetch(`${API_BASE}/api/carriers/${id}`, { method: "DELETE", headers: authHeaders() });
     invalidate();
+  };
+
+  const startRename = (c: CarrierConnection) => { setRenamingId(c.id); setRenameValue(c.label); };
+
+  const handleRename = async (id: string) => {
+    if (!renameValue.trim()) return;
+    setRenaming(true);
+    try {
+      await fetch(`${API_BASE}/api/carriers/${id}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ label: renameValue.trim() }),
+      });
+      setRenamingId(null);
+      invalidate();
+    } finally { setRenaming(false); }
   };
 
   return (
@@ -123,27 +149,56 @@ export default function Delivery() {
             </div>
           )}
 
-          {/* ── Connected accounts ── */}
-          {connections.length > 0 && (
-            <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
-              <div className="px-5 py-3 border-b border-border font-bold text-sm text-foreground">Connected accounts</div>
-              <div className="divide-y divide-border/50">
-                {connections.map(c => (
-                  <div key={c.id} className="px-5 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <CarrierLogo logo={registryById[c.carrier]?.logo} name={c.carrier} size="w-8 h-8" />
-                      <div>
-                        <div className="font-semibold text-foreground text-sm">{c.label}</div>
-                        <div className="text-xs text-muted-foreground">{c.carrier}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200"><CheckCircle2 className="w-3 h-3" /> Connected</span>
-                      <button onClick={() => handleDisconnect(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                    </div>
+          {/* ── Connected accounts (grouped per carrier) ── */}
+          {Object.keys(connectionsByCarrier).length > 0 && (
+            <div className="space-y-4">
+              {Object.entries(connectionsByCarrier).map(([carrier, accounts]) => (
+                <div key={carrier} className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+                  <div className="px-5 py-3 border-b border-border flex items-center gap-3">
+                    <CarrierLogo logo={registryById[carrier]?.logo} name={carrier} size="w-7 h-7" />
+                    <span className="font-bold text-sm text-foreground">{registryById[carrier]?.name || carrier}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {accounts.length} account{accounts.length > 1 ? "s" : ""} connected
+                    </span>
                   </div>
-                ))}
-              </div>
+                  <div className="divide-y divide-border/50">
+                    {accounts.map(c => (
+                      <div key={c.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                        {renamingId === c.id ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") handleRename(c.id); if (e.key === "Escape") setRenamingId(null); }}
+                              className="flex-1 px-2.5 py-1.5 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                            />
+                            <button onClick={() => handleRename(c.id)} disabled={renaming} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors"><Check className="w-4 h-4" /></button>
+                            <button onClick={() => setRenamingId(null)} className="p-1.5 text-muted-foreground hover:bg-secondary rounded-lg transition-colors"><X className="w-4 h-4" /></button>
+                          </div>
+                        ) : (
+                          <div className="font-semibold text-foreground text-sm">{c.label}</div>
+                        )}
+                        {renamingId !== c.id && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200"><CheckCircle2 className="w-3 h-3" /> Connected</span>
+                            <button onClick={() => startRename(c)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors" title="Rename"><Pencil className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleDisconnect(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Disconnect"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {registryById[carrier]?.implemented && (
+                    <button
+                      onClick={() => setConnectMeta(registryById[carrier])}
+                      className="w-full px-5 py-2.5 text-sm font-bold text-primary hover:bg-primary/5 border-t border-border flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add another account
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -152,7 +207,7 @@ export default function Delivery() {
             <div className="text-center py-10 text-muted-foreground">Loading...</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {registry.map(meta => (
+              {registry.filter(meta => !connectionsByCarrier[meta.id]).map(meta => (
                 <div key={meta.id} className={`bg-card border rounded-2xl shadow-sm p-5 space-y-3 ${meta.implemented ? "border-border" : "border-border opacity-60"}`}>
                   <div className="flex items-center gap-3">
                     <CarrierLogo logo={meta.logo} name={meta.name} />

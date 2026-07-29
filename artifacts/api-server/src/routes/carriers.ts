@@ -64,6 +64,28 @@ router.post("/connect", requireAuth, async (req, res) => {
   }
 });
 
+// ─── PATCH /api/carriers/:id/rename — rename a connected account's label ──────
+router.patch("/:id/rename", requireAuth, async (req, res) => {
+  try {
+    await ensureCarrierTables();
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { label } = req.body as { label?: string };
+    if (!label?.trim()) { res.status(400).json({ error: "validation_error", message: "label is required" }); return; }
+
+    const { rows } = await pool.query(
+      `UPDATE carrier_connections SET label = $1, updated_at = NOW() WHERE id = $2 AND store_id = $3 RETURNING id, carrier, label, status, created_at`,
+      [label.trim(), req.params.id, storeId]
+    );
+    if (!rows[0]) { res.status(404).json({ error: "not_found" }); return; }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("[Carriers] Rename error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 // ─── DELETE /api/carriers/:id — disconnect an account ──────────────────────────
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
