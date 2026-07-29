@@ -5,7 +5,19 @@
       "Bash(railway environment:*)",
       "Bash(railway --version)",
       "Bash(ls c:/flychatcod/lib/db/node_modules/.bin/pg*)",
-      "Bash(node restore-db.mjs)"
+      "Bash(node restore-db.mjs)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(railway up *)",
+      "Bash(railway deployment *)",
+      "Bash(pnpm run *)",
+      "Bash(git stash *)",
+      "Bash(mkdir -p /c/Users/Ayoub/AppData/Local/Temp/claude/c--flychatcod/0ee2502d-6ea1-498a-919e-ae3f2d5c3e6c/scratchpad/dzship-ref)",
+      "Read(//c/Users/Ayoub/AppData/Local/Temp/claude/c--flychatcod/0ee2502d-6ea1-498a-919e-ae3f2d5c3e6c/scratchpad/**)",
+      "Bash(npm pack *)",
+      "Bash(tar -xzf dzship-1.0.0.tgz)",
+      "Read(//c/Users/Ayoub/AppData/Local/Temp/claude/c--flychatcod/0ee2502d-6ea1-498a-919e-ae3f2d5c3e6c/scratchpad/dzship-ref/package/clients/node/**)",
+      "Bash(gh api *)"
     ]
   }
 }
