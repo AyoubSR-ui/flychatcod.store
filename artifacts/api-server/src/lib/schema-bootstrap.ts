@@ -58,11 +58,16 @@ export async function ensureCarrierTables(): Promise<void> {
       carrier TEXT NOT NULL,
       label TEXT NOT NULL,
       status carrier_status NOT NULL DEFAULT 'connected',
-      credentials JSONB NOT NULL DEFAULT '{}',
+      credentials TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+  // Migrate from the original JSONB column (no real credentials were ever
+  // stored under it — nothing but "coming soon" carriers existed until now)
+  // to TEXT holding an AES-256-GCM encrypted blob. No-op if already TEXT.
+  await pool.query(`ALTER TABLE carrier_connections ALTER COLUMN credentials TYPE TEXT USING credentials::text`);
+  await pool.query(`ALTER TABLE carrier_connections ALTER COLUMN credentials SET DEFAULT ''`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS shipments (

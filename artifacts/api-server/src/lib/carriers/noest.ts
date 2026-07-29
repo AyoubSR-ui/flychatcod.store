@@ -1,95 +1,79 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
+import { getWilayaCode } from "./wilaya-codes.js";
 
 // ─── Noest Express adapter (Ecotrack platform) ─────────────────────────────────
-// Noest runs on the Ecotrack white-label platform — the same underlying system
-// used by other Algerian couriers (e.g. Anderson Ecotrack). Auth is CONFIRMED:
-// a merchant GUID + API token, both generated from the Noest merchant dashboard.
+// You told me earlier this session: "Noest runs on Ecotrack, auth = a
+// merchant GUID + API token." I now have the REAL, verified Ecotrack request
+// shape (from PiteurStudio/CourierDZ's open-source client, cross-checked
+// against 22 real Ecotrack tenant implementations — see ecotrack.ts) — and it
+// contradicts that: every verified Ecotrack tenant authenticates with a
+// single `Authorization: Bearer {token}` header, no GUID at all.
 //
-// The parcel-creation request/response field names below are UNCONFIRMED —
-// unlike Yalidine, no verified field shape was provided for Noest/Ecotrack.
-// They're modeled on the same conceptual fields as Yalidine (Ecotrack is
-// reportedly similar in shape per https://github.com/PiteurStudio/CourierDZ and
-// https://github.com/DZBuild-com/dzship) but MUST be verified against real
-// Ecotrack API docs or a live response before this adapter is trusted.
+// Noest itself isn't among CourierDZ's verified tenants, so I can't confirm
+// which of these is right: (a) your GUID+token description was for a
+// slightly different/older Noest API than the standard Ecotrack contract, or
+// (b) Noest really is standard Ecotrack and the GUID isn't actually required.
+// This adapter uses the VERIFIED Ecotrack shape (much stronger basis than a
+// guess) but keeps the GUID field wired in case (a) is right — confirm
+// against a real Noest response before enabling.
 //
-// Live HTTP calls are intentionally stubbed — do not enable until (a) real
-// GUID/token credentials exist and (b) the field shape below is verified.
+// Domain is UNCONFIRMED — Noest isn't in the verified tenant list, so this is
+// inferred from the {tenant}.ecotrack.dz pattern shared by every other tenant,
+// not independently verified the way the other 22 domains are.
+//
+// Live HTTP calls are intentionally stubbed pending real credentials.
 
-const NOEST_BASE_URL = "https://app.noest-dz.com/api/public"; // UNCONFIRMED — verify real Ecotrack API host for Noest
+const NOEST_BASE_URL = "https://noest.ecotrack.dz/"; // UNCONFIRMED — inferred from the shared tenant pattern, not independently verified
 
 export class NoestAdapter implements CarrierAdapter {
   readonly carrier = "noest";
 
-  constructor(private credentials: { guid: string; apiToken: string }) {}
+  constructor(private credentials: { guid?: string; token: string }) {}
 
-  private buildAuthBody(): { api_token: string; user_guid: string } {
-    // UNCONFIRMED: Ecotrack-family APIs commonly authenticate via body fields
-    // rather than headers — needs verification against real Noest API docs.
-    return { api_token: this.credentials.apiToken, user_guid: this.credentials.guid };
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.credentials.token}`, "Content-Type": "application/json" };
+    // Wired in case Noest's real API does need this — UNCONFIRMED whether Ecotrack even reads it.
+    if (this.credentials.guid) headers["X-Merchant-GUID"] = this.credentials.guid;
+    return headers;
   }
 
   async createShipment(params: CreateShipmentParams): Promise<ShipmentResult> {
-    const url = `${NOEST_BASE_URL}/create/order`; // UNCONFIRMED endpoint path
+    const url = `${NOEST_BASE_URL}api/v1/create/order`;
+    const headers = this.buildHeaders();
     const body = {
-      ...this.buildAuthBody(),
       reference: params.orderNumber,
-      client: `${params.customerFirstName} ${params.customerLastName}`.trim(),
-      phone: params.customerPhone,
+      nom_client: `${params.customerFirstName} ${params.customerLastName}`.trim(),
+      telephone: params.customerPhone.replace(/\D/g, ""),
+      telephone_2: params.customerPhone2?.replace(/\D/g, "") || "",
       adresse: params.address,
-      wilaya_id: params.toWilaya, // UNCONFIRMED — Ecotrack commonly expects a numeric wilaya id, not name
       commune: params.toCommune,
+      code_wilaya: getWilayaCode(params.toWilaya),
       montant: params.price,
+      remarque: params.note || "",
       produit: params.productList,
-      remarque: "",
-      is_stopdesk: params.isStopdesk ? 1 : 0,
-      stopdesk_id: null,
-      poids: params.weight ?? 1,
-      allow_open: 0,
-      is_exchange: params.hasExchange ? 1 : 0,
+      stock: 0,
+      type: params.hasExchange ? 2 : 1,
+      stop_desk: params.isStopdesk ? 1 : 0,
     };
 
-    // TODO: uncomment once (1) real GUID/token credentials are connected and
-    // (2) the field shape above is verified against real Ecotrack docs.
-    //
-    // const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    // if (!res.ok) throw new Error(`Noest createShipment failed: ${res.status} ${await res.text()}`);
-    // const data = await res.json() as Record<string, any>;
-    // return {
-    //   trackingNumber: data.tracking ?? data.order_id,
-    //   status: "label_created",
-    //   labelUrl: data.label_url ?? undefined,
-    //   raw: data,
-    // };
+    // TODO: uncomment once (1) real Noest credentials are connected and
+    // (2) the domain + GUID questions above are confirmed against a real response.
+    // const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    // const data = await res.json() as any;
+    // if (data.success === false) throw new Error(`Noest createShipment failed: ${data.message}`);
+    // return { trackingNumber: data.tracking ?? data.id, status: "label_created", raw: data };
 
     throw new Error(
-      `[Noest] Live API calls are stubbed pending real credentials and field-shape verification. ` +
-      `Would POST ${url} with body ${JSON.stringify(body)}`
+      `[Noest] Live API calls are stubbed pending real credentials and domain/auth verification. ` +
+      `Would POST ${url} with headers ${JSON.stringify(Object.keys(headers))} and body ${JSON.stringify(body)}`
     );
   }
 
-  async getStatus(trackingNumber: string): Promise<ShipmentStatusResult> {
-    const url = `${NOEST_BASE_URL}/get/order/status`; // UNCONFIRMED endpoint path
-    const body = { ...this.buildAuthBody(), tracking: trackingNumber };
-
-    // TODO: uncomment once credentials + field shape are verified.
-    // const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    // if (!res.ok) throw new Error(`Noest getStatus failed: ${res.status} ${await res.text()}`);
-    // const data = await res.json() as Record<string, any>;
-    // return { status: data.status ?? "unknown", raw: data };
-
-    throw new Error(`[Noest] Live API calls are stubbed pending real credentials and field-shape verification. Would POST ${url} with body ${JSON.stringify(body)}`);
+  async getStatus(_trackingNumber: string): Promise<ShipmentStatusResult> {
+    throw new Error("[Noest] No verified status/tracking endpoint exists yet (Ecotrack's reference client doesn't implement one either).");
   }
 
-  async cancelShipment(trackingNumber: string): Promise<CancelShipmentResult> {
-    const url = `${NOEST_BASE_URL}/cancel/order`; // UNCONFIRMED endpoint path
-    const body = { ...this.buildAuthBody(), tracking: trackingNumber };
-
-    // TODO: uncomment once credentials + field shape are verified.
-    // const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    // if (!res.ok) throw new Error(`Noest cancelShipment failed: ${res.status} ${await res.text()}`);
-    // const data = await res.json() as Record<string, any>;
-    // return { success: true, raw: data };
-
-    throw new Error(`[Noest] Live API calls are stubbed pending real credentials and field-shape verification. Would POST ${url} with body ${JSON.stringify(body)}`);
+  async cancelShipment(_trackingNumber: string): Promise<CancelShipmentResult> {
+    throw new Error("[Noest] No verified cancel endpoint exists yet.");
   }
 }

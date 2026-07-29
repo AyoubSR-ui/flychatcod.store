@@ -22,7 +22,9 @@ export const carrierConnectionsTable = pgTable("carrier_connections", {
   carrier: text("carrier").notNull(),
   label: text("label").notNull(),
   status: carrierStatusEnum("status").notNull().default("connected"),
-  credentials: jsonb("credentials").$type<Record<string, string>>().notNull().default({}),
+  // Encrypted at rest (AES-256-GCM, see lib/credentials-crypto.ts) — never
+  // stored as plain JSON and never sent to any third party.
+  credentials: text("credentials").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

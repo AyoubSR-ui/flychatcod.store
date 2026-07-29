@@ -4,6 +4,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { ensureCarrierTables } from "../lib/schema-bootstrap.js";
 import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/carriers/index.js";
+import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 
 const router = Router();
 
@@ -52,7 +53,7 @@ router.post("/connect", requireAuth, async (req, res) => {
     await pool.query(
       `INSERT INTO carrier_connections (id, store_id, carrier, label, status, credentials, created_at, updated_at)
        VALUES ($1, $2, $3, $4, 'connected', $5, NOW(), NOW())`,
-      [id, storeId, carrier, label, JSON.stringify(credentials)]
+      [id, storeId, carrier, label, encryptCredentials(credentials!)]
     );
 
     res.status(201).json({ id, carrier, label, status: "connected" });
@@ -106,7 +107,8 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
   const order = orderRows[0];
   if (!order) throw new Error("Order not found");
 
-  const adapter = createCarrierAdapter(connection.carrier, connection.credentials || {});
+  const credentials = connection.credentials ? decryptCredentials(connection.credentials) : {};
+  const adapter = createCarrierAdapter(connection.carrier, credentials);
 
   const [firstName, ...rest] = String(order.customer_name || "").split(" ");
   const items = Array.isArray(order.items) && order.items.length > 0 ? order.items : order.order_items;
@@ -128,6 +130,7 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
       productList,
       isStopdesk: order.shipping_option === "stopdesk",
       hasExchange: false,
+      note: order.seller_note || undefined,
     });
 
     await pool.query(

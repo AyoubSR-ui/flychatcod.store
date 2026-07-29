@@ -9,6 +9,7 @@ export interface CreateShipmentParams {
   customerFirstName: string;
   customerLastName: string;
   customerPhone: string;
+  customerPhone2?: string;
   address: string;
   fromWilaya: string;
   toWilaya: string;
@@ -17,6 +18,7 @@ export interface CreateShipmentParams {
   productList: string;
   isStopdesk: boolean;
   hasExchange: boolean;
+  note?: string;
   declaredValue?: number;
   weight?: number;
   length?: number;
