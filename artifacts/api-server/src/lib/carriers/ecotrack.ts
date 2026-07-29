@@ -92,10 +92,16 @@ export class EcotrackAdapter implements CarrierAdapter {
     );
   }
 
-  async getStatus(_trackingNumber: string): Promise<ShipmentStatusResult> {
-    // The reference implementation has no track/status endpoint for Ecotrack
-    // at all (throws "not implemented" there too) — genuinely unverified.
-    throw new Error(`[Ecotrack:${this.carrier}] No verified status/tracking endpoint exists for the Ecotrack API yet.`);
+  async getStatus(trackingNumber: string): Promise<ShipmentStatusResult> {
+    // The reference implementation has no track/status API endpoint for
+    // Ecotrack at all (throws "not implemented" there too). Rather than block
+    // tracking entirely, hand back Ecotrack's public web tracking page —
+    // merchants can check status manually until the real API endpoint is
+    // found and verified.
+    return {
+      status: "manual_tracking_required",
+      raw: { trackingUrl: `https://ecotrack.dz/tracking/${trackingNumber}` },
+    };
   }
 
   async cancelShipment(_trackingNumber: string): Promise<CancelShipmentResult> {
