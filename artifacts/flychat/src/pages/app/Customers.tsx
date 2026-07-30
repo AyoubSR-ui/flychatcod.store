@@ -1,15 +1,20 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import { Search, UserPlus, Eye, Repeat } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useGetCustomers } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { Pagination } from "@/components/Pagination";
 
 export default function Customers() {
   const [search, setSearch] = useState("");
-  const { data, isLoading } = useGetCustomers({ search: search || undefined, limit: 50 });
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const { data, isLoading } = useGetCustomers({ search: search || undefined, page, limit });
   const { t } = useI18n();
+
+  useEffect(() => { setPage(1); }, [search]);
 
   return (
     <AppLayout>
@@ -94,9 +99,14 @@ export default function Customers() {
               </table>
             </div>
 
-            <div className="p-4 border-t border-border flex justify-between items-center text-sm text-muted-foreground">
-              <span>Showing {data?.customers.length || 0} of {data?.total || 0} customers</span>
-            </div>
+            <Pagination
+              page={data?.page || page}
+              total={data?.total || 0}
+              limit={data?.limit || limit}
+              onPageChange={setPage}
+              onLimitChange={setLimit}
+              itemLabel="customers"
+            />
           </div>
         </div>
       </div>

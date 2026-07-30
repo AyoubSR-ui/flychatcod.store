@@ -66,7 +66,7 @@ router.get("/", requireAuth, async (req, res) => {
 
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
-    const limitNum = Math.min(100, parseInt(limit));
+    const limitNum = Math.min(500, parseInt(limit));
     const offset = (pageNum - 1) * limitNum;
 
     const { whereSQL, values } = await buildOrderFilters(storeId, req.query as Record<string, string>);

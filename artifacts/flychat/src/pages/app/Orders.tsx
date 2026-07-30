@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import {
   Search, Plus, Trash2, Loader2, Package, PhoneCall, AlertTriangle, Truck,
-  ShoppingBag, CheckCircle2, XCircle, TrendingUp, CalendarClock, Send,
+  ShoppingBag, CheckCircle2, XCircle, TrendingUp, Send,
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
 import { DispatchModal } from "@/components/DispatchModal";
+import { Pagination } from "@/components/Pagination";
 import { useCreateOrder, useGetProducts, useGetTeamMembers, getGetOrdersQueryKey } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -253,14 +254,18 @@ export default function Orders() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [dateTab, setDateTab] = useState<"all" | "today" | "yesterday" | "week" | "custom">("all");
   const [sort, setSort] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
   const { t } = useI18n();
   const queryClient = useQueryClient();
 
   const { data: productsData } = useGetProducts({ limit: 200 });
   const { data: teamData } = useGetTeamMembers();
 
+  useEffect(() => { setPage(1); }, [filters, sort]);
+
   const queryParams = useMemo(() => {
-    const p: Record<string, string> = { limit: "50", sort };
+    const p: Record<string, string> = { limit: String(limit), page: String(page), sort };
     if (filters.search) p.search = filters.search;
     if (filters.status !== "all") p.status = filters.status;
     if (filters.source !== "all") p.source = filters.source;
@@ -271,7 +276,7 @@ export default function Orders() {
     if (filters.dateFrom) p.dateFrom = filters.dateFrom;
     if (filters.dateTo) p.dateTo = filters.dateTo;
     return p;
-  }, [filters, sort]);
+  }, [filters, sort, page, limit]);
 
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["orders-list", queryParams],
@@ -284,7 +289,7 @@ export default function Orders() {
   const { data: statsData } = useQuery({
     queryKey: ["orders-stats", queryParams],
     queryFn: async () => {
-      const qp = { ...queryParams }; delete (qp as any).limit; delete (qp as any).sort;
+      const qp = { ...queryParams }; delete (qp as any).limit; delete (qp as any).sort; delete (qp as any).page;
       const res = await fetch(`${API_BASE}/api/orders/stats?${new URLSearchParams(qp)}`, { headers: authHeaders() });
       return res.json();
     },
@@ -586,9 +591,14 @@ export default function Orders() {
               </table>
             </div>
 
-            <div className="p-4 border-t border-border flex justify-between items-center text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5" /> Showing {orders.length} of {ordersData?.total ?? 0} orders</span>
-            </div>
+            <Pagination
+              page={ordersData?.page || page}
+              total={ordersData?.total || 0}
+              limit={ordersData?.limit || limit}
+              onPageChange={setPage}
+              onLimitChange={setLimit}
+              itemLabel="orders"
+            />
           </div>
         </div>
       </div>
