@@ -408,6 +408,14 @@ router.patch("/:id", requireAuth, async (req, res) => {
         toStatus: status,
         createdBy: req.user!.name || req.user!.email || "System",
       }).catch(err => console.error("[Orders] Failed to log status_change event:", err));
+
+      // A confirmed/shipped/delivered order is the strongest possible lead
+      // signal — 'order_confirmed' is already the top rank in lib/lead-intent.ts,
+      // so this is always an upgrade (or a no-op if already there), never a downgrade.
+      if (rows[0].customer_id && ["confirmed", "self_confirmed", "shipped", "delivered"].includes(status)) {
+        pool.query(`UPDATE customers SET lead_stage = 'order_confirmed', updated_at = NOW() WHERE id = $1`, [rows[0].customer_id])
+          .catch(err => console.error("[Orders] Failed to sync customer lead_stage:", err));
+      }
     }
 
     const items = await db.select().from(orderItemsTable).where(eq(orderItemsTable.orderId, rows[0].id));

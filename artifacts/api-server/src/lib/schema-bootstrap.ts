@@ -57,6 +57,71 @@ export async function ensureOrderEventsTable(): Promise<void> {
   orderEventsTableReady = true;
 }
 
+let customerLeadColumnsReady = false;
+export async function ensureCustomerLeadColumns(): Promise<void> {
+  if (customerLeadColumnsReady) return;
+
+  await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS lead_stage TEXT DEFAULT 'interested'`);
+  await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS meta_id TEXT`);
+  await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS channel TEXT`);
+
+  // One-time backfill from conversations. Real lead_stage values (verified
+  // against lib/lead-intent.ts and conversations.channel's enum) are
+  // 'interested' | 'engaged' | 'qualified_lead' | 'order_confirmed' — NOT
+  // 'engaged'/'qualified'/'confirmed' as a naive guess might assume.
+  await pool.query(`
+    UPDATE customers c SET lead_stage = sub.best_stage
+    FROM (
+      SELECT customer_id,
+        CASE MAX(
+          CASE lead_stage
+            WHEN 'order_confirmed' THEN 4
+            WHEN 'qualified_lead' THEN 3
+            WHEN 'engaged' THEN 2
+            ELSE 1
+          END
+        )
+          WHEN 4 THEN 'order_confirmed'
+          WHEN 3 THEN 'qualified_lead'
+          WHEN 2 THEN 'engaged'
+          ELSE 'interested'
+        END AS best_stage
+      FROM conversations
+      WHERE customer_id IS NOT NULL
+      GROUP BY customer_id
+    ) sub
+    WHERE sub.customer_id = c.id AND (c.lead_stage IS NULL OR c.lead_stage = 'interested')
+  `);
+
+  // meta_id: the PSID/IGSID stored as conversations.external_id for Messenger/Instagram threads.
+  await pool.query(`
+    UPDATE customers c SET meta_id = sub.external_id
+    FROM (
+      SELECT DISTINCT ON (customer_id) customer_id, external_id
+      FROM conversations
+      WHERE customer_id IS NOT NULL
+        AND channel IN ('messenger', 'instagram')
+        AND external_id IS NOT NULL AND external_id != '' AND external_id != 'pending'
+      ORDER BY customer_id, created_at DESC
+    ) sub
+    WHERE sub.customer_id = c.id AND c.meta_id IS NULL
+  `);
+
+  // channel: most recent conversation's channel.
+  await pool.query(`
+    UPDATE customers c SET channel = sub.channel
+    FROM (
+      SELECT DISTINCT ON (customer_id) customer_id, channel::text AS channel
+      FROM conversations
+      WHERE customer_id IS NOT NULL
+      ORDER BY customer_id, created_at DESC
+    ) sub
+    WHERE sub.customer_id = c.id AND c.channel IS NULL
+  `);
+
+  customerLeadColumnsReady = true;
+}
+
 let scheduledParcelsReady = false;
 export async function ensureScheduledParcelsTable(): Promise<void> {
   if (scheduledParcelsReady) return;

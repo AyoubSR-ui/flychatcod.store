@@ -13,6 +13,10 @@ export const customersTable = pgTable("customers", {
   profilePic: text("profile_pic"),
   isRepeat: boolean("is_repeat").notNull().default(false),
   totalOrders: integer("total_orders").notNull().default(0),
+  // Real values match conversations.lead_stage exactly: 'interested' | 'engaged' | 'qualified_lead' | 'order_confirmed'
+  leadStage: text("lead_stage").default("interested"),
+  metaId: text("meta_id"),
+  channel: text("channel"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

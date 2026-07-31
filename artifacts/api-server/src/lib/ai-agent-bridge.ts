@@ -181,6 +181,29 @@ async function updateLeadTracking(
       );
     }
 
+    // Propagate to the linked customer record too — only upgrade, never
+    // downgrade (a customer who already reached order_confirmed on a past
+    // order shouldn't drop back to 'engaged' because of a new, less-far-along
+    // conversation). Ranks match lib/lead-intent.ts's real LeadStage values.
+    try {
+      await pool.query(
+        `UPDATE customers SET lead_stage = $1, updated_at = NOW()
+         WHERE id = (SELECT customer_id FROM conversations WHERE id = $2)
+           AND (
+             CASE COALESCE(lead_stage, 'interested')
+               WHEN 'order_confirmed' THEN 4 WHEN 'qualified_lead' THEN 3 WHEN 'engaged' THEN 2 ELSE 1
+             END
+           ) < (
+             CASE $1
+               WHEN 'order_confirmed' THEN 4 WHEN 'qualified_lead' THEN 3 WHEN 'engaged' THEN 2 ELSE 1
+             END
+           )`,
+        [leadStage, conversationId]
+      );
+    } catch (err) {
+      console.error('[Lead] Failed to sync customer lead_stage:', err);
+    }
+
     console.log(`[Lead] conv ${conversationId}: intent=${intent}, stage=${leadStage}`);
   } catch (err) {
     console.error('[Lead] updateLeadTracking failed:', err);

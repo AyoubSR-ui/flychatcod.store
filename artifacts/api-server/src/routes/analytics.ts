@@ -266,4 +266,132 @@ router.get("/optimizer/status", requireAuth, async (req, res) => {
   }
 });
 
+// ─── TEMPORARY — one-time lead-stage backfill for pre-existing conversations ──
+// Real lead_stage values (verified against lib/lead-intent.ts and how this
+// same file already queries them above): 'interested' | 'engaged' |
+// 'qualified_lead' | 'order_confirmed' — NOT 'qualified'/'confirmed'. Gated
+// behind requireAuth (not a hardcoded secret) and scoped to the calling
+// user's own store — remove this route once the backfill has been run.
+router.post("/admin/backfill-lead-stages", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    const results: any = {};
+
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_stage TEXT DEFAULT 'interested'`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS intent_level TEXT DEFAULT 'low'`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS qualified_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_phone TEXT`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_wilaya TEXT`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_color TEXT`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_size TEXT`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_product TEXT`);
+    await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS lead_delivery_type TEXT`);
+    await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS lead_stage TEXT DEFAULT 'interested'`);
+    await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS meta_id TEXT`);
+    await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS channel TEXT`);
+    results.columns = "added";
+
+    const r1 = await pool.query(
+      `UPDATE conversations SET lead_stage = 'interested', intent_level = 'low' WHERE store_id = $1`,
+      [storeId]
+    );
+    results.resetToInterested = r1.rowCount;
+
+    // Engaged — a customer message contains what looks like an Algerian mobile number.
+    const r2 = await pool.query(`
+      UPDATE conversations
+      SET lead_stage = 'engaged', intent_level = 'medium'
+      WHERE store_id = $1
+        AND lead_stage = 'interested'
+        AND id IN (
+          SELECT DISTINCT conversation_id FROM messages
+          WHERE sender = 'customer' AND conversation_id IS NOT NULL
+            AND (
+              content LIKE '%0550%' OR content LIKE '%0560%' OR content LIKE '%0570%' OR
+              content LIKE '%0660%' OR content LIKE '%0661%' OR content LIKE '%0662%' OR
+              content LIKE '%0770%' OR content LIKE '%0771%' OR content LIKE '%0772%' OR
+              content LIKE '%0780%' OR content LIKE '%0790%' OR content LIKE '%0540%' OR
+              content LIKE '%0541%' OR content LIKE '%0561%' OR content LIKE '%0699%' OR
+              content LIKE '%0698%' OR content LIKE '%+213%'
+            )
+        )`,
+      [storeId]
+    );
+    results.engaged = r2.rowCount;
+
+    // Qualified lead — an order exists off this conversation.
+    const r3 = await pool.query(`
+      UPDATE conversations
+      SET lead_stage = 'qualified_lead', intent_level = 'high', qualified_at = COALESCE(qualified_at, NOW())
+      WHERE store_id = $1
+        AND id IN (SELECT DISTINCT conversation_id FROM orders WHERE conversation_id IS NOT NULL AND store_id = $1)`,
+      [storeId]
+    );
+    results.qualifiedLead = r3.rowCount;
+
+    // Order confirmed — the order actually progressed past confirmation.
+    const r4 = await pool.query(`
+      UPDATE conversations
+      SET lead_stage = 'order_confirmed', confirmed_at = COALESCE(confirmed_at, NOW())
+      WHERE store_id = $1
+        AND id IN (
+          SELECT DISTINCT conversation_id FROM orders
+          WHERE conversation_id IS NOT NULL AND store_id = $1
+            AND status IN ('confirmed', 'self_confirmed', 'shipped', 'delivered')
+        )`,
+      [storeId]
+    );
+    results.orderConfirmed = r4.rowCount;
+
+    // Sync to customers — highest-ranked stage across all of a customer's conversations.
+    await pool.query(`
+      UPDATE customers c SET lead_stage = conv_data.best_stage
+      FROM (
+        SELECT customer_id,
+          CASE MAX(CASE lead_stage WHEN 'order_confirmed' THEN 4 WHEN 'qualified_lead' THEN 3 WHEN 'engaged' THEN 2 ELSE 1 END)
+            WHEN 4 THEN 'order_confirmed' WHEN 3 THEN 'qualified_lead' WHEN 2 THEN 'engaged' ELSE 'interested'
+          END AS best_stage
+        FROM conversations WHERE store_id = $1 AND customer_id IS NOT NULL GROUP BY customer_id
+      ) conv_data
+      WHERE c.id = conv_data.customer_id AND c.store_id = $1`,
+      [storeId]
+    );
+    results.customerSync = "done";
+
+    await pool.query(`
+      UPDATE customers c SET meta_id = sub.external_id, channel = sub.channel::text
+      FROM (
+        SELECT DISTINCT ON (customer_id) customer_id, external_id, channel
+        FROM conversations
+        WHERE store_id = $1 AND customer_id IS NOT NULL AND channel IN ('messenger', 'instagram')
+          AND external_id IS NOT NULL AND external_id != '' AND external_id != 'pending' AND LENGTH(external_id) > 5
+        ORDER BY customer_id, created_at DESC
+      ) sub
+      WHERE c.id = sub.customer_id AND c.store_id = $1`,
+      [storeId]
+    );
+    results.metaIdSync = "done";
+
+    const { rows: convCounts } = await pool.query(
+      `SELECT lead_stage, COUNT(*) FROM conversations WHERE store_id = $1 GROUP BY lead_stage ORDER BY COUNT(*) DESC`,
+      [storeId]
+    );
+    results.conversationCounts = convCounts;
+
+    const { rows: custCounts } = await pool.query(
+      `SELECT lead_stage, COUNT(*) FROM customers WHERE store_id = $1 GROUP BY lead_stage ORDER BY COUNT(*) DESC`,
+      [storeId]
+    );
+    results.customerCounts = custCounts;
+
+    console.log("[Backfill] Complete:", results);
+    res.json({ success: true, results });
+  } catch (err: any) {
+    console.error("[Backfill] Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
