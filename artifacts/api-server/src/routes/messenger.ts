@@ -203,11 +203,14 @@ messengerRouter.post("/webhook", async (req, res) => {
         if (event.message.is_echo) {
           const recipientId = event.recipient?.id;
           if (!recipientId) continue;
+          const echoAttachment = event.message.attachments?.[0];
+          const echoIsImage = !event.message.text && echoAttachment?.type === "image";
           await saveMessengerEcho({
             pageId,
             recipientId,
             messageId: event.message.mid,
-            text: event.message.text || "[attachment]",
+            text: event.message.text || (echoIsImage ? "📷 Image" : "[attachment]"),
+            imageUrl: echoIsImage ? (echoAttachment?.payload?.url ?? undefined) : undefined,
             timestamp: new Date(event.timestamp),
           }).catch(err => console.error("[Messenger] Echo save failed:", err));
           continue;
@@ -273,6 +276,7 @@ async function saveMessengerEcho(incoming: {
   recipientId: string;
   messageId: string;
   text: string;
+  imageUrl?: string;
   timestamp: Date;
 }) {
   const { rows: channelRows } = await pool.query(
@@ -306,7 +310,9 @@ async function saveMessengerEcho(incoming: {
     content: incoming.text,
     sender: "agent",
     externalId: incoming.messageId || null,
-    metadata: { source: "meta_echo", channel: "messenger" },
+    metadata: incoming.imageUrl
+      ? { type: "image", imageUrl: incoming.imageUrl, source: "meta_echo", channel: "messenger" }
+      : { source: "meta_echo", channel: "messenger" },
     createdAt: incoming.timestamp,
   });
   console.log(`[Messenger] Echo saved for conv ${conv.id}`);
@@ -424,10 +430,14 @@ async function processIncomingMessengerMessage(incoming: {
   let msgContent = incoming.text;
   let imageUsedVision = false;
   if (incoming.imageUrl) {
+    // Messenger CDN URLs are public — no auth needed to render, unlike WhatsApp.
+    // `type: "image"` matches what Inbox.tsx actually checks for; the analysis
+    // result goes in metadata.description (the caption under the image), never
+    // replacing the image itself even when Vision fails.
+    msgMetadata.type = "image";
     msgMetadata.imageUrl = incoming.imageUrl;
-    msgMetadata.imageAccessToken = channel.accessToken;
-    msgMetadata.isImage = true;
     const analysis = await analyzeImage(incoming.imageUrl, channel.accessToken ?? undefined, store.id);
+    msgMetadata.description = analysis.description;
     msgContent = analysis.description;
     imageUsedVision = analysis.usedVision;
     console.log(`[Messenger] Image analyzed (vision=${imageUsedVision}): ${msgContent.substring(0, 80)}`);

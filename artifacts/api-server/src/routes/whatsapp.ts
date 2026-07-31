@@ -20,6 +20,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 import { analyzeImage } from "../lib/analyze-image.js";
+import { rehostImage } from "../lib/rehost-image.js";
 
 export const whatsappRouter = Router();
 
@@ -244,10 +245,18 @@ async function processIncomingWhatsAppMessage(incoming: {
       if (mediaRes.ok) {
         const mediaData = await mediaRes.json() as any;
         if (mediaData.url) {
-          msgMetadata = { imageUrl: mediaData.url, imageAccessToken: accessToken, isImage: true };
           const analysis = await analyzeImage(mediaData.url, accessToken, store.id);
           msgContent = analysis.description;
           imageUsedVision = analysis.usedVision;
+          // WhatsApp's media URL requires a Bearer header and expires quickly —
+          // a plain <img src> can never load it. Re-host on Cloudinary once so
+          // Inbox can actually display it.
+          const rehostedUrl = await rehostImage(mediaData.url, accessToken);
+          if (rehostedUrl) {
+            msgMetadata = { type: "image", imageUrl: rehostedUrl, description: analysis.description };
+          } else {
+            console.error("[WhatsApp] Re-host failed — image won't be viewable in Inbox");
+          }
           console.log(`[WhatsApp] Image analyzed (vision=${imageUsedVision}): ${msgContent.substring(0, 80)}`);
         }
       }

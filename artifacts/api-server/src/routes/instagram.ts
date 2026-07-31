@@ -201,11 +201,14 @@ instagramRouter.post("/webhook", async (req, res) => {
           const recipientId = event.recipient?.id;
           const igAccountId = event.sender?.id;
           if (!recipientId || !igAccountId) continue;
+          const echoAttachment = event.message.attachments?.[0];
+          const echoIsImage = !event.message.text && echoAttachment?.type === "image";
           await saveInstagramEcho({
             igAccountId,
             recipientId,
             messageId: event.message.mid,
-            text: event.message.text || "[attachment]",
+            text: event.message.text || (echoIsImage ? "📷 Image" : "[attachment]"),
+            imageUrl: echoIsImage ? (echoAttachment?.payload?.url ?? undefined) : undefined,
             timestamp: new Date(event.timestamp),
           }).catch(err => console.error("[Instagram] Echo save failed:", err));
           continue;
@@ -267,6 +270,7 @@ async function saveInstagramEcho(incoming: {
   recipientId: string;
   messageId: string;
   text: string;
+  imageUrl?: string;
   timestamp: Date;
 }) {
   const { rows: channelRows } = await pool.query(
@@ -300,7 +304,9 @@ async function saveInstagramEcho(incoming: {
     content: incoming.text,
     sender: "agent",
     externalId: incoming.messageId || null,
-    metadata: { source: "meta_echo", channel: "instagram" },
+    metadata: incoming.imageUrl
+      ? { type: "image", imageUrl: incoming.imageUrl, source: "meta_echo", channel: "instagram" }
+      : { source: "meta_echo", channel: "instagram" },
     createdAt: incoming.timestamp,
   });
   console.log(`[Instagram] Echo saved for conv ${conv.id}`);
@@ -446,10 +452,10 @@ async function processIncomingInstagramMessage(incoming: {
   let msgContent = incoming.text;
   let imageUsedVision = false;
   if (incoming.imageUrl) {
+    msgMetadata.type = "image";
     msgMetadata.imageUrl = incoming.imageUrl;
-    msgMetadata.imageAccessToken = channel.accessToken;
-    msgMetadata.isImage = true;
     const analysis = await analyzeImage(incoming.imageUrl, channel.accessToken ?? undefined, store.id);
+    msgMetadata.description = analysis.description;
     msgContent = analysis.description;
     imageUsedVision = analysis.usedVision;
     console.log(`[Instagram] Image analyzed (vision=${imageUsedVision}): ${msgContent.substring(0, 80)}`);
