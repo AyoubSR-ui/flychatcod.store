@@ -177,6 +177,46 @@ async function getStorePlan(storeId: string): Promise<string> {
   return rows[0]?.plan ?? "starter";
 }
 
+// GET /api/analytics/export-engaged-csv — phone list for a Meta Custom
+// Audience upload. conversations.customer_phone is only ever populated for
+// order-linked conversations (verified — messenger.ts/instagram.ts never set
+// it), so for Messenger/Instagram threads it would just be empty; lead_phone
+// (regex-extracted from the customer's own messages by updateLeadTracking)
+// is the reliable source, with a live re-scan fallback for conversations
+// classified 'engaged' by the one-time backfill (which set lead_stage but
+// never populated lead_phone). Rows with no resolvable phone are skipped —
+// a raw Messenger/Instagram PSID is not a phone number Meta can match.
+const PHONE_PATTERN = /0[567]\d{8}|0[234]\d{7}|\+213\d{9}/;
+router.get("/export-engaged-csv", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { rows } = await pool.query(`
+      SELECT c.id, c.customer_name, c.channel, c.lead_phone, c.lead_wilaya,
+        (SELECT string_agg(m.content, ' ') FROM messages m WHERE m.conversation_id = c.id AND m.sender = 'customer') AS all_customer_text
+      FROM conversations c
+      WHERE c.store_id = $1 AND c.lead_stage = 'engaged'
+      ORDER BY c.updated_at DESC
+    `, [storeId]);
+
+    const csvRows: string[][] = [["Name", "Phone", "Wilaya", "Channel"]];
+    for (const row of rows) {
+      const phone = row.lead_phone || (row.all_customer_text ? row.all_customer_text.match(PHONE_PATTERN)?.[0] : null);
+      if (!phone) continue;
+      csvRows.push([row.customer_name || "", phone, row.lead_wilaya || "", row.channel || ""]);
+    }
+
+    const csv = csvRows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="engaged-leads.csv"');
+    res.send(csv);
+  } catch (err) {
+    console.error("[Analytics] Export engaged CSV failed:", err);
+    res.status(500).json({ error: "internal_error", message: "Failed to export engaged leads" });
+  }
+});
+
 // GET /api/analytics/optimizer/estimate
 // Estimates credit cost before running — no API calls, no credit deduction
 router.post("/optimizer/estimate", requireAuth, async (req, res) => {

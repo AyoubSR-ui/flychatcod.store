@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import {
   TrendingUp, Users, ShoppingBag, Zap, ChevronRight,
-  MessageSquare, MapPin, Phone, Package,
+  MessageSquare, MapPin, Phone, Package, Download,
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
 
@@ -106,6 +106,7 @@ export default function LeadIntelligence() {
   const [data, setData] = useState<LeadStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     apiFetch<LeadStatsResponse>("/api/analytics/lead-stats")
@@ -115,8 +116,33 @@ export default function LeadIntelligence() {
 
   const stats = data?.stats;
   const total = Number(stats?.total_conversations ?? 0);
+  const engaged = Number(stats?.engaged ?? 0);
   const qualified = Number(stats?.qualified ?? 0);
   const confirmed = Number(stats?.confirmed ?? 0);
+
+  const handleExportEngaged = async () => {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem("flychat_token") ?? "";
+      const res = await fetch(`${API}/api/analytics/export-engaged-csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "engaged-leads.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Failed to export engaged leads");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Build funnel percentages
   const funnelData = STAGE_ORDER.map((stage) => {
@@ -140,7 +166,9 @@ export default function LeadIntelligence() {
             <DocButton docId="lead-intelligence" />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Not all messages are equal. This shows you who is a real buyer.
+            {total > 0
+              ? `${total.toLocaleString()} people messaged you. ${engaged.toLocaleString()} shared contact info. Focus on these — they're your real warm audience.`
+              : "Not all messages are equal. This shows you who is a real buyer."}
           </p>
         </div>
 
@@ -216,6 +244,28 @@ export default function LeadIntelligence() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* ── Export for Meta Custom Audience ── */}
+            <div className="bg-card rounded-2xl border border-border p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">Export Engaged Leads</h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {engaged.toLocaleString()} {engaged === 1 ? "person has" : "people have"} shared contact info — a phone list ready for Meta.
+                  </p>
+                </div>
+                <button
+                  onClick={handleExportEngaged}
+                  disabled={exporting || engaged === 0}
+                  className="shrink-0 flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  <Download className="w-4 h-4" /> {exporting ? "Exporting..." : "Export Engaged as CSV"}
+                </button>
+              </div>
+              <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
+                💡 Export "Engaged" leads as a phone list → upload to Meta as a Custom Audience → create a Lookalike Audience from your real warm contacts.
               </div>
             </div>
 

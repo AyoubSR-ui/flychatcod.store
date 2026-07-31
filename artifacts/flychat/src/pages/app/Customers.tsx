@@ -1,15 +1,11 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
-import { Search, UserPlus, Eye, Repeat, Trash2, Copy } from "lucide-react";
+import { Search, UserPlus, Eye, Repeat, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useGetCustomers } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 import { Pagination } from "@/components/Pagination";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
 // Real values, matching conversations.lead_stage / lib/lead-intent.ts exactly.
 const LEAD_STAGES = [
@@ -39,33 +35,10 @@ export default function Customers() {
   const [stage, setStage] = useState<string>("real");
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
-  const [cleaning, setCleaning] = useState(false);
-  const { data, isLoading, refetch } = useGetCustomers({ search: search || undefined, page, limit, stage } as any);
+  const { data, isLoading } = useGetCustomers({ search: search || undefined, page, limit, stage } as any);
   const { t } = useI18n();
-  const queryClient = useQueryClient();
 
   useEffect(() => { setPage(1); }, [search, stage]);
-
-  const handleCleanupGhosts = async () => {
-    setCleaning(true);
-    try {
-      const previewRes = await fetch(`${API_BASE}/api/customers/ghosts/preview`, { headers: authHeaders() });
-      const preview = await previewRes.json();
-      const count = preview.count || 0;
-      if (count === 0) { alert("No ghost customers found — nothing to clean up."); return; }
-      if (!confirm(`This will permanently delete ${count} customer(s): generic-name records with no orders and no real engagement signal (wilaya, phone, or size mentioned in chat). This cannot be undone. Continue?`)) return;
-
-      const res = await fetch(`${API_BASE}/api/customers/cleanup-ghosts`, { method: "POST", headers: authHeaders() });
-      const result = await res.json();
-      alert(`Cleaned up ${result.deleted} ghost customer(s). ${result.after} customers remain.`);
-      refetch();
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-    } catch (err: any) {
-      alert(err.message || "Cleanup failed");
-    } finally {
-      setCleaning(false);
-    }
-  };
 
   return (
     <AppLayout>
@@ -76,19 +49,9 @@ export default function Customers() {
               <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.customers")}</h1>
               <p className="text-muted-foreground mt-1">Manage your customer relationships and order history.</p>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleCleanupGhosts}
-                disabled={cleaning}
-                title="Remove generic-name records with no orders and no real engagement signal"
-                className="px-4 py-2.5 border border-red-200 text-red-600 rounded-xl font-bold hover:bg-red-50 disabled:opacity-50 flex items-center gap-2 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" /> {cleaning ? "Cleaning..." : "Clean Ghosts"}
-              </button>
-              <button className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">
-                <UserPlus className="w-4 h-4" /> Add Customer
-              </button>
-            </div>
+            <button className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">
+              <UserPlus className="w-4 h-4" /> Add Customer
+            </button>
           </div>
 
           <div className="flex gap-2 flex-wrap">

@@ -72,61 +72,10 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-// Ghost = generic placeholder name (never resolved) AND phone is empty or is
-// actually a raw PSID/IGSID (those run 15-17 digits; real Algerian numbers
-// with country code top out around 13) AND zero orders AND the customer's
-// conversation(s) never progressed past 'interested' (no wilaya/phone/size
-// signal detected in the chat, no order created). This is a materially
-// stricter bar than "0 orders" alone — a customer who shared their wilaya or
-// phone in-chat but hasn't ordered yet is excluded, not deleted.
-const GHOST_WHERE = `
-  c.store_id = $1
-  AND (c.name ILIKE 'messenger user' OR c.name ILIKE 'instagram user' OR c.name ILIKE 'facebook user' OR c.name IS NULL OR c.name = '')
-  AND (c.phone IS NULL OR c.phone = '' OR LENGTH(c.phone) > 13)
-  AND c.total_orders = 0
-  AND COALESCE(c.lead_stage, 'interested') = 'interested'
-`;
-
-// GET /api/customers/ghosts/preview — count only, no deletion. Always check
-// this before calling cleanup-ghosts — the count can differ from any prior
-// estimate as new conversations arrive.
-router.get("/ghosts/preview", requireAuth, async (req, res) => {
-  try {
-    const storeId = req.user!.storeId;
-    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
-    await ensureCustomerLeadColumns();
-    const { rows } = await pool.query(`SELECT COUNT(*) AS count FROM customers c WHERE ${GHOST_WHERE}`, [storeId]);
-    res.json({ count: Number(rows[0]?.count || 0) });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to preview ghost customers" });
-  }
-});
-
-// POST /api/customers/cleanup-ghosts — irreversible delete. Frontend must
-// confirm with the user before calling this (see Customers.tsx).
-router.post("/cleanup-ghosts", requireAuth, async (req, res) => {
-  try {
-    const storeId = req.user!.storeId;
-    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
-    await ensureCustomerLeadColumns();
-
-    const { rows: beforeRows } = await pool.query(`SELECT COUNT(*) AS count FROM customers WHERE store_id = $1`, [storeId]);
-    const { rowCount } = await pool.query(`DELETE FROM customers c WHERE ${GHOST_WHERE}`, [storeId]);
-    const { rows: afterRows } = await pool.query(`SELECT COUNT(*) AS count FROM customers WHERE store_id = $1`, [storeId]);
-
-    res.json({
-      success: true,
-      deleted: rowCount || 0,
-      before: Number(beforeRows[0]?.count || 0),
-      after: Number(afterRows[0]?.count || 0),
-      message: `Cleaned up ${rowCount || 0} ghost customers`,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "internal_error", message: "Failed to clean up ghost customers" });
-  }
-});
+// Ghost-customer deletion was deliberately removed — even "low-intent"
+// customer records (PSIDs that never replied further) are retained on
+// purpose as raw material for Meta Custom Audience / Lookalike targeting.
+// Do not reintroduce a delete path here without an explicit, separate ask.
 
 router.post("/", requireAuth, async (req, res) => {
   try {
