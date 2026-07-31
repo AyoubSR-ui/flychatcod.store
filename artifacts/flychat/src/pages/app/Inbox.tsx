@@ -904,16 +904,24 @@ export default function Inbox() {
                           <Check className="w-3 h-3" /> {t("order.used")}
                         </span>
                       )}
-                      {metadata?.type === "image" && metadata?.imageUrl ? (
+                      {metadata?.imageUrl ? (
                         <div>
                           <img
                             src={metadata.imageUrl as string}
                             alt={(metadata.description as string) || ""}
                             className="rounded-xl max-w-[220px] max-h-[220px] object-cover cursor-pointer hover:opacity-90 transition-opacity"
                             onClick={() => window.open(metadata.imageUrl as string, "_blank")}
-                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                            onError={e => {
+                              (e.currentTarget as HTMLImageElement).style.display = "none";
+                              const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
+                              if (fallback) fallback.style.display = "flex";
+                            }}
                           />
-                          {metadata.description && (
+                          <div style={{ display: "none" }} className="items-center gap-1.5 text-xs text-muted-foreground italic px-1 py-0.5">
+                            🖼 Image expired —
+                            <a href={metadata.imageUrl as string} target="_blank" rel="noopener noreferrer" className="underline">try link</a>
+                          </div>
+                          {(metadata.description as string) && (
                             <p className="text-xs mt-1 opacity-80">{metadata.description as string}</p>
                           )}
                         </div>
