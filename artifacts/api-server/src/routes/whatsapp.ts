@@ -271,8 +271,10 @@ async function processIncomingWhatsAppMessage(incoming: {
     metadata: msgMetadata,
   });
 
+  // The conversation list preview has no metadata to inspect — never show the
+  // raw Vision analysis text/failure placeholder there, just a clean label.
   await db.update(conversationsTable).set({
-    lastMessage: msgContent,
+    lastMessage: msgMetadata?.imageUrl ? "📷 Image" : msgContent,
     unreadCount: (conversation.unreadCount ?? 0) + 1,
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));

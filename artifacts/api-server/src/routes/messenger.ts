@@ -448,8 +448,10 @@ async function processIncomingMessengerMessage(incoming: {
     metadata: Object.keys(msgMetadata).length ? msgMetadata : undefined,
   });
 
+  // The conversation list preview has no metadata to inspect — never show the
+  // raw Vision analysis text/failure placeholder there, just a clean label.
   await db.update(conversationsTable).set({
-    lastMessage: msgContent,
+    lastMessage: incoming.imageUrl ? "📷 Image" : msgContent,
     unreadCount: (conversation.unreadCount ?? 0) + 1,
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));

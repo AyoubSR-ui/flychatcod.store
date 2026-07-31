@@ -19,6 +19,16 @@ import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 import { io, Socket } from "socket.io-client";
 
+// Internal fallback strings the backend writes when Vision analysis produces
+// no useful description — never worth showing as a caption under an image
+// that already rendered fine on its own.
+const GENERIC_IMAGE_CAPTIONS = ["image attached", "image attached — analysis failed", "attachment", "image"];
+function isGenericImageCaption(text: string | undefined | null): boolean {
+  if (!text) return true;
+  const cleaned = text.replace(/^📷\s*/, "").trim().toLowerCase();
+  return GENERIC_IMAGE_CAPTIONS.some(p => cleaned === `[${p}]` || cleaned === p);
+}
+
 const WILAYAS = [
   "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
   "Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger",
@@ -921,7 +931,7 @@ export default function Inbox() {
                             🖼 Image expired —
                             <a href={metadata.imageUrl as string} target="_blank" rel="noopener noreferrer" className="underline">try link</a>
                           </div>
-                          {(metadata.description as string) && (
+                          {!isGenericImageCaption(metadata.description as string) && (
                             <p className="text-xs mt-1 opacity-80">{metadata.description as string}</p>
                           )}
                         </div>
