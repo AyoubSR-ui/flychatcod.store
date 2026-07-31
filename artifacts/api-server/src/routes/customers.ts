@@ -48,9 +48,12 @@ router.get("/", requireAuth, async (req, res) => {
 
     const dataParams = [...params, limitNum, offset];
     const { rows: customers } = await pool.query(
-      `SELECT c.*,
-         (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS order_count,
-         (SELECT MAX(created_at) FROM conversations cv WHERE cv.customer_id = c.id) AS last_contact
+      `SELECT c.id, c.store_id AS "storeId", c.name, c.phone, c.email, c.wilaya, c.notes,
+         c.profile_pic AS "profilePic", c.is_repeat AS "isRepeat", c.total_orders AS "totalOrders",
+         c.lead_stage AS "leadStage", c.meta_id AS "metaId", c.channel,
+         c.created_at AS "createdAt", c.updated_at AS "updatedAt",
+         (SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS "orderCount",
+         (SELECT MAX(created_at) FROM conversations cv WHERE cv.customer_id = c.id) AS "lastContact"
        FROM customers c
        WHERE c.store_id = $1 ${stageFilter} ${searchFilter}
        ORDER BY

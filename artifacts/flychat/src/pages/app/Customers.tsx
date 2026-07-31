@@ -106,10 +106,10 @@ export default function Customers() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm ${CHANNEL_DOT[c.channel] || "bg-primary/40"}`}>
-                            {c.name.charAt(0).toUpperCase()}
+                            {(c.name || "?").charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <div className="font-semibold text-foreground">{c.name}</div>
+                            <div className="font-semibold text-foreground">{c.name || "—"}</div>
                             {c.email && <div className="text-xs text-muted-foreground">{c.email}</div>}
                           </div>
                         </div>
@@ -137,7 +137,7 @@ export default function Customers() {
                           </span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-muted-foreground">{format(new Date(c.createdAt), 'MMM dd, yyyy')}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{c.createdAt && !isNaN(new Date(c.createdAt).getTime()) ? format(new Date(c.createdAt), 'MMM dd, yyyy') : "—"}</td>
                       <td className="px-6 py-4 text-right">
                         <Link href={`/customers/${c.id}`} className="inline-flex p-2 text-muted-foreground hover:text-primary bg-secondary hover:bg-primary/10 rounded-lg transition-colors">
                           <Eye className="w-4 h-4" />
