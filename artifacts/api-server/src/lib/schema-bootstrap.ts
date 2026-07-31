@@ -93,21 +93,8 @@ export async function ensureCustomerLeadColumns(): Promise<void> {
     WHERE sub.customer_id = c.id AND (c.lead_stage IS NULL OR c.lead_stage = 'interested')
   `);
 
-  // meta_id: the PSID/IGSID stored as conversations.external_id for Messenger/Instagram threads.
-  await pool.query(`
-    UPDATE customers c SET meta_id = sub.external_id
-    FROM (
-      SELECT DISTINCT ON (customer_id) customer_id, external_id
-      FROM conversations
-      WHERE customer_id IS NOT NULL
-        AND channel IN ('messenger', 'instagram')
-        AND external_id IS NOT NULL AND external_id != '' AND external_id != 'pending'
-      ORDER BY customer_id, created_at DESC
-    ) sub
-    WHERE sub.customer_id = c.id AND c.meta_id IS NULL
-  `);
-
-  // channel: most recent conversation's channel.
+  // channel: most recent conversation's channel. Runs before meta_id since
+  // meta_id backfill below depends on channel already being set.
   await pool.query(`
     UPDATE customers c SET channel = sub.channel
     FROM (
@@ -117,6 +104,15 @@ export async function ensureCustomerLeadColumns(): Promise<void> {
       ORDER BY customer_id, created_at DESC
     ) sub
     WHERE sub.customer_id = c.id AND c.channel IS NULL
+  `);
+
+  // meta_id: conversations has no external_id column (verified — it doesn't
+  // exist) — the real PSID/IGSID is stored directly in customers.phone for
+  // Messenger/Instagram customers (see messenger.ts/instagram.ts, which look
+  // customers up by eq(customersTable.phone, incoming.senderId)).
+  await pool.query(`
+    UPDATE customers SET meta_id = phone
+    WHERE meta_id IS NULL AND channel IN ('messenger', 'instagram') AND phone IS NOT NULL AND phone != ''
   `);
 
   customerLeadColumnsReady = true;

@@ -360,16 +360,23 @@ router.post("/admin/backfill-lead-stages", requireAuth, async (req, res) => {
     );
     results.customerSync = "done";
 
+    // conversations has no external_id column — verified it doesn't exist.
+    // The real PSID/IGSID is stored directly in customers.phone for
+    // Messenger/Instagram customers (see messenger.ts/instagram.ts).
     await pool.query(`
-      UPDATE customers c SET meta_id = sub.external_id, channel = sub.channel::text
+      UPDATE customers c SET channel = sub.channel::text
       FROM (
-        SELECT DISTINCT ON (customer_id) customer_id, external_id, channel
+        SELECT DISTINCT ON (customer_id) customer_id, channel
         FROM conversations
-        WHERE store_id = $1 AND customer_id IS NOT NULL AND channel IN ('messenger', 'instagram')
-          AND external_id IS NOT NULL AND external_id != '' AND external_id != 'pending' AND LENGTH(external_id) > 5
+        WHERE store_id = $1 AND customer_id IS NOT NULL
         ORDER BY customer_id, created_at DESC
       ) sub
-      WHERE c.id = sub.customer_id AND c.store_id = $1`,
+      WHERE c.id = sub.customer_id AND c.store_id = $1 AND c.channel IS NULL`,
+      [storeId]
+    );
+    await pool.query(`
+      UPDATE customers SET meta_id = phone
+      WHERE store_id = $1 AND meta_id IS NULL AND channel IN ('messenger', 'instagram') AND phone IS NOT NULL AND phone != ''`,
       [storeId]
     );
     results.metaIdSync = "done";
