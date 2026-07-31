@@ -157,6 +157,37 @@ interface OrderDraft {
   address: string;
   sellerNote: string;
   items: DraftLineItem[];
+  shippingOption: "home_delivery" | "stopdesk";
+  shippingFee: number;
+}
+
+// Text-valued draft fields only — excludes shippingFee (number) so the
+// message-click "fill this field" system (which always deals in plain
+// strings) stays type-safe.
+type TextDraftField = Exclude<keyof Omit<OrderDraft, "items">, "shippingFee">;
+
+// Real product variants are stored as flat "Label: value" strings (see
+// Products.tsx's flattenVariants/parseVariantGroups) — never a structured
+// {type, value} object or "Color / Size" combined string.
+function extractVariantOptions(variants: string[] | undefined, labelPattern: RegExp): string[] {
+  if (!Array.isArray(variants)) return [];
+  const values = new Set<string>();
+  for (const v of variants) {
+    const idx = v.indexOf(":");
+    if (idx === -1) continue;
+    const label = v.slice(0, idx).trim();
+    const value = v.slice(idx + 1).trim();
+    if (labelPattern.test(label) && value) values.add(value);
+  }
+  return Array.from(values);
+}
+const getProductSizes = (p: { variants?: string[] }) => extractVariantOptions(p.variants, /size|taille/i);
+const getProductColors = (p: { variants?: string[] }) => extractVariantOptions(p.variants, /colou?r|couleur/i);
+
+function matchWilaya(text: string): string | null {
+  const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const target = strip(text);
+  return WILAYAS.find(w => target.includes(strip(w))) || null;
 }
 
 interface MsgMenu {
@@ -167,7 +198,7 @@ interface MsgMenu {
 }
 
 interface FieldConflict {
-  field: keyof Omit<OrderDraft, "items">;
+  field: TextDraftField;
   label: string;
   newValue: string;
   msgId: string;
@@ -266,6 +297,10 @@ export default function Inbox() {
   const [fieldConflict, setFieldConflict] = useState<FieldConflict | null>(null);
   const [productSearch, setProductSearch] = useState("");
   const [productDropOpen, setProductDropOpen] = useState(false);
+  const [variantProduct, setVariantProduct] = useState<Product | null>(null);
+  const [variantSize, setVariantSize] = useState("");
+  const [variantColor, setVariantColor] = useState("");
+  const [fetchingShippingFee, setFetchingShippingFee] = useState(false);
   const [usedMsgIds, setUsedMsgIds] = useState<string[]>([]);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
@@ -434,6 +469,7 @@ export default function Inbox() {
   const cancelDraft = useCallback(() => {
     setRightPanel("customer"); setOrderDraft(null); setMsgMenu(null);
     setDraftTab("draft"); setDraftErrors({}); setProductSearch("");
+    setVariantProduct(null); setVariantSize(""); setVariantColor("");
   }, []);
 
   const initDraft = useCallback(() => {
@@ -445,16 +481,39 @@ export default function Inbox() {
       address: "",
       sellerNote: customerData?.notes || "",
       items: [],
+      shippingOption: "home_delivery",
+      shippingFee: 0,
     });
     setRightPanel("draft"); setDraftTab("draft"); setOrderSuccess(false);
     setDraftErrors({}); setProductSearch("");
+    setVariantProduct(null); setVariantSize(""); setVariantColor("");
   }, [activeConv, customerData]);
 
-  const updateDraftField = useCallback((field: keyof Omit<OrderDraft, "items">, value: string) => {
+  const updateDraftField = useCallback((field: TextDraftField, value: string) => {
     setOrderDraft(prev => prev ? { ...prev, [field]: value } : prev);
   }, []);
 
-  const applyToField = useCallback((field: keyof Omit<OrderDraft, "items">, value: string, label: string, msgId: string) => {
+  // No dedicated shipping-price endpoint existed before this feature — added
+  // GET /api/settings/shipping-price, which reuses the same fuzzy wilaya
+  // matching the AI order-filling flow already relies on.
+  useEffect(() => {
+    if (!orderDraft?.wilaya) return;
+    const token = localStorage.getItem("flychat_token");
+    if (!token) return;
+    let cancelled = false;
+    setFetchingShippingFee(true);
+    fetch(`${API_BASE}/api/settings/shipping-price?wilaya=${encodeURIComponent(orderDraft.wilaya)}&type=${orderDraft.shippingOption}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then(data => { if (!cancelled) setOrderDraft(prev => prev ? { ...prev, shippingFee: Number(data.price || 0) } : prev); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setFetchingShippingFee(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderDraft?.wilaya, orderDraft?.shippingOption]);
+
+  const applyToField = useCallback((field: TextDraftField, value: string, label: string, msgId: string) => {
     setMsgMenu(null);
     if (!orderDraft) return;
     const current = orderDraft[field];
@@ -478,9 +537,9 @@ export default function Inbox() {
     setFieldConflict(null);
   }, [fieldConflict]);
 
-  const addProduct = useCallback((product: Product) => {
+  const addProduct = useCallback((product: Product, variant?: string) => {
     if (!orderDraft) return;
-    const idx = orderDraft.items.findIndex(i => i.productId === product.id);
+    const idx = orderDraft.items.findIndex(i => i.productId === product.id && (i.variant || undefined) === (variant || undefined));
     if (idx >= 0) {
       setOrderDraft(prev => {
         if (!prev) return prev;
@@ -489,10 +548,32 @@ export default function Inbox() {
         return { ...prev, items };
       });
     } else {
-      setOrderDraft(prev => prev ? { ...prev, items: [...prev.items, { productId: product.id, productName: product.name, quantity: 1, price: product.price }] } : prev);
+      setOrderDraft(prev => prev ? { ...prev, items: [...prev.items, { productId: product.id, productName: product.name, variant, quantity: 1, price: product.price }] } : prev);
     }
     setProductSearch(""); setProductDropOpen(false);
   }, [orderDraft]);
+
+  // Selecting a product from search: if it has Size/Color variant groups
+  // (real format — "Label: value" strings, see extractVariantOptions),
+  // hold it for variant picking instead of adding immediately. Products
+  // without recognized variants keep the original single-click-add flow.
+  const selectProductFromSearch = useCallback((product: Product) => {
+    const sizes = getProductSizes(product);
+    const colors = getProductColors(product);
+    if (sizes.length === 0 && colors.length === 0) {
+      addProduct(product);
+      return;
+    }
+    setVariantProduct(product); setVariantSize(""); setVariantColor("");
+    setProductDropOpen(false);
+  }, [addProduct]);
+
+  const addVariantProduct = useCallback(() => {
+    if (!variantProduct) return;
+    const variant = [variantColor, variantSize].filter(Boolean).join(" / ") || undefined;
+    addProduct(variantProduct, variant);
+    setVariantProduct(null); setVariantSize(""); setVariantColor("");
+  }, [variantProduct, variantColor, variantSize, addProduct]);
 
   const addCustomItem = useCallback(() => {
     setOrderDraft(prev => prev ? { ...prev, items: [...prev.items, { productName: "", quantity: 1, price: 0 }] } : prev);
@@ -511,7 +592,8 @@ export default function Inbox() {
     });
   }, []);
 
-  const draftTotal = orderDraft?.items.reduce((sum, i) => sum + i.price * i.quantity, 0) || 0;
+  const draftSubtotal = orderDraft?.items.reduce((sum, i) => sum + i.price * i.quantity, 0) || 0;
+  const draftTotal = draftSubtotal + (orderDraft?.shippingFee || 0);
 
   const handleCreateOrder = useCallback(() => {
     if (!orderDraft || !activeConvId) return;
@@ -535,6 +617,8 @@ export default function Inbox() {
         address: orderDraft.address || undefined,
         sellerNote: orderDraft.sellerNote || undefined,
         conversationId: activeConvId,
+        shippingFee: orderDraft.shippingFee,
+        shippingOption: orderDraft.shippingOption,
         items: orderDraft.items.map(i => ({
           productId: i.productId,
           productName: i.productName,
@@ -542,7 +626,7 @@ export default function Inbox() {
           quantity: i.quantity,
           price: i.price,
         })),
-      },
+      } as any,
     }, {
       onSuccess: (data: any) => {
         queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() });
@@ -579,7 +663,7 @@ export default function Inbox() {
     setMsgInput(""); setSelectedFile(null);
   };
 
-  const fieldOptions: { field: keyof Omit<OrderDraft, "items">; label: string }[] = [
+  const fieldOptions: { field: TextDraftField; label: string }[] = [
     { field: "customerName", label: t("order.use_as_name") },
     { field: "customerPhone", label: t("order.use_as_phone") },
     { field: "customerEmail", label: t("order.use_as_email") },
@@ -628,6 +712,12 @@ export default function Inbox() {
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{t("order.map_to_field")}</p>
               <p className="text-xs text-foreground truncate max-w-[168px] mt-0.5 italic opacity-70">"{msgMenu.content.slice(0, 40)}{msgMenu.content.length > 40 ? "…" : ""}"</p>
             </div>
+            {matchWilaya(msgMenu.content) && (
+              <button onClick={() => orderDraft ? applyToField("wilaya", matchWilaya(msgMenu.content)!, t("order.use_as_wilaya"), msgMenu.msgId) : null}
+                className="w-full text-left px-3 py-2.5 text-xs hover:bg-primary/5 flex items-center gap-2 transition-colors">
+                <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />{t("order.use_as_wilaya")}: {matchWilaya(msgMenu.content)}
+              </button>
+            )}
             {fieldOptions.map(({ field, label }) => (
               <button key={field} onClick={() => orderDraft ? applyToField(field, msgMenu.content, label, msgMenu.msgId) : null}
                 className="w-full text-left px-3 py-2.5 text-xs hover:bg-primary/5 flex items-center gap-2 transition-colors">
@@ -1112,6 +1202,27 @@ export default function Inbox() {
                           <DraftField label={t("order.phone")} value={orderDraft.customerPhone} onChange={v => updateDraftField("customerPhone", v)} error={draftErrors.customerPhone} placeholder="0550 123 456" />
                           <DraftField label={t("order.email")} value={orderDraft.customerEmail} onChange={v => updateDraftField("customerEmail", v)} placeholder="email@..." />
                           <DraftField label={t("order.wilaya")} value={orderDraft.wilaya} onChange={v => updateDraftField("wilaya", v)} error={draftErrors.wilaya} as="select-wilaya" />
+                          <div>
+                            <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Delivery Type</label>
+                            <div className="flex rounded-lg overflow-hidden border border-border text-xs font-bold">
+                              {(["home_delivery", "stopdesk"] as const).map(opt => (
+                                <button key={opt}
+                                  onClick={() => setOrderDraft(prev => prev ? { ...prev, shippingOption: opt } : prev)}
+                                  className={`flex-1 py-1.5 transition-colors ${orderDraft.shippingOption === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
+                                >
+                                  {opt === "home_delivery" ? "🏠 Home" : "🏪 Stop Desk"}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {orderDraft.wilaya && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Shipping fee</span>
+                              <span className="font-bold text-foreground">
+                                {fetchingShippingFee ? <Loader2 className="w-3 h-3 animate-spin" /> : `DZD ${orderDraft.shippingFee.toLocaleString()}`}
+                              </span>
+                            </div>
+                          )}
                           <DraftField label={t("order.address")} value={orderDraft.address} onChange={v => updateDraftField("address", v)} placeholder="Rue, commune..." />
                           <DraftField label={t("order.note")} value={orderDraft.sellerNote} onChange={v => updateDraftField("sellerNote", v)} placeholder="Internal note..." as="textarea" />
                         </div>
@@ -1132,7 +1243,7 @@ export default function Inbox() {
                               {!productsData?.products?.length ? (
                                 <div className="px-3 py-3 text-xs text-muted-foreground text-center">No products found</div>
                               ) : productsData.products.map(p => (
-                                <button key={p.id} onClick={() => addProduct(p)}
+                                <button key={p.id} onClick={() => selectProductFromSearch(p)}
                                   className="w-full text-left px-3 py-2 text-xs hover:bg-primary/5 flex items-center gap-2 transition-colors">
                                   <Package className="w-3 h-3 text-muted-foreground shrink-0" />
                                   <span className="flex-1 truncate">{p.name}</span>
@@ -1142,6 +1253,49 @@ export default function Inbox() {
                             </div>
                           )}
                         </div>
+
+                        {variantProduct && (
+                          <div className="mb-3 p-2.5 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+                            <p className="text-xs font-bold text-foreground truncate">{variantProduct.name}</p>
+                            {getProductColors(variantProduct).length > 0 && (
+                              <div>
+                                <p className="text-[10px] text-muted-foreground mb-1">Color</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {getProductColors(variantProduct).map(c => (
+                                    <button key={c} onClick={() => setVariantColor(prev => prev === c ? "" : c)}
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantColor === c ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
+                                      {c}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {getProductSizes(variantProduct).length > 0 && (
+                              <div>
+                                <p className="text-[10px] text-muted-foreground mb-1">Size</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {getProductSizes(variantProduct).map(s => (
+                                    <button key={s} onClick={() => setVariantSize(prev => prev === s ? "" : s)}
+                                      className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantSize === s ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
+                                      {s}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex gap-1.5 pt-1">
+                              <button onClick={() => { setVariantProduct(null); setVariantSize(""); setVariantColor(""); }}
+                                className="flex-1 py-1.5 border border-border rounded-lg text-[11px] font-medium hover:bg-secondary transition-colors">
+                                Cancel
+                              </button>
+                              <button onClick={addVariantProduct}
+                                className="flex-1 py-1.5 bg-primary text-white rounded-lg text-[11px] font-bold hover:bg-primary/90 transition-colors">
+                                + Add to Order
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         <button onClick={addCustomItem}
                           className="w-full text-xs text-primary font-semibold py-1.5 rounded-lg border border-dashed border-primary/30 hover:bg-primary/5 flex items-center justify-center gap-1 transition-colors mb-3">
                           <Plus className="w-3 h-3" /> {t("order.add_custom_item")}
@@ -1158,6 +1312,7 @@ export default function Inbox() {
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
+                                {item.variant && <p className="text-[10px] text-muted-foreground -mt-1">{item.variant}</p>}
                                 <div className="flex gap-1.5">
                                   <div className="flex items-center border border-border rounded-lg overflow-hidden">
                                     <button onClick={() => updateItem(idx, "quantity", Math.max(1, item.quantity - 1))} className="px-1.5 py-1 text-muted-foreground hover:bg-secondary transition-colors"><Minus className="w-2.5 h-2.5" /></button>
@@ -1185,6 +1340,11 @@ export default function Inbox() {
 
                 {!orderSuccess && (
                   <div className="p-4 border-t border-border shrink-0 space-y-3">
+                    {orderDraft.shippingFee > 0 && (
+                      <div className="flex justify-between items-center text-[11px] text-muted-foreground">
+                        <span>Products: DZD {draftSubtotal.toLocaleString()} + Shipping: DZD {orderDraft.shippingFee.toLocaleString()}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{t("order.total")}</span>
                       <span className="text-lg font-bold text-primary">DZD {draftTotal.toLocaleString()}</span>

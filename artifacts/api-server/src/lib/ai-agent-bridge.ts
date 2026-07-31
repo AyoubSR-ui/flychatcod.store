@@ -605,7 +605,7 @@ function normalizeWilaya(wilaya: string): string {
  * 3. Substring match
  * 4. Accent-stripped substring match
  */
-function findWilayaKey(wilayaPrices: Record<string, any>, rawWilaya: string): string | undefined {
+export function findWilayaKey(wilayaPrices: Record<string, any>, rawWilaya: string): string | undefined {
   const normalized = normalizeWilaya(rawWilaya);
   const normalizedLow = normalized.toLowerCase();
   const rawLow = rawWilaya.toLowerCase().trim();

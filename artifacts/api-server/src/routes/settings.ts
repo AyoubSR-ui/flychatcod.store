@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, pool, storesTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
+import { findWilayaKey } from "../lib/ai-agent-bridge.js";
 
 const router = Router();
 
@@ -149,6 +150,37 @@ router.get("/shipping-options", requireAuth, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// GET /api/settings/shipping-price?wilaya=X&type=home_delivery|stopdesk
+// No dedicated lookup endpoint existed before — this reuses the same fuzzy
+// wilaya matching (findWilayaKey) the AI order-filling flow already relies
+// on, against the real stores.shipping_options.wilayaPrices shape, instead
+// of re-implementing accent/substring matching a second time.
+router.get("/shipping-price", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    const { wilaya, type } = req.query as Record<string, string>;
+    if (!wilaya) { res.status(400).json({ error: "validation_error", message: "wilaya is required" }); return; }
+
+    const { rows } = await pool.query(`SELECT shipping_options FROM stores WHERE id = $1 LIMIT 1`, [storeId]);
+    const wilayaPrices = rows[0]?.shipping_options?.wilayaPrices || {};
+    const key = findWilayaKey(wilayaPrices, wilaya);
+    const priceEntry = key ? wilayaPrices[key] : undefined;
+
+    if (!priceEntry) { res.json({ price: 0, found: false }); return; }
+
+    if (type === "stopdesk") {
+      const enabled = priceEntry.pickupEnabled !== false;
+      res.json({ price: enabled ? Number(priceEntry.pickup || 0) : 0, found: true, enabled });
+    } else {
+      const enabled = priceEntry.homeEnabled !== false;
+      res.json({ price: enabled ? Number(priceEntry.home || 0) : 0, found: true, enabled });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to look up shipping price" });
   }
 });
 
