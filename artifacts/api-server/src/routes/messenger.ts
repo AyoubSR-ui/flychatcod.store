@@ -232,6 +232,7 @@ messengerRouter.post("/webhook", async (req, res) => {
           adRef,
           isAudio,
           imageUrl: isImage ? (attachment?.payload?.url ?? undefined) : undefined,
+          audioUrl: isAudio ? (attachment?.payload?.url ?? undefined) : undefined,
         }).catch(err => console.error("[Messenger] Processing error:", err));
       }
     }
@@ -328,6 +329,7 @@ async function processIncomingMessengerMessage(incoming: {
   adRef?: string | null;
   isAudio?: boolean;
   imageUrl?: string;
+  audioUrl?: string;
 }) {
   const { rows: channelRows } = await pool.query(
     `SELECT *, access_token as "accessToken", store_id as "storeId" FROM channel_connections WHERE channel = 'messenger' AND external_account_id = $1 AND status = 'connected' LIMIT 1`,
@@ -441,6 +443,10 @@ async function processIncomingMessengerMessage(incoming: {
     msgContent = analysis.description;
     imageUsedVision = analysis.usedVision;
     console.log(`[Messenger] Image analyzed (vision=${imageUsedVision}): ${msgContent.substring(0, 80)}`);
+  } else if (incoming.audioUrl) {
+    // Messenger CDN URLs are public, same as images — no re-hosting needed.
+    msgMetadata.type = "audio";
+    msgMetadata.audioUrl = incoming.audioUrl;
   }
   await db.insert(messagesTable).values({
     id: msgId, conversationId: conversation.id, content: msgContent,
@@ -451,12 +457,12 @@ async function processIncomingMessengerMessage(incoming: {
   // The conversation list preview has no metadata to inspect — never show the
   // raw Vision analysis text/failure placeholder there, just a clean label.
   await db.update(conversationsTable).set({
-    lastMessage: incoming.imageUrl ? "📷 Image" : msgContent,
+    lastMessage: incoming.imageUrl ? "📷 Image" : incoming.audioUrl ? "🎤 Voice message" : msgContent,
     unreadCount: (conversation.unreadCount ?? 0) + 1,
     updatedAt: new Date(),
   }).where(eq(conversationsTable.id, conversation.id));
 
-  console.log(`[Messenger] Message saved: conv=${conversation.id}${incoming.imageUrl ? " (image)" : ""}`);
+  console.log(`[Messenger] Message saved: conv=${conversation.id}${incoming.imageUrl ? " (image)" : incoming.audioUrl ? " (audio)" : ""}`);
 
   try {
     const { getIO } = await import("../socket.js");

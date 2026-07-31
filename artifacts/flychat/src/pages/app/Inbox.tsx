@@ -29,6 +29,11 @@ function isGenericImageCaption(text: string | undefined | null): boolean {
   return GENERIC_IMAGE_CAPTIONS.some(p => cleaned === `[${p}]` || cleaned === p);
 }
 
+function isVoicePlaceholder(text: string | undefined | null): boolean {
+  if (!text) return false;
+  return text.toLowerCase().includes("voice message");
+}
+
 const WILAYAS = [
   "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
   "Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger",
@@ -166,23 +171,44 @@ interface OrderDraft {
 // strings) stays type-safe.
 type TextDraftField = Exclude<keyof Omit<OrderDraft, "items">, "shippingFee">;
 
-// Real product variants are stored as flat "Label: value" strings (see
-// Products.tsx's flattenVariants/parseVariantGroups) — never a structured
-// {type, value} object or "Color / Size" combined string.
-function extractVariantOptions(variants: string[] | undefined, labelPattern: RegExp): string[] {
-  if (!Array.isArray(variants)) return [];
-  const values = new Set<string>();
-  for (const v of variants) {
-    const idx = v.indexOf(":");
-    if (idx === -1) continue;
-    const label = v.slice(0, idx).trim();
-    const value = v.slice(idx + 1).trim();
-    if (labelPattern.test(label) && value) values.add(value);
-  }
-  return Array.from(values);
+// Real product variants are flat strings, but the actual shapes merchants
+// enter vary wildly — verified against real store data: only a minority use
+// the clean "Color: X" / "Size: Y" labeled form (Products.tsx's default
+// editor groups); most are ad-hoc combined strings like "Blanc/Noir - 40",
+// "Standard Fit / White (أبيض)", "Blue Royal / 1(s/m)", or flat lists with
+// no separator at all ("Noir", "Rose", "Vanille"). There is no reliable way
+// to regex-split an arbitrary "X / Y" string into "which part is the size"
+// and "which part is the color" — "Standard Fit" and "1(s/m)" aren't sizes
+// in any standard sense. Rather than guess wrong, only split into Size/Color
+// pickers when EVERY variant uses the explicit labeled form; otherwise fall
+// back to a flat picker of the real variant strings, which is correct for
+// every format instead of silently showing nothing.
+interface ParsedVariants {
+  mode: "labeled" | "raw" | "none";
+  sizes: string[];
+  colors: string[];
+  options: string[];
 }
-const getProductSizes = (p: { variants?: string[] }) => extractVariantOptions(p.variants, /size|taille/i);
-const getProductColors = (p: { variants?: string[] }) => extractVariantOptions(p.variants, /colou?r|couleur/i);
+function parseProductVariants(variants: string[] | undefined): ParsedVariants {
+  if (!Array.isArray(variants) || variants.length === 0) return { mode: "none", sizes: [], colors: [], options: [] };
+  const labelPattern = /^\s*(colou?r|couleur|size|taille)\s*:/i;
+  if (variants.every(v => labelPattern.test(v))) {
+    const extract = (pattern: RegExp) => {
+      const values = new Set<string>();
+      for (const v of variants) {
+        const idx = v.indexOf(":");
+        const label = v.slice(0, idx).trim();
+        const value = v.slice(idx + 1).trim();
+        if (pattern.test(label) && value) values.add(value);
+      }
+      return Array.from(values);
+    };
+    const sizes = extract(/size|taille/i);
+    const colors = extract(/colou?r|couleur/i);
+    if (sizes.length > 0 || colors.length > 0) return { mode: "labeled", sizes, colors, options: [] };
+  }
+  return { mode: "raw", sizes: [], colors: [], options: variants };
+}
 
 function matchWilaya(text: string): string | null {
   const strip = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -300,6 +326,7 @@ export default function Inbox() {
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
   const [variantSize, setVariantSize] = useState("");
   const [variantColor, setVariantColor] = useState("");
+  const [variantRawOption, setVariantRawOption] = useState("");
   const [fetchingShippingFee, setFetchingShippingFee] = useState(false);
   const [usedMsgIds, setUsedMsgIds] = useState<string[]>([]);
   const [orderSuccess, setOrderSuccess] = useState(false);
@@ -469,7 +496,7 @@ export default function Inbox() {
   const cancelDraft = useCallback(() => {
     setRightPanel("customer"); setOrderDraft(null); setMsgMenu(null);
     setDraftTab("draft"); setDraftErrors({}); setProductSearch("");
-    setVariantProduct(null); setVariantSize(""); setVariantColor("");
+    setVariantProduct(null); setVariantSize(""); setVariantColor(""); setVariantRawOption("");
   }, []);
 
   const initDraft = useCallback(() => {
@@ -486,7 +513,7 @@ export default function Inbox() {
     });
     setRightPanel("draft"); setDraftTab("draft"); setOrderSuccess(false);
     setDraftErrors({}); setProductSearch("");
-    setVariantProduct(null); setVariantSize(""); setVariantColor("");
+    setVariantProduct(null); setVariantSize(""); setVariantColor(""); setVariantRawOption("");
   }, [activeConv, customerData]);
 
   const updateDraftField = useCallback((field: TextDraftField, value: string) => {
@@ -553,27 +580,28 @@ export default function Inbox() {
     setProductSearch(""); setProductDropOpen(false);
   }, [orderDraft]);
 
-  // Selecting a product from search: if it has Size/Color variant groups
-  // (real format — "Label: value" strings, see extractVariantOptions),
-  // hold it for variant picking instead of adding immediately. Products
-  // without recognized variants keep the original single-click-add flow.
+  // Selecting a product from search: any product with variants (labeled or
+  // raw) holds for picking instead of adding immediately. Only a product
+  // with a genuinely empty variants array keeps the single-click-add flow.
   const selectProductFromSearch = useCallback((product: Product) => {
-    const sizes = getProductSizes(product);
-    const colors = getProductColors(product);
-    if (sizes.length === 0 && colors.length === 0) {
+    const parsed = parseProductVariants(product.variants);
+    if (parsed.mode === "none") {
       addProduct(product);
       return;
     }
-    setVariantProduct(product); setVariantSize(""); setVariantColor("");
+    setVariantProduct(product); setVariantSize(""); setVariantColor(""); setVariantRawOption("");
     setProductDropOpen(false);
   }, [addProduct]);
 
   const addVariantProduct = useCallback(() => {
     if (!variantProduct) return;
-    const variant = [variantColor, variantSize].filter(Boolean).join(" / ") || undefined;
+    const parsed = parseProductVariants(variantProduct.variants);
+    const variant = parsed.mode === "raw"
+      ? (variantRawOption || undefined)
+      : ([variantColor, variantSize].filter(Boolean).join(" / ") || undefined);
     addProduct(variantProduct, variant);
-    setVariantProduct(null); setVariantSize(""); setVariantColor("");
-  }, [variantProduct, variantColor, variantSize, addProduct]);
+    setVariantProduct(null); setVariantSize(""); setVariantColor(""); setVariantRawOption("");
+  }, [variantProduct, variantColor, variantSize, variantRawOption, addProduct]);
 
   const addCustomItem = useCallback(() => {
     setOrderDraft(prev => prev ? { ...prev, items: [...prev.items, { productName: "", quantity: 1, price: 0 }] } : prev);
@@ -1025,6 +1053,20 @@ export default function Inbox() {
                             <p className="text-xs mt-1 opacity-80">{metadata.description as string}</p>
                           )}
                         </div>
+                      ) : metadata?.audioUrl ? (
+                        <div className="flex items-center gap-2.5 min-w-[200px]">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${isCustomer ? "bg-primary/10" : "bg-white/20"}`}>
+                            <span className="text-sm">🎤</span>
+                          </div>
+                          <audio controls className="flex-1 h-8" style={{ minWidth: 170, maxWidth: 220 }}>
+                            <source src={metadata.audioUrl as string} />
+                          </audio>
+                        </div>
+                      ) : isVoicePlaceholder(msg.content) ? (
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-base">🎤</span>
+                          <span className={isCustomer ? "text-muted-foreground italic" : "italic opacity-80"}>Voice message</span>
+                        </div>
                       ) : (
                         <>
                           {attachment && <FilePreview attachment={attachment} isAgent={!isCustomer} />}
@@ -1254,47 +1296,66 @@ export default function Inbox() {
                           )}
                         </div>
 
-                        {variantProduct && (
-                          <div className="mb-3 p-2.5 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
-                            <p className="text-xs font-bold text-foreground truncate">{variantProduct.name}</p>
-                            {getProductColors(variantProduct).length > 0 && (
-                              <div>
-                                <p className="text-[10px] text-muted-foreground mb-1">Color</p>
-                                <div className="flex flex-wrap gap-1">
-                                  {getProductColors(variantProduct).map(c => (
-                                    <button key={c} onClick={() => setVariantColor(prev => prev === c ? "" : c)}
-                                      className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantColor === c ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
-                                      {c}
-                                    </button>
-                                  ))}
+                        {variantProduct && (() => {
+                          const parsed = parseProductVariants(variantProduct.variants);
+                          return (
+                            <div className="mb-3 p-2.5 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+                              <p className="text-xs font-bold text-foreground truncate">{variantProduct.name}</p>
+                              {parsed.mode === "labeled" ? (
+                                <>
+                                  {parsed.colors.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] text-muted-foreground mb-1">Color</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {parsed.colors.map(c => (
+                                          <button key={c} onClick={() => setVariantColor(prev => prev === c ? "" : c)}
+                                            className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantColor === c ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
+                                            {c}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {parsed.sizes.length > 0 && (
+                                    <div>
+                                      <p className="text-[10px] text-muted-foreground mb-1">Size</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {parsed.sizes.map(s => (
+                                          <button key={s} onClick={() => setVariantSize(prev => prev === s ? "" : s)}
+                                            className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantSize === s ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
+                                            {s}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div>
+                                  <p className="text-[10px] text-muted-foreground mb-1">Variant</p>
+                                  <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                                    {parsed.options.map(o => (
+                                      <button key={o} onClick={() => setVariantRawOption(prev => prev === o ? "" : o)}
+                                        className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantRawOption === o ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
+                                        {o}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
+                              )}
+                              <div className="flex gap-1.5 pt-1">
+                                <button onClick={() => { setVariantProduct(null); setVariantSize(""); setVariantColor(""); setVariantRawOption(""); }}
+                                  className="flex-1 py-1.5 border border-border rounded-lg text-[11px] font-medium hover:bg-secondary transition-colors">
+                                  Cancel
+                                </button>
+                                <button onClick={addVariantProduct}
+                                  className="flex-1 py-1.5 bg-primary text-white rounded-lg text-[11px] font-bold hover:bg-primary/90 transition-colors">
+                                  + Add to Order
+                                </button>
                               </div>
-                            )}
-                            {getProductSizes(variantProduct).length > 0 && (
-                              <div>
-                                <p className="text-[10px] text-muted-foreground mb-1">Size</p>
-                                <div className="flex flex-wrap gap-1">
-                                  {getProductSizes(variantProduct).map(s => (
-                                    <button key={s} onClick={() => setVariantSize(prev => prev === s ? "" : s)}
-                                      className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${variantSize === s ? "bg-primary text-white border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50"}`}>
-                                      {s}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            <div className="flex gap-1.5 pt-1">
-                              <button onClick={() => { setVariantProduct(null); setVariantSize(""); setVariantColor(""); }}
-                                className="flex-1 py-1.5 border border-border rounded-lg text-[11px] font-medium hover:bg-secondary transition-colors">
-                                Cancel
-                              </button>
-                              <button onClick={addVariantProduct}
-                                className="flex-1 py-1.5 bg-primary text-white rounded-lg text-[11px] font-bold hover:bg-primary/90 transition-colors">
-                                + Add to Order
-                              </button>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         <button onClick={addCustomItem}
                           className="w-full text-xs text-primary font-semibold py-1.5 rounded-lg border border-dashed border-primary/30 hover:bg-primary/5 flex items-center justify-center gap-1 transition-colors mb-3">
