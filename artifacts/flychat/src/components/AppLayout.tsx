@@ -8,6 +8,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useI18n } from "@/hooks/use-i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { StoreSelector } from "./StoreSelector";
 import { Building2 } from "lucide-react";
 
 export function AppLayout({ children }: { children: ReactNode }) {
@@ -54,6 +55,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
           <span className="font-display font-bold text-lg text-foreground">FlyChat COD</span>
         </Link>
+      </div>
+
+      <div className="pt-3">
+        <StoreSelector />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
