@@ -52,8 +52,9 @@ const SOURCE_META: Record<string, { label: string; emoji: string; dot: string }>
   manual: { label: "Manuel", emoji: "✍️", dot: "bg-gray-400" },
 };
 
-function EditableField({ icon, value, href, onSave }: {
+function EditableField({ icon, label, value, href, onSave }: {
   icon: React.ReactNode;
+  label?: string;
   value: string;
   href?: string;
   onSave: (val: string) => Promise<void>;
@@ -65,6 +66,7 @@ function EditableField({ icon, value, href, onSave }: {
   if (editing) {
     return (
       <div className="flex flex-col gap-2 text-sm">
+        {label && <p className="text-xs text-muted-foreground uppercase tracking-wide">{label}</p>}
         <input
           autoFocus
           value={val}
@@ -91,7 +93,10 @@ function EditableField({ icon, value, href, onSave }: {
     <div className="flex items-center justify-between gap-2 text-sm group">
       <div className="flex items-center gap-2 min-w-0">
         {icon}
-        {href ? <a href={href} className="font-medium truncate hover:text-primary">{value}</a> : <span className="font-medium truncate">{value}</span>}
+        <div className="min-w-0">
+          {label && <p className="text-xs text-muted-foreground uppercase tracking-wide">{label}</p>}
+          {href ? <a href={href} className="font-medium truncate hover:text-primary">{value}</a> : <span className="font-medium truncate">{value}</span>}
+        </div>
       </div>
       <button
         onClick={() => setEditing(true)}
@@ -390,7 +395,14 @@ export default function OrderDetail() {
                 />
                 <EditableField
                   icon={<MapPin className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  value={order.wilaya + (order.address ? `, ${order.address}` : "")}
+                  label="Wilaya"
+                  value={order.wilaya || "—"}
+                  onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: val, address: "" } as any }); refetch(); }}
+                />
+                <EditableField
+                  icon={<MapPin className="w-4 h-4 text-muted-foreground shrink-0" />}
+                  label="Commune"
+                  value={order.address || "—"}
                   onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }}
                 />
                 {order.conversationId && (
