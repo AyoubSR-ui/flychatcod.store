@@ -107,6 +107,26 @@ router.delete("/:id", requireAuth, async (req, res) => {
 
 export default router;
 
+// ─── Product list formatting — shared by every carrier's `produit` field ──────
+// Both order.items (Shopify-synced JSONB) and the order_items table fallback
+// carry the variant as a single combined string (e.g. "Olive green / XL") —
+// there's no separate color/size field anywhere in this schema.
+function formatProductList(items: any[]): string {
+  const formatted = (items || [])
+    .map((i: any) => {
+      const name = i.title || i.name || i.productName;
+      if (!name) return null;
+      const variant = i.variant_title || i.variant;
+      const qty = i.quantity || 1;
+      let product = variant ? `${name} - ${variant}` : name;
+      if (qty > 1) product += ` x${qty}`;
+      return product;
+    })
+    .filter(Boolean)
+    .join(", ");
+  return formatted || "Produit";
+}
+
 // ─── Dispatch helper — mounted under /api/orders/:id/dispatch in orders.ts ────
 export async function dispatchOrderToCarrier(storeId: string, orderId: string, carrierConnectionId: string) {
   await ensureCarrierTables();
@@ -120,7 +140,7 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
 
   const { rows: orderRows } = await pool.query(
     `SELECT o.*, COALESCE(
-        (SELECT json_agg(json_build_object('name', oi.product_name, 'quantity', oi.quantity))
+        (SELECT json_agg(json_build_object('name', oi.product_name, 'quantity', oi.quantity, 'variant_title', oi.variant))
          FROM order_items oi WHERE oi.order_id = o.id),
         '[]'
       ) as order_items
@@ -135,7 +155,7 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
 
   const [firstName, ...rest] = String(order.customer_name || "").split(" ");
   const items = Array.isArray(order.items) && order.items.length > 0 ? order.items : order.order_items;
-  const productList = (items || []).map((i: any) => i.title || i.name || i.productName).filter(Boolean).join(", ") || "Produit";
+  const productList = formatProductList(items);
 
   const shipmentId = generateId("ship");
   try {
