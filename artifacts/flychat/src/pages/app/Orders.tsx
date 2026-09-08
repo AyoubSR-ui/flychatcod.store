@@ -542,7 +542,12 @@ export default function Orders() {
                         </td>
 
                         {/* Ville */}
-                        <td className="px-4 py-3 text-xs font-medium text-foreground">{order.wilaya || "—"}</td>
+                        <td className="px-4 py-3">
+                          <div className="text-xs font-medium text-foreground">{order.wilaya || "—"}</div>
+                          {order.address && order.address !== order.wilaya && (
+                            <div className="text-[11px] text-muted-foreground">{order.address}</div>
+                          )}
+                        </td>
 
                         {/* Statut */}
                         <td className="px-4 py-3">

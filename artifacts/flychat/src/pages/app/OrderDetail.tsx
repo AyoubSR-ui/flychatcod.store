@@ -393,18 +393,38 @@ export default function OrderDetail() {
                   href={`tel:${order.customerPhone}`}
                   onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { customerPhone: val } as any }); refetch(); }}
                 />
-                <EditableField
-                  icon={<MapPin className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  label="Wilaya"
-                  value={order.wilaya || "—"}
-                  onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: val, address: "" } as any }); refetch(); }}
-                />
-                <EditableField
-                  icon={<MapPin className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  label="Commune"
-                  value={order.address || "—"}
-                  onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }}
-                />
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">Wilaya</span>
+                  </div>
+                  <select
+                    value={order.wilaya}
+                    onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, address: "" } as any }); refetch(); }}
+                    className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
+                  >
+                    <option value="">Select wilaya...</option>
+                    {ALGERIA_WILAYAS.map(w => <option key={w.code} value={w.name}>{String(w.code).padStart(2, "0")}. {w.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">Commune</span>
+                  </div>
+                  {communesForWilaya.length > 0 ? (
+                    <select
+                      value={order.address || ""}
+                      onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { address: e.target.value } as any }); refetch(); }}
+                      className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
+                    >
+                      <option value="">Select commune...</option>
+                      {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  ) : (
+                    <EditableField icon={null} value={order.address || "—"} onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }} />
+                  )}
+                </div>
                 {order.conversationId && (
                   <Link href="/inbox" className="flex items-center gap-2 text-sm text-primary hover:underline pt-2 border-t border-border font-medium">
                     <MessageSquare className="w-4 h-4" /> Open Conversation
@@ -435,30 +455,13 @@ export default function OrderDetail() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground shrink-0">Wilaya</span>
-                    <select
-                      value={order.wilaya}
-                      onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, address: "" } as any }); refetch(); }}
-                      className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
-                    >
-                      <option value="">Select wilaya...</option>
-                      {ALGERIA_WILAYAS.map(w => <option key={w.code} value={w.name}>{String(w.code).padStart(2, "0")}. {w.name}</option>)}
-                    </select>
+                    <span className="font-medium text-foreground">{order.wilaya || "—"}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground shrink-0">Commune</span>
-                    {communesForWilaya.length > 0 ? (
-                      <select
-                        value={order.address || ""}
-                        onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { address: e.target.value } as any }); refetch(); }}
-                        className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
-                      >
-                        <option value="">Select commune...</option>
-                        {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                    ) : (
-                      <EditableField icon={null} value={order.address || "—"} onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }} />
-                    )}
+                    <span className="font-medium text-foreground">{order.address || "—"}</span>
                   </div>
+                  <p className="text-[11px] text-muted-foreground -mt-1.5">Edit wilaya/commune in Customer Info above.</p>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">Shipping Fee</span>
                     <div className="flex items-center gap-1">
