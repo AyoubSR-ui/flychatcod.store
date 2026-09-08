@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, widgetConfigsTable, widgetSessionsTable, conversationsTable, messagesTable, storesTable } from "@workspace/db";
+import { db, widgetConfigsTable, widgetSessionsTable, conversationsTable, messagesTable, storesTable, channelConnectionsTable } from "@workspace/db";
 import type { InsertWidgetConfig } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
@@ -180,10 +180,21 @@ router.post("/public/conversations", async (req, res) => {
     if (!parsed.success) { res.status(400).json({ error: "validation_error", message: parsed.error.issues }); return; }
     const { storeId, visitorId, language, currentPageUrl, referrer } = parsed.data;
 
-    const [store] = await db.select({ id: storesTable.id }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+    const [store] = await db.select({ id: storesTable.id, aiEnabled: storesTable.aiEnabled }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
     if (!store) { res.status(404).json({ error: "not_found", message: "Store not found" }); return; }
     const [wConfig] = await db.select({ isActive: widgetConfigsTable.isActive }).from(widgetConfigsTable).where(eq(widgetConfigsTable.storeId, storeId)).limit(1);
     if (!wConfig || !wConfig.isActive) { res.status(403).json({ error: "widget_disabled", message: "Widget is not active for this store" }); return; }
+
+    // Same per-channel default-AI-mode pattern as whatsapp.ts/instagram.ts/messenger.ts —
+    // without this, every widget conversation was created with ai_mode defaulting to
+    // "human" (the DB column default) and never turning on, even when the merchant had
+    // set Widget's default to AI Autopilot in Settings.
+    const [widgetConn] = await db.select({ metadata: channelConnectionsTable.metadata })
+      .from(channelConnectionsTable)
+      .where(and(eq(channelConnectionsTable.storeId, storeId), eq(channelConnectionsTable.channel, "widget")))
+      .limit(1);
+    const defaultAiMode = (widgetConn?.metadata as Record<string, unknown> | undefined)?.defaultAiMode;
+    const aiMode = (defaultAiMode === "ai_autopilot" && store.aiEnabled) ? "ai_autopilot" : "human";
 
     const existing = await db.select()
       .from(conversationsTable)
@@ -208,6 +219,7 @@ router.post("/public/conversations", async (req, res) => {
       visitorId,
       channel: "widget",
       status: "open",
+      aiMode,
       widgetLanguage: language,
       sourcePageUrl: currentPageUrl || null,
       referrer: referrer || null,
