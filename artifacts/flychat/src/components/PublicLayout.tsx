@@ -47,6 +47,11 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             <MessageSquare className="w-5 h-5" />
             <span className="font-display font-bold">FlyChat COD</span>
           </div>
+          <nav className="flex items-center gap-6">
+            <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+            <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+            <Link href="/support" className="text-sm text-muted-foreground hover:text-foreground transition-colors">Support</Link>
+          </nav>
           <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} FlyChat COD. All rights reserved.</p>
         </div>
       </footer>

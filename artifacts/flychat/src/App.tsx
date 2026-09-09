@@ -11,6 +11,9 @@ import Home from "@/pages/public/Home";
 import Features from "@/pages/public/Features";
 import Pricing from "@/pages/public/Pricing";
 import Contact from "@/pages/public/Contact";
+import Privacy from "@/pages/public/Privacy";
+import Terms from "@/pages/public/Terms";
+import Support from "@/pages/public/Support";
 
 // Auth pages
 import Login from "@/pages/auth/Login";
@@ -72,6 +75,9 @@ function Router() {
       <Route path="/features" component={Features} />
       <Route path="/pricing" component={Pricing} />
       <Route path="/contact" component={Contact} />
+      <Route path="/privacy" component={Privacy} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/support" component={Support} />
       <Route path="/docs" component={Docs} />
       <Route path="/docs/:id" component={Docs} />
 
