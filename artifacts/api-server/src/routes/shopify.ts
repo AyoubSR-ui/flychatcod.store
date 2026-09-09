@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, pool, storesTable, productsTable, ordersTable, orderItemsTable, customersTable } from "@workspace/db";
+import { db, pool, storesTable, productsTable, ordersTable, orderItemsTable, customersTable, auditLogsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
@@ -235,6 +235,111 @@ router.post("/webhook", async (req, res) => {
   } catch (err) {
     console.error("[Shopify] Webhook error:", err);
     res.json({ received: true });
+  }
+});
+
+// ─── Shopify mandatory GDPR webhooks ───────────────────────────────────────────
+// Required for Shopify App Store approval (App setup → GDPR mandatory webhooks).
+// Each must verify HMAC, always ACK 200 quickly, and log the request for
+// compliance record-keeping — matching the same HMAC scheme the existing
+// /webhook endpoint above already uses.
+function verifyShopifyWebhookHmac(req: import("express").Request): boolean {
+  const hmac = req.headers["x-shopify-hmac-sha256"] as string;
+  const body = JSON.stringify(req.body);
+  const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(body).digest("base64");
+  return digest === hmac;
+}
+
+async function logGdprRequest(topic: string, shop: string, payload: unknown): Promise<void> {
+  console.log(`[Shopify GDPR] ${topic} for shop ${shop}:`, JSON.stringify(payload));
+  try {
+    const { rows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
+    await db.insert(auditLogsTable).values({
+      id: generateId("audit"),
+      storeId: rows[0]?.id || null,
+      userId: null,
+      event: `gdpr_${topic}`,
+      description: `Shopify GDPR webhook received: ${topic} for shop ${shop}`,
+      metadata: payload as Record<string, unknown>,
+    });
+  } catch (err) {
+    console.error(`[Shopify GDPR] Failed to log ${topic}:`, err);
+  }
+}
+
+// GDPR: a customer asked the merchant for the data FlyChat holds about them.
+// FlyChat has no automated export flow yet — acknowledge receipt and log it
+// so a human can compile and send the data within Shopify's required window.
+router.post("/webhooks/customers/data_request", async (req, res) => {
+  const shop = req.headers["x-shopify-shop-domain"] as string;
+  if (!verifyShopifyWebhookHmac(req)) { res.status(401).send("Unauthorized"); return; }
+  await logGdprRequest("customers/data_request", shop, req.body);
+  res.status(200).json({ received: true });
+});
+
+// GDPR: a specific customer asked to be redacted. Scrub identifying fields
+// on their customer record and any orders linked to them; order/financial
+// history is kept (order numbers, totals, items) but no longer identifies them.
+router.post("/webhooks/customers/redact", async (req, res) => {
+  const shop = req.headers["x-shopify-shop-domain"] as string;
+  if (!verifyShopifyWebhookHmac(req)) { res.status(401).send("Unauthorized"); return; }
+  await logGdprRequest("customers/redact", shop, req.body);
+  res.status(200).json({ received: true });
+
+  try {
+    const { rows: storeRows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
+    const storeId = storeRows[0]?.id;
+    if (!storeId) return;
+
+    const email: string | null = req.body?.customer?.email || null;
+    const phone: string | null = req.body?.customer?.phone || null;
+    if (!email && !phone) return;
+
+    const { rows: custRows } = await pool.query(
+      `SELECT id FROM customers WHERE store_id = $1 AND ((email = $2 AND $2 IS NOT NULL) OR (phone = $3 AND $3 IS NOT NULL))`,
+      [storeId, email, phone]
+    );
+    for (const c of custRows) {
+      await pool.query(
+        `UPDATE customers SET name = 'Redacted Customer', phone = NULL, email = NULL, updated_at = NOW() WHERE id = $1`,
+        [c.id]
+      );
+      await pool.query(
+        `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE customer_id = $1`,
+        [c.id]
+      );
+    }
+    console.log(`[Shopify GDPR] Redacted ${custRows.length} customer record(s) for shop ${shop}`);
+  } catch (err) {
+    console.error("[Shopify GDPR] customers/redact processing error:", err);
+  }
+});
+
+// GDPR: sent ~48h after a merchant uninstalls FlyChat — scrub all customer
+// PII for that shop. Orders/products are kept (business records) with
+// identifying customer info removed.
+router.post("/webhooks/shop/redact", async (req, res) => {
+  const shop = req.headers["x-shopify-shop-domain"] as string;
+  if (!verifyShopifyWebhookHmac(req)) { res.status(401).send("Unauthorized"); return; }
+  await logGdprRequest("shop/redact", shop, req.body);
+  res.status(200).json({ received: true });
+
+  try {
+    const { rows: storeRows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
+    const storeId = storeRows[0]?.id;
+    if (!storeId) return;
+
+    await pool.query(
+      `UPDATE customers SET name = 'Redacted Customer', phone = NULL, email = NULL, updated_at = NOW() WHERE store_id = $1`,
+      [storeId]
+    );
+    await pool.query(
+      `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_order_id IS NOT NULL`,
+      [storeId]
+    );
+    console.log(`[Shopify GDPR] Redacted shop data for ${shop} (store ${storeId})`);
+  } catch (err) {
+    console.error("[Shopify GDPR] shop/redact processing error:", err);
   }
 });
 
