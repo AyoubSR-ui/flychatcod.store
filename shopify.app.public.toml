@@ -2,19 +2,17 @@
 # f4080d6c0155349877463dc90187704a, org SKAHM LTD). Copied from
 # shopify.app.toml (FLychatcod / Sk Elegance) and re-pointed at the new app.
 #
-# application_url and redirect_urls are left pointing at the SAME real,
-# working routes the legacy app uses (frontend root, backend OAuth callback)
-# rather than an install route that doesn't exist yet — see the audit's 1.2
-# finding: opening application_url with ?shop=&hmac=&timestamp= currently
-# just loads the marketing homepage, it does not redirect to the OAuth grant
-# screen. That is required for Shopify's automated review and is NOT fixed
-# by this file. Do not submit for review until that redirect exists — see
-# the proposed options in the report.
+# application_url now points at GET /api/shopify/install (added on this
+# branch), which verifies the install HMAC + timestamp and redirects
+# straight to the OAuth grant screen — this is what fixes the 1.2 review
+# gap (opening application_url used to just load the marketing homepage).
+# redirect_urls are unchanged: OAuth still comes back through the same
+# /callback both apps share.
 #
 # Do not run `shopify app config link` against this file.
 
 client_id = "f4080d6c0155349877463dc90187704a"
-application_url = "https://flychatcodstore-production-a2e8.up.railway.app"
+application_url = "https://zealous-nature-production-771f.up.railway.app/api/shopify/install"
 embedded = false
 name = "Flychat-COD"
 
