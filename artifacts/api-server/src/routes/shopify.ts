@@ -589,12 +589,24 @@ router.post("/webhooks/customers/redact", async (req, res) => {
 
     const email: string | null = payload?.customer?.email || null;
     const phone: string | null = payload?.customer?.phone || null;
-    if (!email && !phone) return;
+    // Shopify's actual customers/redact payload also carries orders_to_redact:
+    // an array of that customer's Shopify order IDs (numbers). Cast to text
+    // to compare against shopify_order_id, which is stored as TEXT.
+    const ordersToRedact: string[] = Array.isArray(payload?.orders_to_redact)
+      ? payload.orders_to_redact.map((id: unknown) => String(id))
+      : [];
+    if (!email && !phone && ordersToRedact.length === 0) return;
 
-    const { rows: custRows } = await pool.query(
-      `SELECT id FROM customers WHERE store_id = $1 AND ((email = $2 AND $2 IS NOT NULL) OR (phone = $3 AND $3 IS NOT NULL))`,
-      [storeId, email, phone]
-    );
+    // Existing behavior: customers matched by email/phone, plus any order
+    // already linked to them via customer_id — this is how chat-sourced
+    // customers/orders get redacted (Shopify order sync never sets
+    // customer_id, so this branch alone never reaches Shopify orders).
+    const { rows: custRows } = email || phone
+      ? await pool.query(
+          `SELECT id FROM customers WHERE store_id = $1 AND ((email = $2 AND $2 IS NOT NULL) OR (phone = $3 AND $3 IS NOT NULL))`,
+          [storeId, email, phone]
+        )
+      : { rows: [] as { id: string }[] };
     for (const c of custRows) {
       await pool.query(
         `UPDATE customers SET name = 'Redacted Customer', phone = NULL, email = NULL, updated_at = NOW() WHERE id = $1`,
@@ -605,7 +617,30 @@ router.post("/webhooks/customers/redact", async (req, res) => {
         [c.id]
       );
     }
-    console.log(`[Shopify GDPR] Redacted ${custRows.length} customer record(s) for shop ${shop}`);
+
+    // Shopify orders for this customer: matched by shopify_order_id against
+    // orders_to_redact, or by customer_email/customer_phone against the
+    // payload's customer — either way scoped to shopify_order_id IS NOT NULL
+    // so this never touches a chat-only order.
+    let shopifyOrdersRedacted = 0;
+    if (ordersToRedact.length > 0 || email || phone) {
+      const { rowCount } = await pool.query(
+        `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW()
+         WHERE store_id = $1 AND shopify_order_id IS NOT NULL
+           AND (
+             shopify_order_id = ANY($2::text[])
+             OR (customer_email = $3 AND $3 IS NOT NULL)
+             OR (customer_phone = $4 AND $4 IS NOT NULL)
+           )`,
+        [storeId, ordersToRedact, email, phone]
+      );
+      shopifyOrdersRedacted = rowCount ?? 0;
+    }
+
+    console.log(
+      `[Shopify GDPR] Redacted ${custRows.length} customer record(s) and ${shopifyOrdersRedacted} ` +
+      `Shopify order(s) for shop ${shop}`
+    );
   } catch (err) {
     console.error("[Shopify GDPR] customers/redact processing error:", err);
   }
