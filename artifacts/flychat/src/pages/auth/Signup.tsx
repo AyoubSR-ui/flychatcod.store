@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { MessageSquare, Loader2 } from "lucide-react";
 import { useAuthSignup } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { claimPendingShopifyInstall } from "@/lib/shopify-claim";
 
 export default function Signup() {
   const [name, setName] = useState("");
@@ -12,11 +13,18 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const { login } = useAuth();
   const { toast } = useToast();
-  
+  const [, setLocation] = useLocation();
+
   const signupMutation = useAuthSignup({
     mutation: {
-      onSuccess: (data) => {
+      onSuccess: async (data) => {
+        // See Login.tsx: a pending Shopify install (GET /install ->
+        // /callback with no FlyChat account yet) is claimed right after
+        // this brand-new account gets its session token, then routed
+        // straight to Channels instead of onboarding.
+        const claimed = await claimPendingShopifyInstall(data.token);
         login(data.token, data.needsOnboarding);
+        if (claimed) setLocation("/channels");
       },
       onError: (err: any) => {
         toast({

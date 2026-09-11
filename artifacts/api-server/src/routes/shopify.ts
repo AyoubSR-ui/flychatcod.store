@@ -228,9 +228,40 @@ router.get("/callback", async (req, res) => {
 
     const { storeId } = statePayload;
     if (!storeId) {
-      // No storeId means this came from a shop-initiated install
-      // (GET /install), not an authenticated /oauth/start — see B.3.
-      res.redirect(`${APP_BASE_URL}/channels?error=shopify_missing_params`);
+      // Came from GET /install, not an authenticated /oauth/start — there's
+      // no FlyChat session to attach this to yet.
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM stores WHERE shopify_shop = $1 AND shopify_access_token IS NOT NULL AND shopify_app_client_id = $2 LIMIT 1`,
+        [shop, SHOPIFY_API_KEY]
+      );
+      if (existing[0]) {
+        // Same shop already has a live token under this app (e.g. it
+        // uninstalled and reinstalled) — just refresh the token in place.
+        await pool.query(
+          `UPDATE stores SET shopify_access_token = $1, shopify_scope = $2, updated_at = NOW() WHERE id = $3`,
+          [tokenData.access_token, tokenData.scope, existing[0].id]
+        );
+        console.log(`[Shopify] Refreshed token for existing store ${existing[0].id} (shop ${shop})`);
+        res.redirect(`${APP_BASE_URL}/channels?success=shopify_reconnected`);
+        return;
+      }
+
+      // Genuinely new install with no FlyChat account yet — hold the token
+      // until they sign up/log in and claim it with a single-use token.
+      // Only the hash is stored; the raw token goes out in the redirect URL
+      // and is never persisted.
+      const claimToken = crypto.randomBytes(32).toString("hex");
+      const claimTokenHash = crypto.createHash("sha256").update(claimToken).digest("hex");
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+      await pool.query(
+        `INSERT INTO shopify_pending_installs (id, shop, access_token, scope, client_id, claim_token_hash, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [generateId("shpi"), shop, tokenData.access_token, tokenData.scope, SHOPIFY_API_KEY, claimTokenHash, expiresAt]
+      );
+
+      console.log(`[Shopify] Pending install created for shop ${shop}, awaiting claim`);
+      res.redirect(`${APP_BASE_URL}/signup?shopify_claim=${claimToken}&shop=${encodeURIComponent(shop)}`);
       return;
     }
 
@@ -271,6 +302,44 @@ router.post("/disconnect", requireAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error("[Shopify] Disconnect error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ─── POST /api/shopify/claim ──────────────────────────────────────────────────
+// Attaches a pending install (from GET /install → /callback, no FlyChat
+// account at the time) to the now-logged-in user's store. Called by the
+// frontend signup/login pages when a shopify_claim token is present in the URL.
+router.post("/claim", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { claimToken } = req.body as { claimToken?: string };
+    if (!claimToken) { res.status(400).json({ error: "claimToken required" }); return; }
+
+    const claimTokenHash = crypto.createHash("sha256").update(claimToken).digest("hex");
+    const { rows } = await pool.query(
+      `SELECT id, shop, access_token, scope, client_id FROM shopify_pending_installs
+       WHERE claim_token_hash = $1 AND claimed_at IS NULL AND expires_at > NOW() LIMIT 1`,
+      [claimTokenHash]
+    );
+    const pending = rows[0];
+    if (!pending) { res.status(400).json({ error: "invalid_or_expired_claim" }); return; }
+
+    await pool.query(
+      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4, updated_at = NOW() WHERE id = $5`,
+      [pending.shop, pending.access_token, pending.scope, pending.client_id, storeId]
+    );
+
+    await registerWebhooks(pending.shop, pending.access_token, storeId);
+
+    await pool.query(`UPDATE shopify_pending_installs SET claimed_at = NOW() WHERE id = $1`, [pending.id]);
+
+    console.log(`[Shopify] Claimed pending install for shop ${pending.shop} -> store ${storeId}`);
+    res.json({ success: true, shop: pending.shop });
+  } catch (err) {
+    console.error("[Shopify] Claim error:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
