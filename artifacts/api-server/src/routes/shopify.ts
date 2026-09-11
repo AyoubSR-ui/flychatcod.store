@@ -20,6 +20,11 @@ const APP_BASE_URL = process.env.APP_BASE_URL || "https://flychatcodstore-produc
 const API_BASE_URL = process.env.API_BASE_URL || "https://zealous-nature-production-771f.up.railway.app";
 
 const SCOPES = "read_products,write_orders,read_orders,read_customers";
+const SHOP_DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/;
+// How old a shop-initiated install launch's `timestamp` param may be before
+// it's rejected as stale. Shopify itself doesn't enforce a window here, but
+// bounding it keeps a captured install URL from being replayable indefinitely.
+const INSTALL_TIMESTAMP_MAX_AGE_SECONDS = 300;
 
 // Same secret lib/auth.ts uses to sign FlyChat's own session tokens (and the
 // same fallback, so behavior is identical whether or not it's set) — reused
@@ -125,7 +130,7 @@ router.get("/oauth/start", requireAuth, async (req, res) => {
   if (!shop) { res.status(400).json({ error: "shop parameter required" }); return; }
 
   // Validate shop domain
-  if (!shop.match(/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/)) {
+  if (!SHOP_DOMAIN_RE.test(shop)) {
     res.status(400).json({ error: "Invalid shop domain" });
     return;
   }
@@ -141,6 +146,47 @@ router.get("/oauth/start", requireAuth, async (req, res) => {
   });
 
   res.json({ url: authUrl });
+});
+
+// ─── GET /api/shopify/install ─────────────────────────────────────────────────
+// Entry point for an install launched from Shopify itself (App Store "Install",
+// or opening the app from a shop's admin) rather than FlyChat's own Connect
+// Shopify button — so there's no logged-in FlyChat session yet. Shopify hits
+// this URL (it's application_url in shopify.app.public.toml) with
+// ?shop=&hmac=&timestamp=. Verifies both, then redirects straight to the
+// OAuth grant screen — the review requirement 1.2 flagged as missing.
+// Primary app only: this route always uses SHOPIFY_API_KEY/SECRET, never the
+// legacy slot, matching how /oauth/start and /callback already work.
+router.get("/install", async (req, res) => {
+  const { shop, timestamp } = req.query as Record<string, string>;
+
+  if (!shop || !timestamp) { res.status(400).json({ error: "shop and timestamp parameters required" }); return; }
+
+  if (!SHOP_DOMAIN_RE.test(shop)) { res.status(400).json({ error: "Invalid shop domain" }); return; }
+
+  if (!verifyShopifyInstallHmac(req.query as Record<string, string>)) {
+    res.status(401).json({ error: "Invalid HMAC" });
+    return;
+  }
+
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Math.floor(Date.now() / 1000) - ts) > INSTALL_TIMESTAMP_MAX_AGE_SECONDS) {
+    res.status(401).json({ error: "Stale timestamp" });
+    return;
+  }
+
+  // No storeId: there's no FlyChat session to attach this to yet. /callback
+  // handles that (existing store reconnecting vs. brand-new install) — B.3.
+  const state = signOAuthState({}, 10 * 60);
+
+  const authUrl = `https://${shop}/admin/oauth/authorize?` + new URLSearchParams({
+    client_id: SHOPIFY_API_KEY,
+    scope: SCOPES,
+    redirect_uri: `${API_BASE_URL}/api/shopify/callback`,
+    state,
+  });
+
+  res.redirect(authUrl);
 });
 
 // ─── GET /api/shopify/callback ────────────────────────────────────────────────
