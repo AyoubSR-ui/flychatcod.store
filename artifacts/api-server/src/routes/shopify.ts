@@ -671,33 +671,23 @@ router.post("/webhooks/shop/redact", async (req, res) => {
       return;
     }
 
-    // Orders: shopify_order_id IS NOT NULL is a reliable Shopify-sourced
-    // signal (set only by syncOrders/handleShopifyOrderWebhook), so this is
-    // safely scoped and unchanged.
+    // Orders: shopify_order_id IS NOT NULL, scoped to this store. Note this
+    // also covers a chat-originated order that was later pushed to Shopify
+    // by pushOrderToShopify (A.2) — once that push succeeds a live Shopify
+    // order really does exist for it, so it's in scope for this shop's
+    // redaction too, not just orders that came from Shopify originally.
     await pool.query(
       `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_order_id IS NOT NULL`,
       [storeId]
     );
 
-    // Customers: deliberately NOT redacted here. There is no reliable way to
-    // tell a Shopify-sourced customer apart from a WhatsApp/Messenger/
-    // Instagram one (audit finding A.6) — customers has no
-    // shopify_customer_id or channel="shopify" marker, and Shopify order
-    // sync never sets orders.customer_id, so there's no join path either.
-    // The previous version of this handler wiped every customer under
-    // store_id regardless of channel, which would redact chat-only
-    // customers who were never Shopify customers — wrong, and worse than
-    // doing nothing. Left unredacted and logged instead of guessing at a
-    // match (e.g. by email/phone, which the payload for this topic doesn't
-    // even include — shop/redact carries no customer data to match against).
-    // This is a real compliance gap: shop/redact currently does not erase
-    // customer PII at all. Needs a schema decision (e.g. a
-    // customers.channel = 'shopify' marker set at sync time, or a
-    // shopify_customer_id column) before it safely can.
-    console.warn(
-      `[Shopify GDPR] shop/redact for store ${storeId}: orders redacted, customers NOT redacted ` +
-      `(no reliable Shopify-vs-chat signal on the customers table — see A.6/B.6)`
-    );
+    // customers is never written to by any Shopify code path (confirmed
+    // again this round — no INSERT/UPDATE into customers from sync, webhook,
+    // or push code) so there is nothing Shopify-sourced there to redact: it
+    // only ever holds chat customers, which are out of scope for a Shopify
+    // shop/redact by definition. Orders-only is the complete scope.
+    await pool.query(`DELETE FROM shopify_pending_installs WHERE shop = $1`, [shop]);
+
     console.log(`[Shopify GDPR] Redacted shop data for ${shop} (store ${storeId})`);
   } catch (err) {
     console.error("[Shopify GDPR] shop/redact processing error:", err);
