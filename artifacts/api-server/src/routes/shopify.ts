@@ -636,13 +636,32 @@ router.post("/webhooks/shop/redact", async (req, res) => {
       return;
     }
 
-    await pool.query(
-      `UPDATE customers SET name = 'Redacted Customer', phone = NULL, email = NULL, updated_at = NOW() WHERE store_id = $1`,
-      [storeId]
-    );
+    // Orders: shopify_order_id IS NOT NULL is a reliable Shopify-sourced
+    // signal (set only by syncOrders/handleShopifyOrderWebhook), so this is
+    // safely scoped and unchanged.
     await pool.query(
       `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_order_id IS NOT NULL`,
       [storeId]
+    );
+
+    // Customers: deliberately NOT redacted here. There is no reliable way to
+    // tell a Shopify-sourced customer apart from a WhatsApp/Messenger/
+    // Instagram one (audit finding A.6) — customers has no
+    // shopify_customer_id or channel="shopify" marker, and Shopify order
+    // sync never sets orders.customer_id, so there's no join path either.
+    // The previous version of this handler wiped every customer under
+    // store_id regardless of channel, which would redact chat-only
+    // customers who were never Shopify customers — wrong, and worse than
+    // doing nothing. Left unredacted and logged instead of guessing at a
+    // match (e.g. by email/phone, which the payload for this topic doesn't
+    // even include — shop/redact carries no customer data to match against).
+    // This is a real compliance gap: shop/redact currently does not erase
+    // customer PII at all. Needs a schema decision (e.g. a
+    // customers.channel = 'shopify' marker set at sync time, or a
+    // shopify_customer_id column) before it safely can.
+    console.warn(
+      `[Shopify GDPR] shop/redact for store ${storeId}: orders redacted, customers NOT redacted ` +
+      `(no reliable Shopify-vs-chat signal on the customers table — see A.6/B.6)`
     );
     console.log(`[Shopify GDPR] Redacted shop data for ${shop} (store ${storeId})`);
   } catch (err) {
