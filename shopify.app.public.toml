@@ -1,0 +1,47 @@
+# Public distribution config for the new "Flychat-COD" app (client_id
+# f4080d6c0155349877463dc90187704a, org SKAHM LTD). Copied from
+# shopify.app.toml (FLychatcod / Sk Elegance) and re-pointed at the new app.
+#
+# application_url and redirect_urls are left pointing at the SAME real,
+# working routes the legacy app uses (frontend root, backend OAuth callback)
+# rather than an install route that doesn't exist yet — see the audit's 1.2
+# finding: opening application_url with ?shop=&hmac=&timestamp= currently
+# just loads the marketing homepage, it does not redirect to the OAuth grant
+# screen. That is required for Shopify's automated review and is NOT fixed
+# by this file. Do not submit for review until that redirect exists — see
+# the proposed options in the report.
+#
+# Do not run `shopify app config link` against this file.
+
+client_id = "f4080d6c0155349877463dc90187704a"
+application_url = "https://flychatcodstore-production-a2e8.up.railway.app"
+embedded = false
+name = "Flychat-COD"
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/customers/data_request"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/redact"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/customers/redact"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["shop/redact"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/shop/redact"
+
+[access_scopes]
+# Trimmed from shopify.app.toml's 11 scopes to the 4 the code actually uses —
+# see audit finding 1.7 for where each one is used and which 7 were removed.
+scopes = "read_products,write_orders,read_orders,read_customers"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://flychatcodstore-production-a2e8.up.railway.app/api/shopify/callback",
+  "https://zealous-nature-production-771f.up.railway.app/api/shopify/callback"
+]

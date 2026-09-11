@@ -26,6 +26,11 @@ export const storesTable = pgTable("stores", {
   shopifyAccessToken: text("shopify_access_token"),
   shopifyScope: text("shopify_scope"),
   shopifySyncedAt: timestamp("shopify_synced_at"),
+  // Which Shopify app (client_id) this store's install belongs to. Lets
+  // compliance webhooks tell FLychatcod's legacy install apart from the new
+  // public app's install for the same shop, so one app's mandatory webhooks
+  // can't act on a store that has moved to the other app.
+  shopifyAppClientId: text("shopify_app_client_id"),
   voiceCallerPhone: text("voice_caller_phone"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
