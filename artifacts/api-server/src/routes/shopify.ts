@@ -195,6 +195,8 @@ router.get("/install", async (req, res) => {
 // ─── GET /api/shopify/callback ────────────────────────────────────────────────
 router.get("/callback", async (req, res) => {
   try {
+    await cleanupExpiredPendingInstalls();
+
     const { shop, code, state, hmac } = req.query as Record<string, string>;
 
     if (!shop || !code || !state) {
@@ -319,6 +321,8 @@ router.post("/disconnect", requireAuth, async (req, res) => {
 // frontend signup/login pages when a shopify_claim token is present in the URL.
 router.post("/claim", requireAuth, async (req, res) => {
   try {
+    await cleanupExpiredPendingInstalls();
+
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
 
@@ -548,6 +552,19 @@ async function logGdprRequest(topic: string, shop: string, payload: unknown): Pr
 // and vice versa.
 function appOwnsStore(storeClientId: string | null | undefined, matchedClientId: string): boolean {
   return !storeClientId || storeClientId === matchedClientId;
+}
+
+// No cron: called from /callback and /claim (the two places that touch
+// shopify_pending_installs) so expired, never-claimed rows get swept up
+// during normal traffic instead of accumulating forever. Cheap — a single
+// indexed-by-nothing-but-tiny-table delete, and both call sites already do
+// several queries per request.
+async function cleanupExpiredPendingInstalls(): Promise<void> {
+  try {
+    await pool.query(`DELETE FROM shopify_pending_installs WHERE claimed_at IS NULL AND expires_at < NOW()`);
+  } catch (err) {
+    console.error("[Shopify] Failed to clean up expired pending installs:", err);
+  }
 }
 
 // GDPR: a customer asked the merchant for the data FlyChat holds about them.
