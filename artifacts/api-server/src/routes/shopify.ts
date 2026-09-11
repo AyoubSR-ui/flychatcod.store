@@ -107,12 +107,15 @@ router.get("/status", requireAuth, async (req, res) => {
     if (!storeId) { res.json({ connected: false }); return; }
 
     const { rows } = await pool.query(
-      `SELECT shopify_shop, shopify_scope, shopify_synced_at FROM stores WHERE id = $1 LIMIT 1`,
+      `SELECT shopify_shop, shopify_access_token, shopify_scope, shopify_synced_at FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
     const row = rows[0];
+    // "Connected" means a live token, not just a remembered shop domain —
+    // shopify_shop is kept after /disconnect and app/uninstalled so a
+    // reinstall can be recognized, so it alone no longer implies connected.
     res.json({
-      connected: !!row?.shopify_shop,
+      connected: !!row?.shopify_access_token,
       shop: row?.shopify_shop || null,
       scope: row?.shopify_scope || null,
       syncedAt: row?.shopify_synced_at || null,
@@ -294,8 +297,12 @@ router.post("/disconnect", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
 
+    // Clear the token only — shopify_shop and shopify_app_client_id are kept
+    // (same as app/uninstalled) so a later reinstall's /callback recognizes
+    // this as the same store and refreshes it instead of creating a pending
+    // install under a fresh claim flow.
     await pool.query(
-      `UPDATE stores SET shopify_shop = NULL, shopify_access_token = NULL, shopify_scope = NULL, shopify_app_client_id = NULL WHERE id = $1`,
+      `UPDATE stores SET shopify_access_token = NULL, updated_at = NOW() WHERE id = $1`,
       [storeId]
     );
 
@@ -354,7 +361,7 @@ router.post("/sync/products", requireAuth, async (req, res) => {
       `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
-    if (!rows[0]?.shopify_shop) {
+    if (!rows[0]?.shopify_access_token) {
       res.status(400).json({ error: "not_connected", message: "Shopify not connected" });
       return;
     }
@@ -377,7 +384,7 @@ router.post("/sync/orders", requireAuth, async (req, res) => {
       `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
-    if (!rows[0]?.shopify_shop) {
+    if (!rows[0]?.shopify_access_token) {
       res.status(400).json({ error: "not_connected", message: "Shopify not connected" });
       return;
     }
@@ -872,7 +879,7 @@ export async function pushOrderToShopify(storeId: string, orderId: string): Prom
       `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
-    if (!storeRows[0]?.shopify_shop) return null;
+    if (!storeRows[0]?.shopify_access_token) return null;
 
     const { rows: orderRows } = await pool.query(
       `SELECT o.*, array_agg(json_build_object('name', oi.product_name, 'price', oi.price, 'quantity', oi.quantity)) as items
