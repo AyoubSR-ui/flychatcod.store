@@ -710,6 +710,14 @@ router.post("/webhooks/app/uninstalled", async (req, res) => {
   res.status(200).json({ received: true });
 
   try {
+    // Scoped to this shop + the app that verified the webhook, independent
+    // of whether a stores row exists yet — a shop can uninstall before ever
+    // claiming its pending install (no store to gate against).
+    await pool.query(
+      `DELETE FROM shopify_pending_installs WHERE shop = $1 AND client_id = $2`,
+      [shop, matchedClientId]
+    );
+
     const { rows: storeRows } = await pool.query(
       `SELECT id, shopify_app_client_id FROM stores WHERE shopify_shop = $1 LIMIT 1`,
       [shop]
