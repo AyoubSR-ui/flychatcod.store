@@ -33,6 +33,12 @@ uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhook
 compliance_topics = ["shop/redact"]
 uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/shop/redact"
 
+# Ordinary per-shop topic, not a compliance topic — kept in its own block.
+# Shopify rejects a subscription that mixes `topics` and `compliance_topics`.
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/app/uninstalled"
+
 [access_scopes]
 # Trimmed from shopify.app.toml's 11 scopes to the 4 the code actually uses —
 # see audit finding 1.7 for where each one is used and which 7 were removed.

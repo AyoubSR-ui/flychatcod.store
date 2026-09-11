@@ -643,6 +643,43 @@ router.post("/webhooks/shop/redact", async (req, res) => {
   }
 });
 
+// Per-shop uninstall notice — NOT a compliance topic, registered as its own
+// [[webhooks.subscriptions]] block in shopify.app.public.toml (never combine
+// it with the compliance_topics blocks above; Shopify rejects a subscription
+// that mixes `topics` and `compliance_topics`). Only clears the access
+// token: shopify_shop and shopify_app_client_id are kept so a later
+// reinstall (GET /install -> /callback) can recognize and refresh this same
+// store instead of creating a pending install, and so this store keeps
+// being correctly attributed if a compliance webhook arrives after this.
+router.post("/webhooks/app/uninstalled", async (req, res) => {
+  const shop = req.headers["x-shopify-shop-domain"] as string;
+  const matchedClientId = verifyShopifyWebhookHmac(req);
+  if (!matchedClientId) { res.status(401).send("Unauthorized"); return; }
+  await logGdprRequest("app/uninstalled", shop, parseWebhookBody(req));
+  res.status(200).json({ received: true });
+
+  try {
+    const { rows: storeRows } = await pool.query(
+      `SELECT id, shopify_app_client_id FROM stores WHERE shopify_shop = $1 LIMIT 1`,
+      [shop]
+    );
+    const storeId = storeRows[0]?.id;
+    if (!storeId) return;
+    if (!appOwnsStore(storeRows[0]?.shopify_app_client_id, matchedClientId)) {
+      console.log(
+        `[Shopify] Skipping app/uninstalled for store ${storeId}: verified app ${matchedClientId} ` +
+        `does not own this store (owner: ${storeRows[0]?.shopify_app_client_id})`
+      );
+      return;
+    }
+
+    await pool.query(`UPDATE stores SET shopify_access_token = NULL, updated_at = NOW() WHERE id = $1`, [storeId]);
+    console.log(`[Shopify] Cleared access token for store ${storeId} (shop ${shop} uninstalled)`);
+  } catch (err) {
+    console.error("[Shopify] app/uninstalled processing error:", err);
+  }
+});
+
 // ─── Helper: sync products ────────────────────────────────────────────────────
 async function syncProducts(storeId: string, shop: string, accessToken: string): Promise<number> {
   let shopifyProducts: any[] = [];
