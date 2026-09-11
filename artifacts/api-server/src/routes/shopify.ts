@@ -21,6 +21,62 @@ const API_BASE_URL = process.env.API_BASE_URL || "https://zealous-nature-product
 
 const SCOPES = "read_products,write_orders,read_orders,read_customers";
 
+// Same secret lib/auth.ts uses to sign FlyChat's own session tokens (and the
+// same fallback, so behavior is identical whether or not it's set) — reused
+// here rather than adding a new env var, matching how instagram.ts/messenger.ts
+// already reuse it for their own signed tokens.
+const JWT_SECRET = process.env.JWT_SECRET || "flychat-dev-secret-change-in-prod";
+
+// ─── Helper: signed OAuth state ────────────────────────────────────────────────
+// Previously `state` was just base64(JSON) with no signature — anyone who
+// could get their own "code"+"hmac" out of Shopify for a shop they control
+// could forge a state naming an arbitrary storeId and hijack that store's
+// Shopify connection in /callback. Signing it (HMAC-SHA256 over the payload,
+// with a random nonce + expiry) makes it unforgeable and unreplayable outside
+// its window. storeId is included only when the flow started from an
+// authenticated FlyChat session (/oauth/start); /install below omits it.
+function signOAuthState(payload: { storeId?: string }, ttlSeconds: number): string {
+  const body = { ...payload, nonce: crypto.randomBytes(16).toString("hex"), exp: Math.floor(Date.now() / 1000) + ttlSeconds };
+  const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
+  const sig = crypto.createHmac("sha256", JWT_SECRET).update(encoded).digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+function verifyOAuthState(state: string): { storeId?: string } | null {
+  try {
+    const [encoded, sig] = state.split(".");
+    if (!encoded || !sig) return null;
+    const expectedSig = crypto.createHmac("sha256", JWT_SECRET).update(encoded).digest("base64url");
+    const a = Buffer.from(sig, "utf8");
+    const b = Buffer.from(expectedSig, "utf8");
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (typeof payload.exp !== "number" || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Helper: verify Shopify's install/callback query-param HMAC ──────────────
+// Shared by /install (launch) and /callback (redirect back): both send a set
+// of query params signed the same way — sort every param except hmac, join as
+// k=v pairs with &, hex HMAC-SHA256 with the app secret. Always the primary
+// app's secret: both routes only ever run against SHOPIFY_API_KEY/SECRET.
+function verifyShopifyInstallHmac(query: Record<string, string>): boolean {
+  const hmac = query.hmac;
+  if (!hmac || !SHOPIFY_API_SECRET) return false;
+  const params = { ...query };
+  delete params.hmac;
+  delete params.signature;
+  const message = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&");
+  const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
+  const a = Buffer.from(digest, "utf8");
+  const b = Buffer.from(hmac, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 // ─── Helper: Shopify API call ─────────────────────────────────────────────────
 async function shopifyFetch(shop: string, accessToken: string, endpoint: string, options: RequestInit = {}) {
   const url = `https://${shop}/admin/api/2024-01${endpoint}`;
@@ -65,7 +121,6 @@ router.get("/status", requireAuth, async (req, res) => {
 // ─── GET /api/shopify/oauth/start ────────────────────────────────────────────
 router.get("/oauth/start", requireAuth, async (req, res) => {
   const { shop } = req.query as Record<string, string>;
-  const token = req.query.token as string || "";
 
   if (!shop) { res.status(400).json({ error: "shop parameter required" }); return; }
 
@@ -76,7 +131,7 @@ router.get("/oauth/start", requireAuth, async (req, res) => {
   }
 
   const storeId = req.user!.storeId || "";
-  const state = Buffer.from(JSON.stringify({ storeId, token })).toString("base64");
+  const state = signOAuthState({ storeId }, 10 * 60);
 
   const authUrl = `https://${shop}/admin/oauth/authorize?` + new URLSearchParams({
     client_id: SHOPIFY_API_KEY,
@@ -99,12 +154,16 @@ router.get("/callback", async (req, res) => {
     }
 
     // Verify HMAC
-    const params = { ...req.query } as Record<string, string>;
-    delete params.hmac;
-    const message = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&");
-    const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
-    if (digest !== hmac) {
+    if (!verifyShopifyInstallHmac(req.query as Record<string, string>)) {
       res.redirect(`${APP_BASE_URL}/channels?error=shopify_invalid_hmac`);
+      return;
+    }
+
+    // Verify state: signed, so it can't be forged into naming a different
+    // storeId, and it expires (see signOAuthState / verifyOAuthState above).
+    const statePayload = verifyOAuthState(state);
+    if (!statePayload) {
+      res.redirect(`${APP_BASE_URL}/channels?error=shopify_invalid_state`);
       return;
     }
 
@@ -121,8 +180,13 @@ router.get("/callback", async (req, res) => {
       return;
     }
 
-    // Decode state to get storeId
-    const { storeId } = JSON.parse(Buffer.from(state, "base64").toString());
+    const { storeId } = statePayload;
+    if (!storeId) {
+      // No storeId means this came from a shop-initiated install
+      // (GET /install), not an authenticated /oauth/start — see B.3.
+      res.redirect(`${APP_BASE_URL}/channels?error=shopify_missing_params`);
+      return;
+    }
 
     // Save to store. New installs always go through the primary app
     // (SHOPIFY_API_KEY) — recording it lets the GDPR handlers above tell
