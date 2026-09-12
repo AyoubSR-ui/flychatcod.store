@@ -527,8 +527,52 @@ function parseWebhookBody(req: import("express").Request): any {
   }
 }
 
+// IDs only — never the customer's email/phone/name/address. Callers (the
+// GDPR handlers below) still receive and use the full, unredacted `payload`
+// for their own matching logic (email/phone lookups, orders_to_redact); this
+// only controls what gets written to logs and audit_logs, which have no
+// retention limit or redaction path of their own. Previously the raw
+// payload was logged and stored verbatim, so a customer's email/phone from
+// customers/data_request or customers/redact outlived any later redaction —
+// exactly the kind of PII-at-rest a GDPR-triggered webhook shouldn't create.
+function sanitizeGdprPayloadForStorage(topic: string, payload: any): Record<string, unknown> {
+  switch (topic) {
+    case "customers/data_request":
+      return {
+        shop_id: payload?.shop_id ?? null,
+        shop_domain: payload?.shop_domain ?? null,
+        customer_id: payload?.customer?.id ?? null,
+        orders_requested: payload?.orders_requested ?? [],
+        data_request_id: payload?.data_request?.id ?? null,
+      };
+    case "customers/redact":
+      return {
+        shop_id: payload?.shop_id ?? null,
+        shop_domain: payload?.shop_domain ?? null,
+        customer_id: payload?.customer?.id ?? null,
+        orders_to_redact: payload?.orders_to_redact ?? [],
+      };
+    case "shop/redact":
+      return {
+        shop_id: payload?.shop_id ?? null,
+        shop_domain: payload?.shop_domain ?? null,
+      };
+    case "app/uninstalled":
+      // This payload is the full Shop resource, not a compliance payload —
+      // it carries the merchant's own contact info (shop owner email/phone),
+      // not a customer's, but the same "IDs only" rule applies.
+      return {
+        shop_id: payload?.id ?? null,
+        shop_domain: payload?.domain ?? payload?.myshopify_domain ?? null,
+      };
+    default:
+      return {};
+  }
+}
+
 async function logGdprRequest(topic: string, shop: string, payload: unknown): Promise<void> {
-  console.log(`[Shopify GDPR] ${topic} for shop ${shop}:`, JSON.stringify(payload));
+  const sanitized = sanitizeGdprPayloadForStorage(topic, payload);
+  console.log(`[Shopify GDPR] ${topic} for shop ${shop}:`, JSON.stringify(sanitized));
   try {
     const { rows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
     await db.insert(auditLogsTable).values({
@@ -537,7 +581,7 @@ async function logGdprRequest(topic: string, shop: string, payload: unknown): Pr
       userId: null,
       event: `gdpr_${topic}`,
       description: `Shopify GDPR webhook received: ${topic} for shop ${shop}`,
-      metadata: payload as Record<string, unknown>,
+      metadata: sanitized,
     });
   } catch (err) {
     console.error(`[Shopify GDPR] Failed to log ${topic}:`, err);
