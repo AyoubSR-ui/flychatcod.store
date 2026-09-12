@@ -36,6 +36,11 @@ export const ordersTable = pgTable("orders", {
   shippingFee: numeric("shipping_fee", { precision: 10, scale: 2 }).default("0"),
   shippingOption: text("shipping_option"),
   shopifyOrderId: text("shopify_order_id"),
+  // True only for an order that actually originated in Shopify (set by
+  // syncOrders/handleShopifyOrderWebhook), unlike shopifyOrderId which can
+  // also be non-null on a chat order that was pushed to Shopify. That
+  // distinction is what shop/redact scopes on now — see routes/shopify.ts.
+  shopifySource: boolean("shopify_source").notNull().default(false),
   confirmedBySource: text("confirmed_by_source"),
   voiceCallSid: text("voice_call_sid"),
   assignedAgentId: text("assigned_agent_id"),

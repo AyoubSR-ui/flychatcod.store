@@ -760,13 +760,14 @@ router.post("/webhooks/shop/redact", async (req, res) => {
       return;
     }
 
-    // Orders: shopify_order_id IS NOT NULL, scoped to this store. Note this
-    // also covers a chat-originated order that was later pushed to Shopify
-    // by pushOrderToShopify (A.2) — once that push succeeds a live Shopify
-    // order really does exist for it, so it's in scope for this shop's
-    // redaction too, not just orders that came from Shopify originally.
+    // Orders: shopify_source = true only — set exclusively by
+    // syncOrders/handleShopifyOrderWebhook, so this is orders that actually
+    // originated in Shopify. shopify_order_id IS NOT NULL was too broad: it
+    // could also be true on a chat order (push-to-Shopify has since been
+    // removed entirely, but historical rows from it still exist — 7 in
+    // production as of this migration).
     await pool.query(
-      `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_order_id IS NOT NULL`,
+      `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_source = true`,
       [storeId]
     );
 
@@ -979,9 +980,9 @@ async function syncOrders(storeId: string, shop: string, accessToken: string): P
           total, is_cod,
           financial_status, fulfillment_status, delivery_status,
           sales_channel, flags, tags, items,
-          shopify_order_id, created_by_source, shipping_option,
+          shopify_order_id, shopify_source, created_by_source, shipping_option,
           created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,'shopify',$21,$22,NOW())
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,true,'shopify',$21,$22,NOW())
          -- Backstop for the race between the SELECT above and this INSERT: an
          -- orders/create webhook can land mid-sync. The UPDATE branch above
          -- already handles the normal "already imported" case.
@@ -1066,9 +1067,9 @@ async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<v
       total, is_cod,
       financial_status, fulfillment_status, delivery_status,
       sales_channel, flags, tags, items,
-      shopify_order_id, created_by_source, shipping_option,
+      shopify_order_id, shopify_source, created_by_source, shipping_option,
       created_at, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,'shopify',$21,NOW(),NOW())
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,true,'shopify',$21,NOW(),NOW())
      -- Backstop for the race between the SELECT above and this INSERT (webhook
      -- retries arrive concurrently). Refreshes status fields only: customer
      -- name/phone/email/address are left alone so a re-delivered webhook can't
