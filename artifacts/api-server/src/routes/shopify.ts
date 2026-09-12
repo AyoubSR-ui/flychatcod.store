@@ -178,6 +178,18 @@ router.get("/install", async (req, res) => {
     return;
   }
 
+  // Already fully connected under the primary app? Don't put the merchant
+  // through OAuth again — Shopify can re-open application_url any time
+  // (e.g. clicking back into the app from admin), not just on first install.
+  const { rows: existing } = await pool.query(
+    `SELECT id FROM stores WHERE shopify_shop = $1 AND shopify_access_token IS NOT NULL AND shopify_app_client_id = $2 LIMIT 1`,
+    [shop, SHOPIFY_API_KEY]
+  );
+  if (existing[0]) {
+    res.redirect(`${APP_BASE_URL}/channels`);
+    return;
+  }
+
   // No storeId: there's no FlyChat session to attach this to yet. /callback
   // handles that (existing store reconnecting vs. brand-new install) — B.3.
   const state = signOAuthState({}, 10 * 60);
