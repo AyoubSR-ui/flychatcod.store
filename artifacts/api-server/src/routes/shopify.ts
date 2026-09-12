@@ -350,6 +350,22 @@ router.post("/claim", requireAuth, async (req, res) => {
     const pending = rows[0];
     if (!pending) { res.status(400).json({ error: "invalid_or_expired_claim" }); return; }
 
+    const { rows: storeRows } = await pool.query(
+      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const currentShop = storeRows[0]?.shopify_shop;
+    if (currentShop && currentShop !== pending.shop && storeRows[0]?.shopify_access_token) {
+      // Don't silently swap out a live connection to a different shop —
+      // that would orphan the pending install's token with no store to
+      // attach it to and quietly disconnect whatever was already connected.
+      res.status(409).json({
+        error: "already_connected_elsewhere",
+        message: `This account is already connected to ${currentShop}. Disconnect it first to claim ${pending.shop}.`,
+      });
+      return;
+    }
+
     await pool.query(
       `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4, updated_at = NOW() WHERE id = $5`,
       [pending.shop, pending.access_token, pending.scope, pending.client_id, storeId]

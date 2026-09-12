@@ -1,18 +1,29 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { MessageSquare, Loader2 } from "lucide-react";
 import { useAuthLogin } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { claimPendingShopifyInstall } from "@/lib/shopify-claim";
+import { claimPendingShopifyInstall, hasPendingShopifyClaim } from "@/lib/shopify-claim";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const { login } = useAuth();
+  const { login, token } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+
+  // A visitor who's already logged in (e.g. clicked "Install" from Shopify
+  // in a browser where they still have a FlyChat session) shouldn't have to
+  // re-enter their password just to trigger the claim in onSuccess below —
+  // claim immediately and skip the form.
+  useEffect(() => {
+    if (!token || !hasPendingShopifyClaim()) return;
+    claimPendingShopifyInstall(token).then((claimed) => {
+      if (claimed) setLocation("/channels");
+    });
+  }, [token]);
 
   const loginMutation = useAuthLogin({
     mutation: {
