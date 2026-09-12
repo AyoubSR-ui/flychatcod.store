@@ -13,3 +13,4 @@ export * from "./billing";
 export * from "./audit";
 export * from "./carriers";
 export * from "./order-events";
+export * from "./shopify-pending-installs";

@@ -1,22 +1,40 @@
-import { useState } from "react";
-import { Link } from "wouter";
+import { useState, useEffect } from "react";
+import { Link, useLocation } from "wouter";
 import { MessageSquare, Loader2 } from "lucide-react";
 import { useAuthSignup } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { claimPendingShopifyInstall, hasPendingShopifyClaim } from "@/lib/shopify-claim";
 
 export default function Signup() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const { login } = useAuth();
+  const { login, token } = useAuth();
   const { toast } = useToast();
-  
+  const [, setLocation] = useLocation();
+
+  // Already logged in (e.g. opened the install link in a browser with an
+  // existing FlyChat session) — claim with the existing account instead of
+  // making them create a new one. See Login.tsx.
+  useEffect(() => {
+    if (!token || !hasPendingShopifyClaim()) return;
+    claimPendingShopifyInstall(token).then((claimed) => {
+      if (claimed) setLocation("/channels");
+    });
+  }, [token]);
+
   const signupMutation = useAuthSignup({
     mutation: {
-      onSuccess: (data) => {
+      onSuccess: async (data) => {
+        // See Login.tsx: a pending Shopify install (GET /install ->
+        // /callback with no FlyChat account yet) is claimed right after
+        // this brand-new account gets its session token, then routed
+        // straight to Channels instead of onboarding.
+        const claimed = await claimPendingShopifyInstall(data.token);
         login(data.token, data.needsOnboarding);
+        if (claimed) setLocation("/channels");
       },
       onError: (err: any) => {
         toast({

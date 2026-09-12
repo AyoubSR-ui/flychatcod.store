@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, numeric, jsonb, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, integer, numeric, jsonb, timestamp, pgEnum, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -36,12 +36,27 @@ export const ordersTable = pgTable("orders", {
   shippingFee: numeric("shipping_fee", { precision: 10, scale: 2 }).default("0"),
   shippingOption: text("shipping_option"),
   shopifyOrderId: text("shopify_order_id"),
+  // True only for an order that actually originated in Shopify (set by
+  // syncOrders/handleShopifyOrderWebhook), unlike shopifyOrderId which can
+  // also be non-null on a chat order that was pushed to Shopify. That
+  // distinction is what shop/redact scopes on now — see routes/shopify.ts.
+  shopifySource: boolean("shopify_source").notNull().default(false),
   confirmedBySource: text("confirmed_by_source"),
   voiceCallSid: text("voice_call_sid"),
   assignedAgentId: text("assigned_agent_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  // Makes Shopify order import idempotent: webhook retries and a concurrent
+  // /sync/orders can both try to insert the same Shopify order, and the
+  // SELECT-then-INSERT they use has a race window between the two statements.
+  // The insert paths rely on this for ON CONFLICT DO UPDATE.
+  // Scoped by store_id because store_id is this app's tenant boundary — the
+  // same shop connected to two stores keeps a row per store.
+  // NULL shopify_order_id (native FlyChat orders) is exempt: NULL never
+  // equals NULL in a UNIQUE constraint.
+  unique("orders_store_shopify_order_id_unique").on(table.storeId, table.shopifyOrderId),
+]);
 
 export const orderItemsTable = pgTable("order_items", {
   id: text("id").primaryKey(),

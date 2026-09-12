@@ -9,10 +9,78 @@ const router = Router();
 
 const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY || "";
 const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET || "";
+// Legacy slot: FLychatcod's credentials, kept alongside the primary (public
+// app) slot during the migration so its stores' webhooks keep verifying.
+// Both OAuth (oauth/start, callback) and new installs use the primary slot
+// only — the legacy slot exists purely so verifyShopifyWebhookHmac can still
+// recognize FLychatcod's HMACs for shops that installed before the switch.
+const SHOPIFY_LEGACY_API_KEY = process.env.SHOPIFY_LEGACY_API_KEY || "";
+const SHOPIFY_LEGACY_API_SECRET = process.env.SHOPIFY_LEGACY_API_SECRET || "";
 const APP_BASE_URL = process.env.APP_BASE_URL || "https://flychatcodstore-production-a2e8.up.railway.app";
 const API_BASE_URL = process.env.API_BASE_URL || "https://zealous-nature-production-771f.up.railway.app";
 
 const SCOPES = "read_products,write_orders,read_orders,read_customers";
+const SHOP_DOMAIN_RE = /^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/;
+// How old a shop-initiated install launch's `timestamp` param may be before
+// it's rejected as stale. Shopify itself doesn't enforce a window here, but
+// bounding it keeps a captured install URL from being replayable indefinitely.
+const INSTALL_TIMESTAMP_MAX_AGE_SECONDS = 300;
+
+// Same secret lib/auth.ts uses to sign FlyChat's own session tokens (and the
+// same fallback, so behavior is identical whether or not it's set) — reused
+// here rather than adding a new env var, matching how instagram.ts/messenger.ts
+// already reuse it for their own signed tokens.
+const JWT_SECRET = process.env.JWT_SECRET || "flychat-dev-secret-change-in-prod";
+
+// ─── Helper: signed OAuth state ────────────────────────────────────────────────
+// Previously `state` was just base64(JSON) with no signature — anyone who
+// could get their own "code"+"hmac" out of Shopify for a shop they control
+// could forge a state naming an arbitrary storeId and hijack that store's
+// Shopify connection in /callback. Signing it (HMAC-SHA256 over the payload,
+// with a random nonce + expiry) makes it unforgeable and unreplayable outside
+// its window. storeId is included only when the flow started from an
+// authenticated FlyChat session (/oauth/start); /install below omits it.
+function signOAuthState(payload: { storeId?: string }, ttlSeconds: number): string {
+  const body = { ...payload, nonce: crypto.randomBytes(16).toString("hex"), exp: Math.floor(Date.now() / 1000) + ttlSeconds };
+  const encoded = Buffer.from(JSON.stringify(body)).toString("base64url");
+  const sig = crypto.createHmac("sha256", JWT_SECRET).update(encoded).digest("base64url");
+  return `${encoded}.${sig}`;
+}
+
+function verifyOAuthState(state: string): { storeId?: string } | null {
+  try {
+    const [encoded, sig] = state.split(".");
+    if (!encoded || !sig) return null;
+    const expectedSig = crypto.createHmac("sha256", JWT_SECRET).update(encoded).digest("base64url");
+    const a = Buffer.from(sig, "utf8");
+    const b = Buffer.from(expectedSig, "utf8");
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    if (typeof payload.exp !== "number" || payload.exp < Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Helper: verify Shopify's install/callback query-param HMAC ──────────────
+// Shared by /install (launch) and /callback (redirect back): both send a set
+// of query params signed the same way — sort every param except hmac, join as
+// k=v pairs with &, hex HMAC-SHA256 with the app secret. Always the primary
+// app's secret: both routes only ever run against SHOPIFY_API_KEY/SECRET.
+function verifyShopifyInstallHmac(query: Record<string, string>): boolean {
+  const hmac = query.hmac;
+  if (!hmac || !SHOPIFY_API_SECRET) return false;
+  const params = { ...query };
+  delete params.hmac;
+  delete params.signature;
+  const message = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&");
+  const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
+  const a = Buffer.from(digest, "utf8");
+  const b = Buffer.from(hmac, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 // ─── Helper: Shopify API call ─────────────────────────────────────────────────
 async function shopifyFetch(shop: string, accessToken: string, endpoint: string, options: RequestInit = {}) {
@@ -39,12 +107,15 @@ router.get("/status", requireAuth, async (req, res) => {
     if (!storeId) { res.json({ connected: false }); return; }
 
     const { rows } = await pool.query(
-      `SELECT shopify_shop, shopify_scope, shopify_synced_at FROM stores WHERE id = $1 LIMIT 1`,
+      `SELECT shopify_shop, shopify_access_token, shopify_scope, shopify_synced_at FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
     const row = rows[0];
+    // "Connected" means a live token, not just a remembered shop domain —
+    // shopify_shop is kept after /disconnect and app/uninstalled so a
+    // reinstall can be recognized, so it alone no longer implies connected.
     res.json({
-      connected: !!row?.shopify_shop,
+      connected: !!row?.shopify_access_token,
       shop: row?.shopify_shop || null,
       scope: row?.shopify_scope || null,
       syncedAt: row?.shopify_synced_at || null,
@@ -58,18 +129,17 @@ router.get("/status", requireAuth, async (req, res) => {
 // ─── GET /api/shopify/oauth/start ────────────────────────────────────────────
 router.get("/oauth/start", requireAuth, async (req, res) => {
   const { shop } = req.query as Record<string, string>;
-  const token = req.query.token as string || "";
 
   if (!shop) { res.status(400).json({ error: "shop parameter required" }); return; }
 
   // Validate shop domain
-  if (!shop.match(/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/)) {
+  if (!SHOP_DOMAIN_RE.test(shop)) {
     res.status(400).json({ error: "Invalid shop domain" });
     return;
   }
 
   const storeId = req.user!.storeId || "";
-  const state = Buffer.from(JSON.stringify({ storeId, token })).toString("base64");
+  const state = signOAuthState({ storeId }, 10 * 60);
 
   const authUrl = `https://${shop}/admin/oauth/authorize?` + new URLSearchParams({
     client_id: SHOPIFY_API_KEY,
@@ -81,9 +151,64 @@ router.get("/oauth/start", requireAuth, async (req, res) => {
   res.json({ url: authUrl });
 });
 
+// ─── GET /api/shopify/install ─────────────────────────────────────────────────
+// Entry point for an install launched from Shopify itself (App Store "Install",
+// or opening the app from a shop's admin) rather than FlyChat's own Connect
+// Shopify button — so there's no logged-in FlyChat session yet. Shopify hits
+// this URL (it's application_url in shopify.app.public.toml) with
+// ?shop=&hmac=&timestamp=. Verifies both, then redirects straight to the
+// OAuth grant screen — the review requirement 1.2 flagged as missing.
+// Primary app only: this route always uses SHOPIFY_API_KEY/SECRET, never the
+// legacy slot, matching how /oauth/start and /callback already work.
+router.get("/install", async (req, res) => {
+  const { shop, timestamp } = req.query as Record<string, string>;
+
+  if (!shop || !timestamp) { res.status(400).json({ error: "shop and timestamp parameters required" }); return; }
+
+  if (!SHOP_DOMAIN_RE.test(shop)) { res.status(400).json({ error: "Invalid shop domain" }); return; }
+
+  if (!verifyShopifyInstallHmac(req.query as Record<string, string>)) {
+    res.status(401).json({ error: "Invalid HMAC" });
+    return;
+  }
+
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Math.floor(Date.now() / 1000) - ts) > INSTALL_TIMESTAMP_MAX_AGE_SECONDS) {
+    res.status(401).json({ error: "Stale timestamp" });
+    return;
+  }
+
+  // Already fully connected under the primary app? Don't put the merchant
+  // through OAuth again — Shopify can re-open application_url any time
+  // (e.g. clicking back into the app from admin), not just on first install.
+  const { rows: existing } = await pool.query(
+    `SELECT id FROM stores WHERE shopify_shop = $1 AND shopify_access_token IS NOT NULL AND shopify_app_client_id = $2 LIMIT 1`,
+    [shop, SHOPIFY_API_KEY]
+  );
+  if (existing[0]) {
+    res.redirect(`${APP_BASE_URL}/channels`);
+    return;
+  }
+
+  // No storeId: there's no FlyChat session to attach this to yet. /callback
+  // handles that (existing store reconnecting vs. brand-new install) — B.3.
+  const state = signOAuthState({}, 10 * 60);
+
+  const authUrl = `https://${shop}/admin/oauth/authorize?` + new URLSearchParams({
+    client_id: SHOPIFY_API_KEY,
+    scope: SCOPES,
+    redirect_uri: `${API_BASE_URL}/api/shopify/callback`,
+    state,
+  });
+
+  res.redirect(authUrl);
+});
+
 // ─── GET /api/shopify/callback ────────────────────────────────────────────────
 router.get("/callback", async (req, res) => {
   try {
+    await cleanupExpiredPendingInstalls();
+
     const { shop, code, state, hmac } = req.query as Record<string, string>;
 
     if (!shop || !code || !state) {
@@ -92,12 +217,16 @@ router.get("/callback", async (req, res) => {
     }
 
     // Verify HMAC
-    const params = { ...req.query } as Record<string, string>;
-    delete params.hmac;
-    const message = Object.keys(params).sort().map(k => `${k}=${params[k]}`).join("&");
-    const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
-    if (digest !== hmac) {
+    if (!verifyShopifyInstallHmac(req.query as Record<string, string>)) {
       res.redirect(`${APP_BASE_URL}/channels?error=shopify_invalid_hmac`);
+      return;
+    }
+
+    // Verify state: signed, so it can't be forged into naming a different
+    // storeId, and it expires (see signOAuthState / verifyOAuthState above).
+    const statePayload = verifyOAuthState(state);
+    if (!statePayload) {
+      res.redirect(`${APP_BASE_URL}/channels?error=shopify_invalid_state`);
       return;
     }
 
@@ -114,13 +243,51 @@ router.get("/callback", async (req, res) => {
       return;
     }
 
-    // Decode state to get storeId
-    const { storeId } = JSON.parse(Buffer.from(state, "base64").toString());
+    const { storeId } = statePayload;
+    if (!storeId) {
+      // Came from GET /install, not an authenticated /oauth/start — there's
+      // no FlyChat session to attach this to yet.
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM stores WHERE shopify_shop = $1 AND shopify_access_token IS NOT NULL AND shopify_app_client_id = $2 LIMIT 1`,
+        [shop, SHOPIFY_API_KEY]
+      );
+      if (existing[0]) {
+        // Same shop already has a live token under this app (e.g. it
+        // uninstalled and reinstalled) — just refresh the token in place.
+        await pool.query(
+          `UPDATE stores SET shopify_access_token = $1, shopify_scope = $2, updated_at = NOW() WHERE id = $3`,
+          [tokenData.access_token, tokenData.scope, existing[0].id]
+        );
+        console.log(`[Shopify] Refreshed token for existing store ${existing[0].id} (shop ${shop})`);
+        res.redirect(`${APP_BASE_URL}/channels?success=shopify_reconnected`);
+        return;
+      }
 
-    // Save to store
+      // Genuinely new install with no FlyChat account yet — hold the token
+      // until they sign up/log in and claim it with a single-use token.
+      // Only the hash is stored; the raw token goes out in the redirect URL
+      // and is never persisted.
+      const claimToken = crypto.randomBytes(32).toString("hex");
+      const claimTokenHash = crypto.createHash("sha256").update(claimToken).digest("hex");
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+      await pool.query(
+        `INSERT INTO shopify_pending_installs (id, shop, access_token, scope, client_id, claim_token_hash, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [generateId("shpi"), shop, tokenData.access_token, tokenData.scope, SHOPIFY_API_KEY, claimTokenHash, expiresAt]
+      );
+
+      console.log(`[Shopify] Pending install created for shop ${shop}, awaiting claim`);
+      res.redirect(`${APP_BASE_URL}/signup?shopify_claim=${claimToken}&shop=${encodeURIComponent(shop)}`);
+      return;
+    }
+
+    // Save to store. New installs always go through the primary app
+    // (SHOPIFY_API_KEY) — recording it lets the GDPR handlers above tell
+    // this store apart from one still owned by the legacy app.
     await pool.query(
-      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, updated_at = NOW() WHERE id = $4`,
-      [shop, tokenData.access_token, tokenData.scope, storeId]
+      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4, updated_at = NOW() WHERE id = $5`,
+      [shop, tokenData.access_token, tokenData.scope, SHOPIFY_API_KEY, storeId]
     );
 
     console.log(`[Shopify] Connected shop ${shop} for store ${storeId}`);
@@ -144,14 +311,74 @@ router.post("/disconnect", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
 
+    // Clear the token only — shopify_shop and shopify_app_client_id are kept
+    // (same as app/uninstalled) so a later reinstall's /callback recognizes
+    // this as the same store and refreshes it instead of creating a pending
+    // install under a fresh claim flow.
     await pool.query(
-      `UPDATE stores SET shopify_shop = NULL, shopify_access_token = NULL, shopify_scope = NULL WHERE id = $1`,
+      `UPDATE stores SET shopify_access_token = NULL, updated_at = NOW() WHERE id = $1`,
       [storeId]
     );
 
     res.json({ success: true });
   } catch (err) {
     console.error("[Shopify] Disconnect error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ─── POST /api/shopify/claim ──────────────────────────────────────────────────
+// Attaches a pending install (from GET /install → /callback, no FlyChat
+// account at the time) to the now-logged-in user's store. Called by the
+// frontend signup/login pages when a shopify_claim token is present in the URL.
+router.post("/claim", requireAuth, async (req, res) => {
+  try {
+    await cleanupExpiredPendingInstalls();
+
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { claimToken } = req.body as { claimToken?: string };
+    if (!claimToken) { res.status(400).json({ error: "claimToken required" }); return; }
+
+    const claimTokenHash = crypto.createHash("sha256").update(claimToken).digest("hex");
+    const { rows } = await pool.query(
+      `SELECT id, shop, access_token, scope, client_id FROM shopify_pending_installs
+       WHERE claim_token_hash = $1 AND claimed_at IS NULL AND expires_at > NOW() LIMIT 1`,
+      [claimTokenHash]
+    );
+    const pending = rows[0];
+    if (!pending) { res.status(400).json({ error: "invalid_or_expired_claim" }); return; }
+
+    const { rows: storeRows } = await pool.query(
+      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const currentShop = storeRows[0]?.shopify_shop;
+    if (currentShop && currentShop !== pending.shop && storeRows[0]?.shopify_access_token) {
+      // Don't silently swap out a live connection to a different shop —
+      // that would orphan the pending install's token with no store to
+      // attach it to and quietly disconnect whatever was already connected.
+      res.status(409).json({
+        error: "already_connected_elsewhere",
+        message: `This account is already connected to ${currentShop}. Disconnect it first to claim ${pending.shop}.`,
+      });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4, updated_at = NOW() WHERE id = $5`,
+      [pending.shop, pending.access_token, pending.scope, pending.client_id, storeId]
+    );
+
+    await registerWebhooks(pending.shop, pending.access_token, storeId);
+
+    await pool.query(`UPDATE shopify_pending_installs SET claimed_at = NOW() WHERE id = $1`, [pending.id]);
+
+    console.log(`[Shopify] Claimed pending install for shop ${pending.shop} -> store ${storeId}`);
+    res.json({ success: true, shop: pending.shop });
+  } catch (err) {
+    console.error("[Shopify] Claim error:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
@@ -166,7 +393,7 @@ router.post("/sync/products", requireAuth, async (req, res) => {
       `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
-    if (!rows[0]?.shopify_shop) {
+    if (!rows[0]?.shopify_access_token) {
       res.status(400).json({ error: "not_connected", message: "Shopify not connected" });
       return;
     }
@@ -189,7 +416,7 @@ router.post("/sync/orders", requireAuth, async (req, res) => {
       `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
-    if (!rows[0]?.shopify_shop) {
+    if (!rows[0]?.shopify_access_token) {
       res.status(400).json({ error: "not_connected", message: "Shopify not connected" });
       return;
     }
@@ -203,20 +430,63 @@ router.post("/sync/orders", requireAuth, async (req, res) => {
   }
 });
 
+// ─── POST /api/shopify/register-webhooks ─────────────────────────────────────
+// Re-register this shop's Admin API webhook subscriptions without a full
+// disconnect/reconnect. Useful when API_BASE_URL changed, a subscription was
+// deleted in Shopify, or a store connected before a topic was added here.
+// Registration is idempotent per (topic, address): Shopify rejects an exact
+// duplicate, which registerWebhooks logs and skips.
+router.post("/register-webhooks", requireAuth, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { rows } = await pool.query(
+      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    const store = rows[0];
+
+    if (!store?.shopify_shop || !store?.shopify_access_token) {
+      res.status(400).json({ error: "not_connected", message: "Shopify not connected for this store" });
+      return;
+    }
+
+    const result = await registerWebhooks(store.shopify_shop, store.shopify_access_token, storeId);
+
+    res.json({
+      success: true,
+      message: `Webhooks registered for ${store.shopify_shop}`,
+      shop: store.shopify_shop,
+      registered: result.registered,
+      failed: result.failed,
+      // Compliance topics can't be registered per-shop via the Admin API —
+      // they're app-level config. Returned so the URLs are easy to copy into
+      // Partner Dashboard → App setup → Compliance webhooks.
+      complianceWebhooks: {
+        note: "Configure these once in the Partner Dashboard (app-level, not per shop).",
+        urls: COMPLIANCE_WEBHOOK_URLS,
+      },
+    });
+  } catch (err: any) {
+    console.error("[Shopify] Register webhooks error:", err);
+    res.status(500).json({ error: "register_failed", message: err.message });
+  }
+});
+
 // ─── POST /api/shopify/webhook ────────────────────────────────────────────────
 router.post("/webhook", async (req, res) => {
   try {
-    const hmac = req.headers["x-shopify-hmac-sha256"] as string;
     const shop = req.headers["x-shopify-shop-domain"] as string;
     const topic = req.headers["x-shopify-topic"] as string;
 
-    // Verify webhook
-    const body = JSON.stringify(req.body);
-    const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(body).digest("base64");
-    if (digest !== hmac) {
+    // Verify webhook over the raw signed bytes (see verifyShopifyWebhookHmac).
+    if (!verifyShopifyWebhookHmac(req)) {
       res.status(401).send("Unauthorized");
       return;
     }
+
+    const payload = parseWebhookBody(req);
 
     const { rows } = await pool.query(
       `SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`,
@@ -226,9 +496,9 @@ router.post("/webhook", async (req, res) => {
     if (!storeId) { res.json({ received: true }); return; }
 
     if (topic === "orders/create") {
-      await handleShopifyOrderWebhook(storeId, req.body);
+      await handleShopifyOrderWebhook(storeId, payload);
     } else if (topic === "products/update" || topic === "products/create") {
-      await handleShopifyProductWebhook(storeId, req.body);
+      await handleShopifyProductWebhook(storeId, payload);
     }
 
     res.json({ received: true });
@@ -243,15 +513,94 @@ router.post("/webhook", async (req, res) => {
 // Each must verify HMAC, always ACK 200 quickly, and log the request for
 // compliance record-keeping — matching the same HMAC scheme the existing
 // /webhook endpoint above already uses.
-function verifyShopifyWebhookHmac(req: import("express").Request): boolean {
-  const hmac = req.headers["x-shopify-hmac-sha256"] as string;
-  const body = JSON.stringify(req.body);
-  const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(body).digest("base64");
-  return digest === hmac;
+// Webhook routes are mounted with express.raw() in app.ts, so req.body is the
+// exact Buffer Shopify signed. Digest that Buffer directly — re-serializing via
+// JSON.stringify would change the bytes and never match.
+//
+// Tries the primary (public app) secret first, then the legacy (FLychatcod)
+// secret, and returns whichever app's client_id produced a matching digest —
+// or null if neither did (still a 401 at the call site either way). If the
+// legacy slot is unset, or holds the same secret as primary, it's just a
+// no-op second check — safe either way.
+function verifyShopifyWebhookHmac(req: import("express").Request): string | null {
+  const hmac = req.headers["x-shopify-hmac-sha256"] as string | undefined;
+  if (!hmac) return null;
+
+  const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}), "utf8");
+  const b = Buffer.from(hmac, "utf8");
+
+  const candidates: [string, string][] = [
+    [SHOPIFY_API_KEY, SHOPIFY_API_SECRET],
+    [SHOPIFY_LEGACY_API_KEY, SHOPIFY_LEGACY_API_SECRET],
+  ];
+
+  for (const [clientId, secret] of candidates) {
+    if (!secret) continue;
+    const digest = crypto.createHmac("sha256", secret).update(raw).digest("base64");
+    // timingSafeEqual throws on length mismatch, so compare lengths first.
+    const a = Buffer.from(digest, "utf8");
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return clientId || null;
+  }
+  return null;
+}
+
+// req.body is a Buffer on webhook routes — parse it once verification passed.
+function parseWebhookBody(req: import("express").Request): any {
+  if (!Buffer.isBuffer(req.body)) return req.body ?? {};
+  try {
+    return JSON.parse(req.body.toString("utf8"));
+  } catch (err) {
+    console.error("[Shopify] Failed to parse webhook body:", err);
+    return {};
+  }
+}
+
+// IDs only — never the customer's email/phone/name/address. Callers (the
+// GDPR handlers below) still receive and use the full, unredacted `payload`
+// for their own matching logic (email/phone lookups, orders_to_redact); this
+// only controls what gets written to logs and audit_logs, which have no
+// retention limit or redaction path of their own. Previously the raw
+// payload was logged and stored verbatim, so a customer's email/phone from
+// customers/data_request or customers/redact outlived any later redaction —
+// exactly the kind of PII-at-rest a GDPR-triggered webhook shouldn't create.
+function sanitizeGdprPayloadForStorage(topic: string, payload: any): Record<string, unknown> {
+  switch (topic) {
+    case "customers/data_request":
+      return {
+        shop_id: payload?.shop_id ?? null,
+        shop_domain: payload?.shop_domain ?? null,
+        customer_id: payload?.customer?.id ?? null,
+        orders_requested: payload?.orders_requested ?? [],
+        data_request_id: payload?.data_request?.id ?? null,
+      };
+    case "customers/redact":
+      return {
+        shop_id: payload?.shop_id ?? null,
+        shop_domain: payload?.shop_domain ?? null,
+        customer_id: payload?.customer?.id ?? null,
+        orders_to_redact: payload?.orders_to_redact ?? [],
+      };
+    case "shop/redact":
+      return {
+        shop_id: payload?.shop_id ?? null,
+        shop_domain: payload?.shop_domain ?? null,
+      };
+    case "app/uninstalled":
+      // This payload is the full Shop resource, not a compliance payload —
+      // it carries the merchant's own contact info (shop owner email/phone),
+      // not a customer's, but the same "IDs only" rule applies.
+      return {
+        shop_id: payload?.id ?? null,
+        shop_domain: payload?.domain ?? payload?.myshopify_domain ?? null,
+      };
+    default:
+      return {};
+  }
 }
 
 async function logGdprRequest(topic: string, shop: string, payload: unknown): Promise<void> {
-  console.log(`[Shopify GDPR] ${topic} for shop ${shop}:`, JSON.stringify(payload));
+  const sanitized = sanitizeGdprPayloadForStorage(topic, payload);
+  console.log(`[Shopify GDPR] ${topic} for shop ${shop}:`, JSON.stringify(sanitized));
   try {
     const { rows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
     await db.insert(auditLogsTable).values({
@@ -260,20 +609,44 @@ async function logGdprRequest(topic: string, shop: string, payload: unknown): Pr
       userId: null,
       event: `gdpr_${topic}`,
       description: `Shopify GDPR webhook received: ${topic} for shop ${shop}`,
-      metadata: payload as Record<string, unknown>,
+      metadata: sanitized,
     });
   } catch (err) {
     console.error(`[Shopify GDPR] Failed to log ${topic}:`, err);
   }
 }
 
+// A store whose shopify_app_client_id isn't set yet (not backfilled, or
+// connected before the two-app split) is treated as unowned — allow the
+// action rather than silently block it. Once set, only the app that owns
+// the store may act on it; this is what stops FLychatcod's compliance
+// webhooks from redacting a store that has since moved to the public app,
+// and vice versa.
+function appOwnsStore(storeClientId: string | null | undefined, matchedClientId: string): boolean {
+  return !storeClientId || storeClientId === matchedClientId;
+}
+
+// No cron: called from /callback and /claim (the two places that touch
+// shopify_pending_installs) so expired, never-claimed rows get swept up
+// during normal traffic instead of accumulating forever. Cheap — a single
+// indexed-by-nothing-but-tiny-table delete, and both call sites already do
+// several queries per request.
+async function cleanupExpiredPendingInstalls(): Promise<void> {
+  try {
+    await pool.query(`DELETE FROM shopify_pending_installs WHERE claimed_at IS NULL AND expires_at < NOW()`);
+  } catch (err) {
+    console.error("[Shopify] Failed to clean up expired pending installs:", err);
+  }
+}
+
 // GDPR: a customer asked the merchant for the data FlyChat holds about them.
 // FlyChat has no automated export flow yet — acknowledge receipt and log it
 // so a human can compile and send the data within Shopify's required window.
+// Not gated by shopify_app_client_id: it only reads/logs, never changes data.
 router.post("/webhooks/customers/data_request", async (req, res) => {
   const shop = req.headers["x-shopify-shop-domain"] as string;
   if (!verifyShopifyWebhookHmac(req)) { res.status(401).send("Unauthorized"); return; }
-  await logGdprRequest("customers/data_request", shop, req.body);
+  await logGdprRequest("customers/data_request", shop, parseWebhookBody(req));
   res.status(200).json({ received: true });
 });
 
@@ -282,23 +655,47 @@ router.post("/webhooks/customers/data_request", async (req, res) => {
 // history is kept (order numbers, totals, items) but no longer identifies them.
 router.post("/webhooks/customers/redact", async (req, res) => {
   const shop = req.headers["x-shopify-shop-domain"] as string;
-  if (!verifyShopifyWebhookHmac(req)) { res.status(401).send("Unauthorized"); return; }
-  await logGdprRequest("customers/redact", shop, req.body);
+  const matchedClientId = verifyShopifyWebhookHmac(req);
+  if (!matchedClientId) { res.status(401).send("Unauthorized"); return; }
+  const payload = parseWebhookBody(req);
+  await logGdprRequest("customers/redact", shop, payload);
   res.status(200).json({ received: true });
 
   try {
-    const { rows: storeRows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
+    const { rows: storeRows } = await pool.query(
+      `SELECT id, shopify_app_client_id FROM stores WHERE shopify_shop = $1 LIMIT 1`,
+      [shop]
+    );
     const storeId = storeRows[0]?.id;
     if (!storeId) return;
+    if (!appOwnsStore(storeRows[0]?.shopify_app_client_id, matchedClientId)) {
+      console.log(
+        `[Shopify GDPR] Skipping customers/redact for store ${storeId}: verified app ${matchedClientId} ` +
+        `does not own this store (owner: ${storeRows[0]?.shopify_app_client_id})`
+      );
+      return;
+    }
 
-    const email: string | null = req.body?.customer?.email || null;
-    const phone: string | null = req.body?.customer?.phone || null;
-    if (!email && !phone) return;
+    const email: string | null = payload?.customer?.email || null;
+    const phone: string | null = payload?.customer?.phone || null;
+    // Shopify's actual customers/redact payload also carries orders_to_redact:
+    // an array of that customer's Shopify order IDs (numbers). Cast to text
+    // to compare against shopify_order_id, which is stored as TEXT.
+    const ordersToRedact: string[] = Array.isArray(payload?.orders_to_redact)
+      ? payload.orders_to_redact.map((id: unknown) => String(id))
+      : [];
+    if (!email && !phone && ordersToRedact.length === 0) return;
 
-    const { rows: custRows } = await pool.query(
-      `SELECT id FROM customers WHERE store_id = $1 AND ((email = $2 AND $2 IS NOT NULL) OR (phone = $3 AND $3 IS NOT NULL))`,
-      [storeId, email, phone]
-    );
+    // Existing behavior: customers matched by email/phone, plus any order
+    // already linked to them via customer_id — this is how chat-sourced
+    // customers/orders get redacted (Shopify order sync never sets
+    // customer_id, so this branch alone never reaches Shopify orders).
+    const { rows: custRows } = email || phone
+      ? await pool.query(
+          `SELECT id FROM customers WHERE store_id = $1 AND ((email = $2 AND $2 IS NOT NULL) OR (phone = $3 AND $3 IS NOT NULL))`,
+          [storeId, email, phone]
+        )
+      : { rows: [] as { id: string }[] };
     for (const c of custRows) {
       await pool.query(
         `UPDATE customers SET name = 'Redacted Customer', phone = NULL, email = NULL, updated_at = NOW() WHERE id = $1`,
@@ -309,7 +706,30 @@ router.post("/webhooks/customers/redact", async (req, res) => {
         [c.id]
       );
     }
-    console.log(`[Shopify GDPR] Redacted ${custRows.length} customer record(s) for shop ${shop}`);
+
+    // Shopify orders for this customer: matched by shopify_order_id against
+    // orders_to_redact, or by customer_email/customer_phone against the
+    // payload's customer — either way scoped to shopify_order_id IS NOT NULL
+    // so this never touches a chat-only order.
+    let shopifyOrdersRedacted = 0;
+    if (ordersToRedact.length > 0 || email || phone) {
+      const { rowCount } = await pool.query(
+        `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW()
+         WHERE store_id = $1 AND shopify_order_id IS NOT NULL
+           AND (
+             shopify_order_id = ANY($2::text[])
+             OR (customer_email = $3 AND $3 IS NOT NULL)
+             OR (customer_phone = $4 AND $4 IS NOT NULL)
+           )`,
+        [storeId, ordersToRedact, email, phone]
+      );
+      shopifyOrdersRedacted = rowCount ?? 0;
+    }
+
+    console.log(
+      `[Shopify GDPR] Redacted ${custRows.length} customer record(s) and ${shopifyOrdersRedacted} ` +
+      `Shopify order(s) for shop ${shop}`
+    );
   } catch (err) {
     console.error("[Shopify GDPR] customers/redact processing error:", err);
   }
@@ -320,26 +740,92 @@ router.post("/webhooks/customers/redact", async (req, res) => {
 // identifying customer info removed.
 router.post("/webhooks/shop/redact", async (req, res) => {
   const shop = req.headers["x-shopify-shop-domain"] as string;
-  if (!verifyShopifyWebhookHmac(req)) { res.status(401).send("Unauthorized"); return; }
-  await logGdprRequest("shop/redact", shop, req.body);
+  const matchedClientId = verifyShopifyWebhookHmac(req);
+  if (!matchedClientId) { res.status(401).send("Unauthorized"); return; }
+  await logGdprRequest("shop/redact", shop, parseWebhookBody(req));
   res.status(200).json({ received: true });
 
   try {
-    const { rows: storeRows } = await pool.query(`SELECT id FROM stores WHERE shopify_shop = $1 LIMIT 1`, [shop]);
+    const { rows: storeRows } = await pool.query(
+      `SELECT id, shopify_app_client_id FROM stores WHERE shopify_shop = $1 LIMIT 1`,
+      [shop]
+    );
     const storeId = storeRows[0]?.id;
     if (!storeId) return;
+    if (!appOwnsStore(storeRows[0]?.shopify_app_client_id, matchedClientId)) {
+      console.log(
+        `[Shopify GDPR] Skipping shop/redact for store ${storeId}: verified app ${matchedClientId} ` +
+        `does not own this store (owner: ${storeRows[0]?.shopify_app_client_id})`
+      );
+      return;
+    }
 
+    // Orders: shopify_source = true only — set exclusively by
+    // syncOrders/handleShopifyOrderWebhook, so this is orders that actually
+    // originated in Shopify. shopify_order_id IS NOT NULL was too broad: it
+    // could also be true on a chat order (push-to-Shopify has since been
+    // removed entirely, but historical rows from it still exist — 7 in
+    // production as of this migration).
     await pool.query(
-      `UPDATE customers SET name = 'Redacted Customer', phone = NULL, email = NULL, updated_at = NOW() WHERE store_id = $1`,
+      `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_source = true`,
       [storeId]
     );
-    await pool.query(
-      `UPDATE orders SET customer_name = 'Redacted Customer', customer_phone = NULL, customer_email = NULL, address = NULL, updated_at = NOW() WHERE store_id = $1 AND shopify_order_id IS NOT NULL`,
-      [storeId]
-    );
+
+    // customers is never written to by any Shopify code path (confirmed
+    // again this round — no INSERT/UPDATE into customers from sync, webhook,
+    // or push code) so there is nothing Shopify-sourced there to redact: it
+    // only ever holds chat customers, which are out of scope for a Shopify
+    // shop/redact by definition. Orders-only is the complete scope.
+    await pool.query(`DELETE FROM shopify_pending_installs WHERE shop = $1`, [shop]);
+
     console.log(`[Shopify GDPR] Redacted shop data for ${shop} (store ${storeId})`);
   } catch (err) {
     console.error("[Shopify GDPR] shop/redact processing error:", err);
+  }
+});
+
+// Per-shop uninstall notice — NOT a compliance topic, registered as its own
+// [[webhooks.subscriptions]] block in shopify.app.public.toml (never combine
+// it with the compliance_topics blocks above; Shopify rejects a subscription
+// that mixes `topics` and `compliance_topics`). Only clears the access
+// token: shopify_shop and shopify_app_client_id are kept so a later
+// reinstall (GET /install -> /callback) can recognize and refresh this same
+// store instead of creating a pending install, and so this store keeps
+// being correctly attributed if a compliance webhook arrives after this.
+router.post("/webhooks/app/uninstalled", async (req, res) => {
+  const shop = req.headers["x-shopify-shop-domain"] as string;
+  const matchedClientId = verifyShopifyWebhookHmac(req);
+  if (!matchedClientId) { res.status(401).send("Unauthorized"); return; }
+  await logGdprRequest("app/uninstalled", shop, parseWebhookBody(req));
+  res.status(200).json({ received: true });
+
+  try {
+    // Scoped to this shop + the app that verified the webhook, independent
+    // of whether a stores row exists yet — a shop can uninstall before ever
+    // claiming its pending install (no store to gate against).
+    await pool.query(
+      `DELETE FROM shopify_pending_installs WHERE shop = $1 AND client_id = $2`,
+      [shop, matchedClientId]
+    );
+
+    const { rows: storeRows } = await pool.query(
+      `SELECT id, shopify_app_client_id FROM stores WHERE shopify_shop = $1 LIMIT 1`,
+      [shop]
+    );
+    const storeId = storeRows[0]?.id;
+    if (!storeId) return;
+    if (!appOwnsStore(storeRows[0]?.shopify_app_client_id, matchedClientId)) {
+      console.log(
+        `[Shopify] Skipping app/uninstalled for store ${storeId}: verified app ${matchedClientId} ` +
+        `does not own this store (owner: ${storeRows[0]?.shopify_app_client_id})`
+      );
+      return;
+    }
+
+    await pool.query(`UPDATE stores SET shopify_access_token = NULL, updated_at = NOW() WHERE id = $1`, [storeId]);
+    console.log(`[Shopify] Cleared access token for store ${storeId} (shop ${shop} uninstalled)`);
+  } catch (err) {
+    console.error("[Shopify] app/uninstalled processing error:", err);
   }
 });
 
@@ -494,9 +980,20 @@ async function syncOrders(storeId: string, shop: string, accessToken: string): P
           total, is_cod,
           financial_status, fulfillment_status, delivery_status,
           sales_channel, flags, tags, items,
-          shopify_order_id, created_by_source, shipping_option,
+          shopify_order_id, shopify_source, created_by_source, shipping_option,
           created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,'shopify',$21,$22,NOW())`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,true,'shopify',$21,$22,NOW())
+         -- Backstop for the race between the SELECT above and this INSERT: an
+         -- orders/create webhook can land mid-sync. The UPDATE branch above
+         -- already handles the normal "already imported" case.
+         ON CONFLICT (store_id, shopify_order_id) DO UPDATE SET
+           financial_status = EXCLUDED.financial_status,
+           fulfillment_status = EXCLUDED.fulfillment_status,
+           delivery_status = EXCLUDED.delivery_status,
+           flags = EXCLUDED.flags,
+           tags = EXCLUDED.tags,
+           items = EXCLUDED.items,
+           updated_at = NOW()`,
         [
           orderId, storeId, mapShopifyStatus(so.financial_status), so.name, so.name,
           customerName, customerPhone, customerEmail,
@@ -515,85 +1012,6 @@ async function syncOrders(storeId: string, shop: string, accessToken: string): P
   await pool.query(`UPDATE stores SET shopify_synced_at = NOW() WHERE id = $1`, [storeId]);
   console.log(`[Shopify] Synced ${count} orders for store ${storeId}`);
   return count;
-}
-
-// ─── Helper: push order to Shopify ───────────────────────────────────────────
-export async function pushOrderToShopify(storeId: string, orderId: string): Promise<string | null> {
-  try {
-    const { rows: storeRows } = await pool.query(
-      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
-      [storeId]
-    );
-    if (!storeRows[0]?.shopify_shop) return null;
-
-    const { rows: orderRows } = await pool.query(
-      `SELECT o.*, array_agg(json_build_object('name', oi.product_name, 'price', oi.price, 'quantity', oi.quantity)) as items
-       FROM orders o
-       LEFT JOIN order_items oi ON oi.order_id = o.id
-       WHERE o.id = $1 GROUP BY o.id LIMIT 1`,
-      [orderId]
-    );
-    const order = orderRows[0];
-    if (!order) return null;
-
-    const shopifyOrder = {
-      order: {
-        line_items: order.items?.filter((i: any) => i.name).map((item: any) => ({
-          title: item.name,
-          price: String(item.price),
-          quantity: item.quantity || 1,
-        })) || [],
-        customer: {
-          first_name: order.customer_name?.split(" ")[0] || "",
-          last_name: order.customer_name?.split(" ").slice(1).join(" ") || "",
-          phone: order.customer_phone || "",
-        },
-        shipping_address: {
-          first_name: order.customer_name?.split(" ")[0] || "",
-          last_name: order.customer_name?.split(" ").slice(1).join(" ") || "",
-          phone: order.customer_phone || "",
-          city: order.wilaya || "",
-          address1: order.address || "",
-          country: "DZ",
-          country_code: "DZ",
-        },
-        shipping_lines: [
-          {
-            title: order.shipping_option === "home_delivery" ? "الى البيت" : "من الفرع",
-            price: String(order.shipping_fee ?? "0"),
-            code: order.shipping_option ?? "home_delivery",
-          },
-        ],
-        financial_status: "pending",
-        payment_gateway: "cash_on_delivery",
-        note: `COD Order from FlyChat COD. Wilaya: ${order.wilaya}`,
-        tags: "flychat-cod,cod",
-        send_receipt: false,
-        send_fulfillment_receipt: false,
-      },
-    };
-
-    const result = await shopifyFetch(
-      storeRows[0].shopify_shop,
-      storeRows[0].shopify_access_token,
-      "/orders.json",
-      { method: "POST", body: JSON.stringify(shopifyOrder) }
-    ) as any;
-
-    const shopifyOrderId = String(result.order?.id);
-    if (shopifyOrderId) {
-      await pool.query(
-        `UPDATE orders SET shopify_order_id = $1, updated_at = NOW() WHERE id = $2`,
-        [shopifyOrderId, orderId]
-      );
-      console.log(`[Shopify] Order ${orderId} pushed to Shopify as ${result.order?.name}`);
-    }
-
-    return shopifyOrderId || null;
-  } catch (err) {
-    console.error("[Shopify] Push order error:", err);
-    return null;
-  }
 }
 
 // ─── Helper: handle incoming Shopify order webhook ────────────────────────────
@@ -649,9 +1067,21 @@ async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<v
       total, is_cod,
       financial_status, fulfillment_status, delivery_status,
       sales_channel, flags, tags, items,
-      shopify_order_id, created_by_source, shipping_option,
+      shopify_order_id, shopify_source, created_by_source, shipping_option,
       created_at, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,'shopify',$21,NOW(),NOW())`,
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14,$15,$16,$17,$18,$19,$20,true,'shopify',$21,NOW(),NOW())
+     -- Backstop for the race between the SELECT above and this INSERT (webhook
+     -- retries arrive concurrently). Refreshes status fields only: customer
+     -- name/phone/email/address are left alone so a re-delivered webhook can't
+     -- undo a GDPR redaction.
+     ON CONFLICT (store_id, shopify_order_id) DO UPDATE SET
+       financial_status = EXCLUDED.financial_status,
+       fulfillment_status = EXCLUDED.fulfillment_status,
+       delivery_status = EXCLUDED.delivery_status,
+       flags = EXCLUDED.flags,
+       tags = EXCLUDED.tags,
+       items = EXCLUDED.items,
+       updated_at = NOW()`,
     [
       orderId, storeId, mapShopifyStatus(order.financial_status), order.name, order.name,
       customerName, customerPhone, customerEmail,
@@ -685,13 +1115,37 @@ async function handleShopifyProductWebhook(storeId: string, product: any): Promi
   }
 }
 
+// ─── Compliance (GDPR) webhook URLs ──────────────────────────────────────────
+// These three mandatory topics are NOT registered per-shop through the Admin API
+// — Shopify treats them as app-level configuration and rejects them on
+// POST /webhooks.json. They are set once in Partner Dashboard → App setup →
+// Compliance webhooks (or in shopify.app.toml [webhooks.privacy_compliance]),
+// and then fire for every shop that installs the app.
+// Handlers live above at /webhooks/customers/data_request, /webhooks/customers/redact
+// and /webhooks/shop/redact.
+export const COMPLIANCE_WEBHOOK_URLS = {
+  "customers/data_request": `${API_BASE_URL}/api/shopify/webhooks/customers/data_request`,
+  "customers/redact": `${API_BASE_URL}/api/shopify/webhooks/customers/redact`,
+  "shop/redact": `${API_BASE_URL}/api/shopify/webhooks/shop/redact`,
+} as const;
+
 // ─── Helper: register webhooks ────────────────────────────────────────────────
-async function registerWebhooks(shop: string, accessToken: string, storeId: string): Promise<void> {
+// Only shop-scoped topics belong here — one per topic FlyChat actually handles
+// in the /webhook dispatcher above. Registering a topic with no handler would
+// just mean Shopify delivering events this app silently drops.
+async function registerWebhooks(
+  shop: string,
+  accessToken: string,
+  storeId: string
+): Promise<{ registered: string[]; failed: { topic: string; error: string }[] }> {
   const webhooks = [
     { topic: "orders/create", address: `${API_BASE_URL}/api/shopify/webhook` },
     { topic: "products/update", address: `${API_BASE_URL}/api/shopify/webhook` },
     { topic: "products/create", address: `${API_BASE_URL}/api/shopify/webhook` },
   ];
+
+  const registered: string[] = [];
+  const failed: { topic: string; error: string }[] = [];
 
   for (const wh of webhooks) {
     try {
@@ -699,11 +1153,33 @@ async function registerWebhooks(shop: string, accessToken: string, storeId: stri
         method: "POST",
         body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: "json" } }),
       });
-    } catch (err) {
-      console.error(`[Shopify] Failed to register webhook ${wh.topic}:`, err);
+      registered.push(wh.topic);
+    } catch (err: any) {
+      const message = String(err?.message || err);
+      // Shopify 422s an exact (topic, address) duplicate — that means the
+      // subscription is already in place, so treat it as success.
+      if (/already been taken|has already/i.test(message)) {
+        registered.push(wh.topic);
+        console.log(`[Shopify] Webhook ${wh.topic} already registered for ${shop}`);
+      } else {
+        failed.push({ topic: wh.topic, error: message });
+        console.error(`[Shopify] Failed to register webhook ${wh.topic}:`, err);
+      }
     }
   }
-  console.log(`[Shopify] Webhooks registered for ${shop}`);
+
+  console.log(
+    `[Shopify] Webhooks registered for ${shop} (store ${storeId}): ` +
+    `${registered.length}/${webhooks.length} ok${failed.length ? `, ${failed.length} failed` : ""}`
+  );
+  if (failed.length === 0) {
+    console.log(
+      `[Shopify] Reminder: compliance topics (customers/data_request, customers/redact, shop/redact) ` +
+      `are app-level and must be set in the Partner Dashboard, not here.`
+    );
+  }
+
+  return { registered, failed };
 }
 
 // ─── Helper: map Shopify status ───────────────────────────────────────────────

@@ -1,0 +1,51 @@
+# Public distribution config for the new "Flychat-COD" app (client_id
+# f4080d6c0155349877463dc90187704a, org SKAHM LTD). Copied from
+# shopify.app.toml (FLychatcod / Sk Elegance) and re-pointed at the new app.
+#
+# application_url now points at GET /api/shopify/install (added on this
+# branch), which verifies the install HMAC + timestamp and redirects
+# straight to the OAuth grant screen — this is what fixes the 1.2 review
+# gap (opening application_url used to just load the marketing homepage).
+# redirect_urls are unchanged: OAuth still comes back through the same
+# /callback both apps share.
+#
+# Do not run `shopify app config link` against this file.
+
+client_id = "f4080d6c0155349877463dc90187704a"
+application_url = "https://zealous-nature-production-771f.up.railway.app/api/shopify/install"
+embedded = false
+name = "Flychat-COD"
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/customers/data_request"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/redact"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/customers/redact"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["shop/redact"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/shop/redact"
+
+# Ordinary per-shop topic, not a compliance topic — kept in its own block.
+# Shopify rejects a subscription that mixes `topics` and `compliance_topics`.
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "https://zealous-nature-production-771f.up.railway.app/api/shopify/webhooks/app/uninstalled"
+
+[access_scopes]
+# Trimmed from shopify.app.toml's 11 scopes to the 4 the code actually uses —
+# see audit finding 1.7 for where each one is used and which 7 were removed.
+scopes = "read_products,write_orders,read_orders,read_customers"
+optional_scopes = [ ]
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://flychatcodstore-production-a2e8.up.railway.app/api/shopify/callback",
+  "https://zealous-nature-production-771f.up.railway.app/api/shopify/callback"
+]

@@ -783,14 +783,6 @@ async function executeCreateOrderSilent(
       console.error("[Voice] Call trigger failed:", callErr);
     }
 
-    // ── Push to Shopify ───────────────────────────────────────────────────────
-    try {
-      const { pushOrderToShopify } = await import("../routes/shopify.js");
-      await pushOrderToShopify(storeId, orderId);
-    } catch (shopifyErr) {
-      console.error("[Shopify] Push order failed:", shopifyErr);
-    }
-
   } catch (err) {
     console.error("[AI Bridge] Silent order creation failed:", err);
   }

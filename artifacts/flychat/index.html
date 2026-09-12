@@ -9,6 +9,35 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!--
+      Must run before any analytics/pixel script (none load today, but this
+      guards against one added later stripping or rewriting the query
+      string first). Moves a Shopify claim token out of the URL into
+      sessionStorage immediately, then strips it from the address bar, so
+      it survives regardless of what else inspects/rewrites location.search
+      afterward. See artifacts/flychat/src/lib/shopify-claim.ts, which reads
+      from sessionStorage instead of the URL.
+    -->
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var claimToken = params.get("shopify_claim");
+        if (!claimToken) return;
+        try {
+          sessionStorage.setItem("shopify_claim_token", claimToken);
+          var shop = params.get("shop");
+          if (shop) sessionStorage.setItem("shopify_claim_shop", shop);
+        } catch (e) {
+          // sessionStorage unavailable (private mode, blocked) — nothing to
+          // fall back to here; shopify-claim.ts will just find nothing later.
+        }
+        params.delete("shopify_claim");
+        params.delete("shop");
+        var query = params.toString();
+        var newUrl = window.location.pathname + (query ? "?" + query : "") + window.location.hash;
+        window.history.replaceState(window.history.state, "", newUrl);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
