@@ -60,10 +60,18 @@ const queryClient = new QueryClient({
   },
 });
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+// `roles`, when given, mirrors the backend's requireOwner/requireOwnerOrAdmin
+// gates (artifacts/api-server/src/middlewares/auth.ts) so a user who
+// navigates straight to a URL they have no sidebar link for (e.g. an agent
+// typing /billing) gets redirected instead of rendering the real page. This
+// is defense in depth only — every one of these decisions is enforced
+// server-side regardless of what this does; a route with no `roles` here
+// still 403s at the API for anything role-gated on the backend.
+function ProtectedRoute({ component: Component, roles }: { component: React.ComponentType; roles?: readonly string[] }) {
   const { user, isLoading, token } = useAuth();
   if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-background"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
   if (!token || !user) return <Redirect to="/login" />;
+  if (roles && user.role !== "superadmin" && !roles.includes(user.role)) return <Redirect to="/dashboard" />;
   return <Component />;
 }
 
@@ -92,7 +100,7 @@ function Router() {
       <Route path="/accept-invite" component={AcceptInvite} />
 
       {/* App — protected */}
-      <Route path="/organization">{() => <ProtectedRoute component={Organization} />}</Route>
+      <Route path="/organization">{() => <ProtectedRoute component={Organization} roles={["owner", "admin"]} />}</Route>
       <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
       <Route path="/lead-intelligence">{() => <ProtectedRoute component={LeadIntelligence} />}</Route>
       <Route path="/inbox">{() => <ProtectedRoute component={Inbox} />}</Route>
@@ -101,15 +109,15 @@ function Router() {
       <Route path="/customers">{() => <ProtectedRoute component={Customers} />}</Route>
       <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetail} />}</Route>
       <Route path="/products">{() => <ProtectedRoute component={Products} />}</Route>
-      <Route path="/ad-links">{() => <ProtectedRoute component={AdLinks} />}</Route>
-      <Route path="/widget">{() => <ProtectedRoute component={Widget} />}</Route>
-      <Route path="/automation">{() => <ProtectedRoute component={Automation} />}</Route>
-      <Route path="/channels">{() => <ProtectedRoute component={Channels} />}</Route>
-      <Route path="/delivery">{() => <ProtectedRoute component={Delivery} />}</Route>
-      <Route path="/team">{() => <ProtectedRoute component={Team} />}</Route>
-      <Route path="/billing">{() => <ProtectedRoute component={Billing} />}</Route>
-      <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
-      <Route path="/ai-settings">{() => <ProtectedRoute component={AiSettings} />}</Route>
+      <Route path="/ad-links">{() => <ProtectedRoute component={AdLinks} roles={["owner", "admin"]} />}</Route>
+      <Route path="/widget">{() => <ProtectedRoute component={Widget} roles={["owner", "admin"]} />}</Route>
+      <Route path="/automation">{() => <ProtectedRoute component={Automation} roles={["owner", "admin"]} />}</Route>
+      <Route path="/channels">{() => <ProtectedRoute component={Channels} roles={["owner", "admin"]} />}</Route>
+      <Route path="/delivery">{() => <ProtectedRoute component={Delivery} roles={["owner", "admin"]} />}</Route>
+      <Route path="/team">{() => <ProtectedRoute component={Team} roles={["owner"]} />}</Route>
+      <Route path="/billing">{() => <ProtectedRoute component={Billing} roles={["owner"]} />}</Route>
+      <Route path="/settings">{() => <ProtectedRoute component={Settings} roles={["owner", "admin"]} />}</Route>
+      <Route path="/ai-settings">{() => <ProtectedRoute component={AiSettings} roles={["owner", "admin"]} />}</Route>
       <Route path="/admin">{() => <ProtectedRoute component={Admin} />}</Route>
 
       <Route component={NotFound} />

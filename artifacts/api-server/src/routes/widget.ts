@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, widgetConfigsTable, widgetSessionsTable, conversationsTable, messagesTable, storesTable, channelConnectionsTable } from "@workspace/db";
 import type { InsertWidgetConfig } from "@workspace/db";
 import { eq, and, desc, sql } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { z } from "zod";
 import { getIO } from "../socket.js";
@@ -11,7 +11,7 @@ import { fireTrigger, rescheduleInactivityChecks, handleAiReplyForMessage } from
 
 const router = Router();
 
-router.get("/config", requireAuth, async (req, res) => {
+router.get("/config", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(404).json({ error: "not_found", message: "No store found" }); return; }
@@ -30,7 +30,7 @@ router.get("/config", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/config", requireAuth, async (req, res) => {
+router.patch("/config", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }

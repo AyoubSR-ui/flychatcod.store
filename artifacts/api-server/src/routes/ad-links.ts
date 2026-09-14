@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 
 const router = Router();
 
 // ─── GET /api/ad-links — list all ad links for store ─────────────────────────
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ links: [] }); return; }
@@ -27,7 +27,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/ad-links — create a new ad link ────────────────────────────────
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -54,7 +54,7 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 // ─── DELETE /api/ad-links/:id ─────────────────────────────────────────────────
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await pool.query(

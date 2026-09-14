@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { db, storesTable, organizationsTable, usersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 
 const router = Router();
 
 // GET /api/organization
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.organizationId) {
@@ -42,7 +42,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // PATCH /api/organization
-router.patch("/", requireAuth, async (req, res) => {
+router.patch("/", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.organizationId) { res.status(400).json({ error: "no_org" }); return; }

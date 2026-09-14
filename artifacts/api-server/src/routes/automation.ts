@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { db, automationRulesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 
 const router = Router();
 
-router.get("/rules", requireAuth, async (req, res) => {
+router.get("/rules", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ rules: [] }); return; }
@@ -18,7 +18,7 @@ router.get("/rules", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/rules", requireAuth, async (req, res) => {
+router.post("/rules", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
@@ -60,7 +60,7 @@ router.post("/rules", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/rules/:id", requireAuth, async (req, res) => {
+router.patch("/rules/:id", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { name, isActive, config } = req.body;
@@ -81,7 +81,7 @@ router.patch("/rules/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.delete("/rules/:id", requireAuth, async (req, res) => {
+router.delete("/rules/:id", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await db.delete(automationRulesTable).where(and(eq(automationRulesTable.id, String(req.params.id)), eq(automationRulesTable.storeId, String(storeId))));

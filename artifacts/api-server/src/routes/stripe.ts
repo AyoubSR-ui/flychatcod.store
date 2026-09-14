@@ -2,7 +2,7 @@ import { Router } from "express";
 import Stripe from "stripe";
 import { db, pool, subscriptionsTable, storesTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwner } from "../middlewares/auth.js";
 import { sendSubscriptionEmail, sendTopUpEmail } from "../lib/email.js";
 
 const router = Router();
@@ -55,7 +55,7 @@ async function getOrCreateStripeCustomer(userId: string, email: string, name: st
 }
 
 // ─── POST /api/stripe/create-checkout ────────────────────────────────────────
-router.post("/create-checkout", requireAuth, async (req, res) => {
+router.post("/create-checkout", requireOwner, async (req, res) => {
   try {
     const user = req.user!;
     const { priceKey, annual = false } = req.body;
@@ -118,7 +118,7 @@ router.post("/create-checkout", requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/stripe/portal ───────────────────────────────────────────────────
-router.get("/portal", requireAuth, async (req, res) => {
+router.get("/portal", requireOwner, async (req, res) => {
   try {
     const user = req.user!;
     const { rows } = await pool.query(
@@ -322,7 +322,7 @@ router.post("/webhook", async (req, res) => {
 export default router;
 
 // GET /api/stripe/invoices
-router.get("/invoices", requireAuth, async (req, res) => {
+router.get("/invoices", requireOwner, async (req, res) => {
   try {
     const user = req.user!;
     const { rows } = await pool.query(

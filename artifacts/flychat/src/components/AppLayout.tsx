@@ -21,26 +21,34 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
   }
 
-  const navItems = [
-    { href: "/organization", label: "Organization", icon: Building2, raw: true },
+  // Mirrors the backend's requireOwner/requireOwnerOrAdmin gates (see
+  // artifacts/api-server/src/middlewares/auth.ts) — this list is defense in
+  // depth for the UI, not the actual enforcement. A role's absence here
+  // just hides the link; the API is what actually blocks the request.
+  // superadmin (FlyChat's own platform staff) always sees everything, same
+  // as it already did for the /admin link below.
+  const OWNER_ONLY: readonly string[] = ["owner"];
+  const OWNER_OR_ADMIN: readonly string[] = ["owner", "admin"];
+
+  const navItems: { href: string; label: string; icon: typeof LayoutDashboard; raw?: boolean; roles?: readonly string[] }[] = [
     { href: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
     { href: "/lead-intelligence", label: "Lead Intelligence", icon: TrendingUp, raw: true },
     { href: "/inbox", label: "nav.inbox", icon: MessageSquare },
     { href: "/orders", label: "nav.orders", icon: ShoppingBag },
     { href: "/customers", label: "nav.customers", icon: Users },
     { href: "/products", label: "nav.products", icon: Package },
-    { href: "/ad-links", label: "Ad Links", icon: Link2 },
-    { href: "/widget", label: "nav.widget", icon: MessageSquare },
-    { href: "/automation", label: "nav.automation", icon: Zap },
-    { href: "/channels", label: "nav.channels", icon: Plug },
-    { href: "/delivery", label: "Delivery", icon: Truck, raw: true },
-    { href: "/team", label: "nav.team", icon: Users2 },
-    { href: "/billing", label: "nav.billing", icon: CreditCard },
-    { href: "/organization", label: "Organization", icon: Building2 },
-    { href: "/ai-settings", label: "AI Settings", icon: Bot, raw: true },
-    { href: "/settings", label: "nav.settings", icon: Settings },
+    { href: "/ad-links", label: "Ad Links", icon: Link2, roles: OWNER_OR_ADMIN },
+    { href: "/widget", label: "nav.widget", icon: MessageSquare, roles: OWNER_OR_ADMIN },
+    { href: "/automation", label: "nav.automation", icon: Zap, roles: OWNER_OR_ADMIN },
+    { href: "/channels", label: "nav.channels", icon: Plug, roles: OWNER_OR_ADMIN },
+    { href: "/delivery", label: "Delivery", icon: Truck, raw: true, roles: OWNER_OR_ADMIN },
+    { href: "/team", label: "nav.team", icon: Users2, roles: OWNER_ONLY },
+    { href: "/billing", label: "nav.billing", icon: CreditCard, roles: OWNER_ONLY },
+    { href: "/organization", label: "Organization", icon: Building2, raw: true, roles: OWNER_OR_ADMIN },
+    { href: "/ai-settings", label: "AI Settings", icon: Bot, raw: true, roles: OWNER_OR_ADMIN },
+    { href: "/settings", label: "nav.settings", icon: Settings, roles: OWNER_OR_ADMIN },
     { href: "/docs", label: "Documentation", icon: BookOpen, raw: true },
-  ];
+  ].filter((item) => !item.roles || user?.role === "superadmin" || item.roles.includes(user?.role ?? ""));
 
   if (user?.role === "superadmin") {
     navItems.push({ href: "/admin", label: "nav.admin", icon: ShieldAlert });

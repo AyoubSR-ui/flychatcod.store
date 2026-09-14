@@ -11,7 +11,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { generateId } from "../lib/id.js";
 import { callAiBridge } from "../lib/ai-agent-bridge.js";
 import { getAiStatus } from "../lib/ai-credits.js";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import jwt from "jsonwebtoken";
 import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 import { analyzeImage } from "../lib/analyze-image.js";
@@ -240,7 +240,7 @@ instagramRouter.post("/webhook", async (req, res) => {
 });
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
-instagramRouter.post("/disconnect", requireAuth, async (req, res) => {
+instagramRouter.post("/disconnect", requireOwnerOrAdmin, async (req, res) => {
   const storeId = req.user?.storeId;
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
   await pool.query(

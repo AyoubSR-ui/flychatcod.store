@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, pool, storesTable, productsTable, ordersTable, orderItemsTable, customersTable, auditLogsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { ensureFreshShopifyToken, ShopifyReauthRequiredError, tokenExpiryFields } from "../lib/shopify-token.js";
 import crypto from "crypto";
@@ -124,7 +124,7 @@ export async function shopifyFetch(storeId: string, endpoint: string, options: R
 }
 
 // ─── GET /api/shopify/status ──────────────────────────────────────────────────
-router.get("/status", requireAuth, async (req, res) => {
+router.get("/status", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ connected: false }); return; }
@@ -156,7 +156,7 @@ router.get("/status", requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/shopify/oauth/start ────────────────────────────────────────────
-router.get("/oauth/start", requireAuth, async (req, res) => {
+router.get("/oauth/start", requireOwnerOrAdmin, async (req, res) => {
   const { shop } = req.query as Record<string, string>;
 
   if (!shop) { res.status(400).json({ error: "shop parameter required" }); return; }
@@ -352,7 +352,7 @@ router.get("/callback", async (req, res) => {
 });
 
 // ─── POST /api/shopify/disconnect ─────────────────────────────────────────────
-router.post("/disconnect", requireAuth, async (req, res) => {
+router.post("/disconnect", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -380,7 +380,7 @@ router.post("/disconnect", requireAuth, async (req, res) => {
 // Attaches a pending install (from GET /install → /callback, no FlyChat
 // account at the time) to the now-logged-in user's store. Called by the
 // frontend signup/login pages when a shopify_claim token is present in the URL.
-router.post("/claim", requireAuth, async (req, res) => {
+router.post("/claim", requireOwnerOrAdmin, async (req, res) => {
   let claimedShop: string | undefined;
   try {
     await cleanupExpiredPendingInstalls();
@@ -447,7 +447,7 @@ router.post("/claim", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/shopify/sync/products ─────────────────────────────────────────
-router.post("/sync/products", requireAuth, async (req, res) => {
+router.post("/sync/products", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -474,7 +474,7 @@ router.post("/sync/products", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/shopify/sync/orders ───────────────────────────────────────────
-router.post("/sync/orders", requireAuth, async (req, res) => {
+router.post("/sync/orders", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -507,7 +507,7 @@ router.post("/sync/orders", requireAuth, async (req, res) => {
 // deleted in Shopify, or a store connected before a topic was added here.
 // Registration is idempotent per (topic, address): Shopify rejects an exact
 // duplicate, which registerWebhooks logs and skips.
-router.post("/register-webhooks", requireAuth, async (req, res) => {
+router.post("/register-webhooks", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }

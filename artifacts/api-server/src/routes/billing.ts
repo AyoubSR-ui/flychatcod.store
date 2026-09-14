@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { db, pool, subscriptionsTable, storesTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwner } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 
 // ── Agent-secret middleware (for Python optimizer calls) ──────────────────────
@@ -139,7 +139,7 @@ const TOP_UPS = [
   { id: "topup_50k", credits: 50000, label: "50K", price: 69, currency: "USD" },
 ];
 
-router.get("/subscription", requireAuth, async (req, res) => {
+router.get("/subscription", requireOwner, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.organizationId) {
@@ -162,7 +162,7 @@ router.get("/plans", async (_req, res) => {
   res.json({ plans: PLANS, topUps: TOP_UPS });
 });
 
-router.get("/ai-status", requireAuth, async (req, res) => {
+router.get("/ai-status", requireOwner, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.storeId) {
@@ -177,7 +177,7 @@ router.get("/ai-status", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/top-up", requireAuth, async (req, res) => {
+router.post("/top-up", requireOwner, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.organizationId) { res.status(400).json({ error: "no_org" }); return; }

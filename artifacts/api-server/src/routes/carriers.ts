@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { pool } from "@workspace/db";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { ensureCarrierTables } from "../lib/schema-bootstrap.js";
 import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/carriers/index.js";
@@ -28,7 +28,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/carriers/connect — generic connect flow ────────────────────────
-router.post("/connect", requireAuth, async (req, res) => {
+router.post("/connect", requireOwnerOrAdmin, async (req, res) => {
   try {
     await ensureCarrierTables();
     const storeId = req.user!.storeId;
@@ -65,7 +65,7 @@ router.post("/connect", requireAuth, async (req, res) => {
 });
 
 // ─── PATCH /api/carriers/:id/rename — rename a connected account's label ──────
-router.patch("/:id/rename", requireAuth, async (req, res) => {
+router.patch("/:id/rename", requireOwnerOrAdmin, async (req, res) => {
   try {
     await ensureCarrierTables();
     const storeId = req.user!.storeId;
@@ -87,7 +87,7 @@ router.patch("/:id/rename", requireAuth, async (req, res) => {
 });
 
 // ─── DELETE /api/carriers/:id — disconnect an account ──────────────────────────
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireOwnerOrAdmin, async (req, res) => {
   try {
     await ensureCarrierTables();
     const storeId = req.user!.storeId;

@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { db, channelConnectionsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 
 const router = Router();
 
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ channels: [] }); return; }
@@ -17,7 +17,7 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/:id/connect", requireAuth, async (req, res) => {
+router.post("/:id/connect", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }

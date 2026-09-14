@@ -16,7 +16,7 @@ import {
   type WhatsAppWebhookPayload,
 } from "../lib/whatsapp-service.js";
 import { callAiBridge } from "../lib/ai-agent-bridge.js";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { getAiStatus } from "../lib/ai-credits.js";
 import { getProductFromAdRef, buildAdProductPrompt } from "../lib/ad-product-lookup.js";
 import { analyzeImage } from "../lib/analyze-image.js";
@@ -52,7 +52,7 @@ whatsappRouter.get("/webhook", (req, res) => {
 });
 
 // ─── Connect WhatsApp ─────────────────────────────────────────────────────────
-whatsappRouter.post("/connect", requireAuth, async (req, res) => {
+whatsappRouter.post("/connect", requireOwnerOrAdmin, async (req, res) => {
   const storeId = await resolveStoreId(req);
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
   const { accessToken, phoneNumberId } = req.body;
@@ -82,7 +82,7 @@ whatsappRouter.post("/connect", requireAuth, async (req, res) => {
 });
 
 // ─── Disconnect WhatsApp ──────────────────────────────────────────────────────
-whatsappRouter.post("/disconnect", requireAuth, async (req, res) => {
+whatsappRouter.post("/disconnect", requireOwnerOrAdmin, async (req, res) => {
   const storeId = await resolveStoreId(req);
   if (!storeId) { res.status(400).json({ error: "No store" }); return; }
   try {

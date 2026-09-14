@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, pool, productsTable } from "@workspace/db";
 import { eq, and, ilike, sql } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 
 const router = Router();
@@ -186,7 +186,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
 });
 
 // ─── DELETE /api/products/:id ─────────────────────────────────────────────────
-router.delete("/:id", requireAuth, async (req, res) => {
+router.delete("/:id", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await pool.query(

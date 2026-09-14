@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { db, pool, storesTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { findWilayaKey } from "../lib/ai-agent-bridge.js";
 
 const router = Router();
 
-router.get("/store", requireAuth, async (req, res) => {
+router.get("/store", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.storeId) {
@@ -34,7 +34,7 @@ router.get("/store", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/store", requireAuth, async (req, res) => {
+router.patch("/store", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;
     if (!user.storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
@@ -78,13 +78,9 @@ router.patch("/store", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/ai", requireAuth, async (req, res) => {
+router.get("/ai", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;
-    if (user.role !== "owner" && user.role !== "admin") {
-      res.status(403).json({ error: "forbidden", message: "Only owners and admins can view AI settings" });
-      return;
-    }
     if (!user.storeId) {
       res.status(404).json({ error: "not_found", message: "No store found" });
       return;
@@ -104,13 +100,9 @@ router.get("/ai", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/ai", requireAuth, async (req, res) => {
+router.patch("/ai", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;
-    if (user.role !== "owner" && user.role !== "admin") {
-      res.status(403).json({ error: "forbidden", message: "Only owners and admins can update AI settings" });
-      return;
-    }
     if (!user.storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
 
     const { aiEnabled, aiSystemPrompt, aiFallbackToHuman } = req.body;
@@ -137,7 +129,7 @@ router.patch("/ai", requireAuth, async (req, res) => {
 });
 
 // GET /api/settings/shipping-options
-router.get("/shipping-options", requireAuth, async (req, res) => {
+router.get("/shipping-options", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { rows } = await pool.query(
@@ -185,7 +177,7 @@ router.get("/shipping-price", requireAuth, async (req, res) => {
 });
 
 // PATCH /api/settings/shipping-options
-router.patch("/shipping-options", requireAuth, async (req, res) => {
+router.patch("/shipping-options", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await pool.query(
@@ -199,7 +191,7 @@ router.patch("/shipping-options", requireAuth, async (req, res) => {
 });
 
 // GET /api/settings/channels-ai
-router.get("/channels-ai", requireAuth, async (req, res) => {
+router.get("/channels-ai", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { rows } = await pool.query(
@@ -219,7 +211,7 @@ router.get("/channels-ai", requireAuth, async (req, res) => {
 });
 
 // PATCH /api/settings/channels-ai
-router.patch("/channels-ai", requireAuth, async (req, res) => {
+router.patch("/channels-ai", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { whatsapp, instagram, messenger, widget } = req.body;
@@ -260,7 +252,7 @@ router.patch("/channels-ai", requireAuth, async (req, res) => {
 });
 
 // ─── AI Rules ─────────────────────────────────────────────────────────────────
-router.get("/ai-rules", requireAuth, async (req, res) => {
+router.get("/ai-rules", requireOwnerOrAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT metadata FROM stores WHERE id = $1 LIMIT 1`,
@@ -273,7 +265,7 @@ router.get("/ai-rules", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/ai-rules", requireAuth, async (req, res) => {
+router.patch("/ai-rules", requireOwnerOrAdmin, async (req, res) => {
   try {
     const { rules } = req.body;
     await pool.query(
@@ -286,7 +278,7 @@ router.patch("/ai-rules", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/ai-rules", requireAuth, async (req, res) => {
+router.post("/ai-rules", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { rules } = req.body;
@@ -302,7 +294,7 @@ router.post("/ai-rules", requireAuth, async (req, res) => {
 });
 
 // ─── AI Language ──────────────────────────────────────────────────────────────
-router.get("/ai-language", requireAuth, async (req, res) => {
+router.get("/ai-language", requireOwnerOrAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT metadata FROM stores WHERE id = $1 LIMIT 1`,
@@ -315,7 +307,7 @@ router.get("/ai-language", requireAuth, async (req, res) => {
   }
 });
 
-router.patch("/ai-language", requireAuth, async (req, res) => {
+router.patch("/ai-language", requireOwnerOrAdmin, async (req, res) => {
   try {
     const { language } = req.body;
     await pool.query(
@@ -329,7 +321,7 @@ router.patch("/ai-language", requireAuth, async (req, res) => {
 });
 
 // ─── Apply AI to ALL conversations (all channels, incl. old/unreplied) ────────
-router.post("/apply-ai-to-all-conversations", requireAuth, async (req, res) => {
+router.post("/apply-ai-to-all-conversations", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { rowCount } = await pool.query(
@@ -347,7 +339,7 @@ router.post("/apply-ai-to-all-conversations", requireAuth, async (req, res) => {
 });
 
 // ─── Bulk Apply AI Autopilot ──────────────────────────────────────────────────
-router.post("/apply-ai-to-all", requireAuth, async (req, res) => {
+router.post("/apply-ai-to-all", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { channel } = req.body;
@@ -380,7 +372,7 @@ router.post("/apply-ai-to-all", requireAuth, async (req, res) => {
 });
 
 // ─── AI Data Quality ──────────────────────────────────────────────────────────
-router.get("/ai-data-quality", requireAuth, async (req, res) => {
+router.get("/ai-data-quality", requireOwnerOrAdmin, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { rows: productRows } = await pool.query(

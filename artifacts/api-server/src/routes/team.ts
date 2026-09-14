@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, pool, teamMembersTable, inviteTokensTable, storesTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireOwner } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { sendInviteEmail } from "../lib/email.js";
 import { randomBytes } from "crypto";
@@ -9,6 +9,19 @@ import { randomBytes } from "crypto";
 const router = Router();
 
 const PLAN_LIMITS: Record<string, number> = { free: 1, starter: 3, pro: 10, agency: -1 };
+
+// Team management is owner-only end to end (see requireOwner on every route
+// below) — but the role-assignment checks here are kept as their own,
+// independent guard rather than trusting the middleware alone. If this ever
+// gets loosened to admins too (not the current decision), these rules —
+// never grant "owner", never grant a role you don't outrank — still hold
+// without anyone having to remember to add them back in.
+const ROLE_RANK: Record<string, number> = { owner: 3, admin: 2, agent: 1 };
+
+function isAssignableRole(requestedRole: unknown, callerRole: string): requestedRole is "admin" | "agent" {
+  if (requestedRole !== "admin" && requestedRole !== "agent") return false;
+  return ROLE_RANK[requestedRole] < (ROLE_RANK[callerRole] ?? 0);
+}
 
 function buildAcceptUrl(token: string): string {
   const configured = process.env.APP_BASE_URL
@@ -26,7 +39,7 @@ async function getPlanForStore(storeId: string): Promise<string> {
 }
 
 // ─── GET members ──────────────────────────────────────────────────────────────
-router.get("/members", requireAuth, async (req, res) => {
+router.get("/members", requireOwner, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ members: [] }); return; }
@@ -40,7 +53,7 @@ router.get("/members", requireAuth, async (req, res) => {
 });
 
 // ─── POST invite member ───────────────────────────────────────────────────────
-router.post("/members", requireAuth, async (req, res) => {
+router.post("/members", requireOwner, async (req, res) => {
   try {
     const storeId = String(req.user!.storeId);
     if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
@@ -48,6 +61,10 @@ router.post("/members", requireAuth, async (req, res) => {
     const { email, role } = req.body;
     if (!email || !role) {
       res.status(400).json({ error: "validation_error", message: "email and role are required" });
+      return;
+    }
+    if (!isAssignableRole(role, req.user!.role)) {
+      res.status(400).json({ error: "invalid_role", message: "role must be \"admin\" or \"agent\" — you can't invite someone as owner." });
       return;
     }
 
@@ -104,7 +121,7 @@ router.post("/members", requireAuth, async (req, res) => {
 });
 
 // ─── POST resend invite ───────────────────────────────────────────────────────
-router.post("/members/:id/resend-invite", requireAuth, async (req, res) => {
+router.post("/members/:id/resend-invite", requireOwner, async (req, res) => {
   try {
     const storeId = String(req.user!.storeId);
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -158,10 +175,14 @@ router.post("/members/:id/resend-invite", requireAuth, async (req, res) => {
 });
 
 // ─── PATCH member ─────────────────────────────────────────────────────────────
-router.patch("/members/:id", requireAuth, async (req, res) => {
+router.patch("/members/:id", requireOwner, async (req, res) => {
   try {
     const storeId = String(req.user!.storeId);
     const { role, status } = req.body;
+    if (role && !isAssignableRole(role, req.user!.role)) {
+      res.status(400).json({ error: "invalid_role", message: "role must be \"admin\" or \"agent\" — you can't promote someone to owner." });
+      return;
+    }
     const updates: Partial<typeof teamMembersTable.$inferSelect> = { updatedAt: new Date() };
     if (role) updates.role = role;
     if (status) updates.status = status;
@@ -179,9 +200,19 @@ router.patch("/members/:id", requireAuth, async (req, res) => {
 });
 
 // ─── DELETE member ────────────────────────────────────────────────────────────
-router.delete("/members/:id", requireAuth, async (req, res) => {
+router.delete("/members/:id", requireOwner, async (req, res) => {
   try {
     const storeId = String(req.user!.storeId);
+
+    const [member] = await db.select().from(teamMembersTable)
+      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, storeId)))
+      .limit(1);
+    if (!member) { res.status(404).json({ error: "not_found", message: "Team member not found" }); return; }
+    if (member.role === "owner") {
+      res.status(403).json({ error: "cannot_remove_owner", message: "The store owner can't be removed from the team." });
+      return;
+    }
+
     await db.delete(inviteTokensTable)
       .where(and(
         eq(inviteTokensTable.teamMemberId, String(req.params.id)),
