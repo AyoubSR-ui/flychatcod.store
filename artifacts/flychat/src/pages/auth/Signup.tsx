@@ -20,8 +20,11 @@ export default function Signup() {
   // making them create a new one. See Login.tsx.
   useEffect(() => {
     if (!token || !hasPendingShopifyClaim()) return;
-    claimPendingShopifyInstall(token).then((claimed) => {
-      if (claimed) setLocation("/channels");
+    claimPendingShopifyInstall(token).then((result) => {
+      if (result.status === "claimed") setLocation("/channels");
+      else if (result.status === "conflict") {
+        toast({ variant: "destructive", title: "Shopify connection failed", description: result.message });
+      }
     });
   }, [token]);
 
@@ -31,16 +34,30 @@ export default function Signup() {
         // See Login.tsx: a pending Shopify install (GET /install ->
         // /callback with no FlyChat account yet) is claimed right after
         // this brand-new account gets its session token, then routed
-        // straight to Channels instead of onboarding.
-        const claimed = await claimPendingShopifyInstall(data.token);
+        // straight to Channels instead of onboarding. A brand-new account
+        // has no store yet, so this normally comes back "no_store_yet" —
+        // Onboarding.tsx retries the claim once the store exists.
+        const result = await claimPendingShopifyInstall(data.token);
         login(data.token, data.needsOnboarding);
-        if (claimed) setLocation("/channels");
+        if (result.status === "claimed") setLocation("/channels");
+        else if (result.status === "conflict") {
+          toast({ variant: "destructive", title: "Shopify connection failed", description: result.message });
+        } else if (result.status === "invalid_or_expired" || result.status === "failed") {
+          toast({
+            variant: "destructive",
+            title: "Shopify connection failed",
+            description: "We couldn't attach your Shopify install to this account. Please reconnect it from Channels.",
+          });
+        }
       },
       onError: (err: any) => {
+        const isConflict = err?.status === 409;
         toast({
           variant: "destructive",
-          title: "Signup failed",
-          description: err.message || "An error occurred. Please try again.",
+          title: isConflict ? "Email already registered" : "Signup failed",
+          description: isConflict
+            ? "An account with this email already exists. Log in instead, or use a different email."
+            : (err.message || "An error occurred. Please try again."),
         });
       }
     }

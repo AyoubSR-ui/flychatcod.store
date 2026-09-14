@@ -20,8 +20,11 @@ export default function Login() {
   // claim immediately and skip the form.
   useEffect(() => {
     if (!token || !hasPendingShopifyClaim()) return;
-    claimPendingShopifyInstall(token).then((claimed) => {
-      if (claimed) setLocation("/channels");
+    claimPendingShopifyInstall(token).then((result) => {
+      if (result.status === "claimed") setLocation("/channels");
+      else if (result.status === "conflict") {
+        toast({ variant: "destructive", title: "Shopify connection failed", description: result.message });
+      }
     });
   }, [token]);
 
@@ -31,10 +34,21 @@ export default function Login() {
         // A pending Shopify install (from GET /install → /callback with no
         // FlyChat account at the time) is claimed here, after we have a
         // real session token, then routed straight to Channels instead of
-        // login()'s normal onboarding/dashboard redirect.
-        const claimed = await claimPendingShopifyInstall(data.token);
+        // login()'s normal onboarding/dashboard redirect. An existing
+        // account already has a store, so unlike Signup.tsx this isn't
+        // expected to come back "no_store_yet" in the normal case.
+        const result = await claimPendingShopifyInstall(data.token);
         login(data.token, data.needsOnboarding);
-        if (claimed) setLocation("/channels");
+        if (result.status === "claimed") setLocation("/channels");
+        else if (result.status === "conflict") {
+          toast({ variant: "destructive", title: "Shopify connection failed", description: result.message });
+        } else if (result.status === "invalid_or_expired" || result.status === "failed") {
+          toast({
+            variant: "destructive",
+            title: "Shopify connection failed",
+            description: "We couldn't attach your Shopify install to this account. Please reconnect it from Channels.",
+          });
+        }
       },
       onError: (err: any) => {
         toast({

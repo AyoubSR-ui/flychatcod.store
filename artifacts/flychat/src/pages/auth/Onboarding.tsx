@@ -3,6 +3,8 @@ import { useLocation } from "wouter";
 import { Loader2, Check, MessageSquare, Zap, Building2, Globe, MapPin, Plug, ChevronRight, X } from "lucide-react";
 import { useCompleteOnboarding, OnboardingRequestLanguage, OnboardingRequestWidgetLanguage } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { claimPendingShopifyInstall, hasPendingShopifyClaim } from "@/lib/shopify-claim";
 
 const ALGERIA_WILAYAS = [
   "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar","Blida","Bouira",
@@ -134,6 +136,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(1);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { token } = useAuth();
   const [completed, setCompleted] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("free");
   const [selectedChannel, setSelectedChannel] = useState("widget"); // for free plan
@@ -149,7 +152,27 @@ export default function Onboarding() {
 
   const onboardingMutation = useCompleteOnboarding({
     mutation: {
-      onSuccess: () => setCompleted(true),
+      onSuccess: async () => {
+        // A pending Shopify install claimed during signup normally comes
+        // back "no_store_yet" (see shopify-claim.ts) because the account had
+        // no store until right now — retry it now that onboarding just
+        // created one, instead of leaving it stuck forever.
+        if (token && hasPendingShopifyClaim()) {
+          const result = await claimPendingShopifyInstall(token);
+          if (result.status === "claimed") {
+            toast({ title: "Shopify connected", description: `Your ${result.shop} store is now linked to FlyChat.` });
+          } else if (result.status === "conflict") {
+            toast({ variant: "destructive", title: "Shopify connection failed", description: result.message });
+          } else if (result.status === "invalid_or_expired" || result.status === "failed") {
+            toast({
+              variant: "destructive",
+              title: "Shopify connection failed",
+              description: "We couldn't attach your Shopify install to this account. Please reconnect it from Channels.",
+            });
+          }
+        }
+        setCompleted(true);
+      },
       onError: (err: any) => {
         toast({
           variant: "destructive",
@@ -164,7 +187,7 @@ export default function Onboarding() {
 
   const canProceed = () => {
     if (step === 1) return true;
-    if (step === 2) return !!formData.businessName && !!formData.storeName;
+    if (step === 2) return !!formData.businessName && !!formData.storeName && !!formData.businessPhone;
     return true;
   };
 
