@@ -9,6 +9,8 @@ import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/
 import { dispatchOrderToCarrier, refreshShipmentStatus } from "./carriers.js";
 import { logOrderEvent } from "../lib/order-events.js";
 import { ensureOrderEventsTable } from "../lib/schema-bootstrap.js";
+import { shopifyFetch } from "./shopify.js";
+import { ShopifyReauthRequiredError } from "../lib/shopify-token.js";
 
 const router = Router();
 
@@ -546,17 +548,6 @@ router.post("/:id/sync-shopify", requireAuth, async (req, res) => {
       return;
     }
 
-    const { rows: storeRows } = await pool.query(
-      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
-      [storeId]
-    );
-    const shop = storeRows[0]?.shopify_shop;
-    const accessToken = storeRows[0]?.shopify_access_token;
-    if (!shop || !accessToken) {
-      res.status(400).json({ error: "shopify_not_connected", message: "Shopify isn't connected for this store." });
-      return;
-    }
-
     const { rows: shipmentRows } = await pool.query(
       `SELECT tracking_number, carrier FROM shipments WHERE order_id = $1 AND store_id = $2 ORDER BY created_at DESC LIMIT 1`,
       [req.params.id, storeId]
@@ -565,14 +556,22 @@ router.post("/:id/sync-shopify", requireAuth, async (req, res) => {
 
     const note = `FlyChat COD — status: ${order.status}` + (shipment?.tracking_number ? ` | tracking: ${shipment.tracking_number} (${shipment.carrier})` : "");
 
-    const shopifyRes = await fetch(`https://${shop}/admin/api/2024-01/orders/${order.shopify_order_id}.json`, {
-      method: "PUT",
-      headers: { "X-Shopify-Access-Token": accessToken, "Content-Type": "application/json" },
-      body: JSON.stringify({ order: { id: order.shopify_order_id, note, tags: "flychat-cod" } }),
-    });
-    if (!shopifyRes.ok) {
-      const errorText = await shopifyRes.text();
-      res.status(400).json({ error: "shopify_error", message: `Shopify rejected the sync (${shopifyRes.status}): ${errorText}` });
+    // Routed through the shared shopifyFetch() (shopify.ts) rather than a raw
+    // fetch() so this call also gets proactive token refresh and the 401
+    // retry-once fallback — this used to be the one Admin API call site that
+    // read stores.shopify_access_token directly and would silently start
+    // failing once tokens began expiring.
+    try {
+      await shopifyFetch(storeId, `/orders/${order.shopify_order_id}.json`, {
+        method: "PUT",
+        body: JSON.stringify({ order: { id: order.shopify_order_id, note, tags: "flychat-cod" } }),
+      });
+    } catch (err: any) {
+      if (err instanceof ShopifyReauthRequiredError) {
+        res.status(409).json({ error: "needs_reconnect", message: "Shopify connection expired — please reconnect." });
+        return;
+      }
+      res.status(400).json({ error: "shopify_error", message: `Shopify rejected the sync: ${err.message}` });
       return;
     }
 

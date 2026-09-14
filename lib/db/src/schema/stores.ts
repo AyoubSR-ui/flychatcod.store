@@ -26,6 +26,18 @@ export const storesTable = pgTable("stores", {
   shopifyAccessToken: text("shopify_access_token"),
   shopifyScope: text("shopify_scope"),
   shopifySyncedAt: timestamp("shopify_synced_at"),
+  // Expiring offline tokens only (post-"expiring: 1" installs) — NULL for a
+  // non-expiring legacy token (e.g. SK Elegance's), which never needs
+  // refreshing. See artifacts/api-server/src/lib/shopify-token.ts.
+  shopifyRefreshToken: text("shopify_refresh_token"),
+  shopifyTokenExpiresAt: timestamp("shopify_token_expires_at"),
+  shopifyRefreshTokenExpiresAt: timestamp("shopify_refresh_token_expires_at"),
+  // Set when a refresh attempt comes back with a terminal failure (refresh
+  // token expired, revoked, or rejected) — the store's Admin API access is
+  // dead until the merchant reconnects through OAuth again. Cleared
+  // automatically the next time a fresh token is stored (new install,
+  // reconnect, claim, or a successful refresh).
+  shopifyNeedsReconnect: boolean("shopify_needs_reconnect").notNull().default(false),
   // Which Shopify app (client_id) this store's install belongs to. Lets
   // compliance webhooks tell FLychatcod's legacy install apart from the new
   // public app's install for the same shop, so one app's mandatory webhooks

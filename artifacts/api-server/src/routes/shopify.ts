@@ -3,6 +3,7 @@ import { db, pool, storesTable, productsTable, ordersTable, orderItemsTable, cus
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
+import { ensureFreshShopifyToken, ShopifyReauthRequiredError, tokenExpiryFields } from "../lib/shopify-token.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -83,9 +84,17 @@ function verifyShopifyInstallHmac(query: Record<string, string>): boolean {
 }
 
 // ─── Helper: Shopify API call ─────────────────────────────────────────────────
-async function shopifyFetch(shop: string, accessToken: string, endpoint: string, options: RequestInit = {}) {
+// The single call site every Admin API request should go through (products,
+// orders, webhooks, order updates — see orders.ts's sync-shopify route too).
+// Resolves a fresh token via ensureFreshShopifyToken() (proactive refresh
+// when within REFRESH_BUFFER_MS of expiry) before the request; if Shopify
+// still comes back 401 (clock skew, a token revoked mid-flight), forces one
+// refresh and retries the call exactly once. Throws ShopifyReauthRequiredError
+// if the store has no usable token at all — callers should let that surface
+// as a distinct "reconnect Shopify" error rather than a generic 500.
+async function rawShopifyFetch(shop: string, accessToken: string, endpoint: string, options: RequestInit = {}) {
   const url = `https://${shop}/admin/api/2024-01${endpoint}`;
-  const res = await fetch(url, {
+  return fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -93,6 +102,20 @@ async function shopifyFetch(shop: string, accessToken: string, endpoint: string,
       ...options.headers,
     },
   });
+}
+
+export async function shopifyFetch(storeId: string, endpoint: string, options: RequestInit = {}) {
+  let creds = await ensureFreshShopifyToken(storeId);
+  if (!creds) throw new ShopifyReauthRequiredError(storeId);
+
+  let res = await rawShopifyFetch(creds.shop, creds.accessToken, endpoint, options);
+
+  if (res.status === 401) {
+    creds = await ensureFreshShopifyToken(storeId, { forceRefresh: true });
+    if (!creds) throw new ShopifyReauthRequiredError(storeId);
+    res = await rawShopifyFetch(creds.shop, creds.accessToken, endpoint, options);
+  }
+
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Shopify API error ${res.status}: ${err}`);
@@ -107,18 +130,24 @@ router.get("/status", requireAuth, async (req, res) => {
     if (!storeId) { res.json({ connected: false }); return; }
 
     const { rows } = await pool.query(
-      `SELECT shopify_shop, shopify_access_token, shopify_scope, shopify_synced_at FROM stores WHERE id = $1 LIMIT 1`,
+      `SELECT shopify_shop, shopify_access_token, shopify_scope, shopify_synced_at, shopify_needs_reconnect
+       FROM stores WHERE id = $1 LIMIT 1`,
       [storeId]
     );
     const row = rows[0];
     // "Connected" means a live token, not just a remembered shop domain —
     // shopify_shop is kept after /disconnect and app/uninstalled so a
     // reinstall can be recognized, so it alone no longer implies connected.
+    // needsReconnect is distinct from connected=false: it means there WAS a
+    // working connection whose refresh token has since expired/been
+    // rejected (see shopify-token.ts) — the merchant needs to click through
+    // OAuth again, not just "connect for the first time".
     res.json({
-      connected: !!row?.shopify_access_token,
+      connected: !!row?.shopify_access_token && !row?.shopify_needs_reconnect,
       shop: row?.shopify_shop || null,
       scope: row?.shopify_scope || null,
       syncedAt: row?.shopify_synced_at || null,
+      needsReconnect: !!row?.shopify_needs_reconnect,
     });
   } catch (err) {
     console.error("[Shopify] Status error:", err);
@@ -230,18 +259,30 @@ router.get("/callback", async (req, res) => {
       return;
     }
 
-    // Exchange code for access token
+    // Exchange code for access token. `expiring: "1"` requests an expiring
+    // offline token with a refresh_token — Shopify now rejects the default
+    // ("0", non-expiring) for this app (403 "Non-expiring access tokens are
+    // no longer accepted"). See shopify-token.ts for how expiry/refresh is
+    // handled from here on.
     const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client_id: SHOPIFY_API_KEY, client_secret: SHOPIFY_API_SECRET, code }),
+      body: JSON.stringify({ client_id: SHOPIFY_API_KEY, client_secret: SHOPIFY_API_SECRET, code, expiring: "1" }),
     });
-    const tokenData = await tokenRes.json() as { access_token: string; scope: string };
+    const tokenData = await tokenRes.json() as {
+      access_token: string;
+      scope: string;
+      expires_in?: number;
+      refresh_token?: string;
+      refresh_token_expires_in?: number;
+    };
 
     if (!tokenData.access_token) {
       res.redirect(`${APP_BASE_URL}/channels?error=shopify_token_failed`);
       return;
     }
+
+    const { tokenExpiresAt, refreshToken, refreshTokenExpiresAt } = tokenExpiryFields(tokenData);
 
     const { storeId } = statePayload;
     if (!storeId) {
@@ -255,8 +296,10 @@ router.get("/callback", async (req, res) => {
         // Same shop already has a live token under this app (e.g. it
         // uninstalled and reinstalled) — just refresh the token in place.
         await pool.query(
-          `UPDATE stores SET shopify_access_token = $1, shopify_scope = $2, updated_at = NOW() WHERE id = $3`,
-          [tokenData.access_token, tokenData.scope, existing[0].id]
+          `UPDATE stores SET shopify_access_token = $1, shopify_scope = $2,
+             shopify_refresh_token = $3, shopify_token_expires_at = $4, shopify_refresh_token_expires_at = $5,
+             shopify_needs_reconnect = false, updated_at = NOW() WHERE id = $6`,
+          [tokenData.access_token, tokenData.scope, refreshToken, tokenExpiresAt, refreshTokenExpiresAt, existing[0].id]
         );
         console.log(`[Shopify] Refreshed token for existing store ${existing[0].id} (shop ${shop})`);
         res.redirect(`${APP_BASE_URL}/channels?success=shopify_reconnected`);
@@ -272,9 +315,10 @@ router.get("/callback", async (req, res) => {
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
 
       await pool.query(
-        `INSERT INTO shopify_pending_installs (id, shop, access_token, scope, client_id, claim_token_hash, expires_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-        [generateId("shpi"), shop, tokenData.access_token, tokenData.scope, SHOPIFY_API_KEY, claimTokenHash, expiresAt]
+        `INSERT INTO shopify_pending_installs
+           (id, shop, access_token, scope, refresh_token, token_expires_at, refresh_token_expires_at, client_id, claim_token_hash, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+        [generateId("shpi"), shop, tokenData.access_token, tokenData.scope, refreshToken, tokenExpiresAt, refreshTokenExpiresAt, SHOPIFY_API_KEY, claimTokenHash, expiresAt]
       );
 
       console.log(`[Shopify] Pending install created for shop ${shop}, awaiting claim`);
@@ -286,17 +330,19 @@ router.get("/callback", async (req, res) => {
     // (SHOPIFY_API_KEY) — recording it lets the GDPR handlers above tell
     // this store apart from one still owned by the legacy app.
     await pool.query(
-      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4, updated_at = NOW() WHERE id = $5`,
-      [shop, tokenData.access_token, tokenData.scope, SHOPIFY_API_KEY, storeId]
+      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4,
+         shopify_refresh_token = $5, shopify_token_expires_at = $6, shopify_refresh_token_expires_at = $7,
+         shopify_needs_reconnect = false, updated_at = NOW() WHERE id = $8`,
+      [shop, tokenData.access_token, tokenData.scope, SHOPIFY_API_KEY, refreshToken, tokenExpiresAt, refreshTokenExpiresAt, storeId]
     );
 
     console.log(`[Shopify] Connected shop ${shop} for store ${storeId}`);
 
     // Register webhooks
-    await registerWebhooks(shop, tokenData.access_token, storeId);
+    await registerWebhooks(storeId, shop);
 
     // Initial product sync
-    await syncProducts(storeId, shop, tokenData.access_token);
+    await syncProducts(storeId, shop);
 
     res.redirect(`${APP_BASE_URL}/channels?success=shopify_connected`);
   } catch (err) {
@@ -314,9 +360,12 @@ router.post("/disconnect", requireAuth, async (req, res) => {
     // Clear the token only — shopify_shop and shopify_app_client_id are kept
     // (same as app/uninstalled) so a later reinstall's /callback recognizes
     // this as the same store and refreshes it instead of creating a pending
-    // install under a fresh claim flow.
+    // install under a fresh claim flow. shopify_needs_reconnect is cleared
+    // too — this is a deliberate disconnect, not the error state that flag
+    // represents, and a fresh /callback or /claim will set it again if the
+    // new token also can't be refreshed later.
     await pool.query(
-      `UPDATE stores SET shopify_access_token = NULL, updated_at = NOW() WHERE id = $1`,
+      `UPDATE stores SET shopify_access_token = NULL, shopify_needs_reconnect = false, updated_at = NOW() WHERE id = $1`,
       [storeId]
     );
 
@@ -332,6 +381,7 @@ router.post("/disconnect", requireAuth, async (req, res) => {
 // account at the time) to the now-logged-in user's store. Called by the
 // frontend signup/login pages when a shopify_claim token is present in the URL.
 router.post("/claim", requireAuth, async (req, res) => {
+  let claimedShop: string | undefined;
   try {
     await cleanupExpiredPendingInstalls();
 
@@ -343,12 +393,14 @@ router.post("/claim", requireAuth, async (req, res) => {
 
     const claimTokenHash = crypto.createHash("sha256").update(claimToken).digest("hex");
     const { rows } = await pool.query(
-      `SELECT id, shop, access_token, scope, client_id FROM shopify_pending_installs
+      `SELECT id, shop, access_token, scope, refresh_token, token_expires_at, refresh_token_expires_at, client_id
+       FROM shopify_pending_installs
        WHERE claim_token_hash = $1 AND claimed_at IS NULL AND expires_at > NOW() LIMIT 1`,
       [claimTokenHash]
     );
     const pending = rows[0];
     if (!pending) { res.status(400).json({ error: "invalid_or_expired_claim" }); return; }
+    claimedShop = pending.shop;
 
     const { rows: storeRows } = await pool.query(
       `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
@@ -367,17 +419,28 @@ router.post("/claim", requireAuth, async (req, res) => {
     }
 
     await pool.query(
-      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4, updated_at = NOW() WHERE id = $5`,
-      [pending.shop, pending.access_token, pending.scope, pending.client_id, storeId]
+      `UPDATE stores SET shopify_shop = $1, shopify_access_token = $2, shopify_scope = $3, shopify_app_client_id = $4,
+         shopify_refresh_token = $5, shopify_token_expires_at = $6, shopify_refresh_token_expires_at = $7,
+         shopify_needs_reconnect = false, updated_at = NOW() WHERE id = $8`,
+      [pending.shop, pending.access_token, pending.scope, pending.client_id,
+       pending.refresh_token, pending.token_expires_at, pending.refresh_token_expires_at, storeId]
     );
 
-    await registerWebhooks(pending.shop, pending.access_token, storeId);
+    await registerWebhooks(storeId, pending.shop);
 
     await pool.query(`UPDATE shopify_pending_installs SET claimed_at = NOW() WHERE id = $1`, [pending.id]);
 
     console.log(`[Shopify] Claimed pending install for shop ${pending.shop} -> store ${storeId}`);
     res.json({ success: true, shop: pending.shop });
   } catch (err) {
+    if (err instanceof ShopifyReauthRequiredError) {
+      // Store row is already saved with the claimed token above — only
+      // webhook registration hit a dead token, which shouldn't happen this
+      // soon after a fresh OAuth exchange, but don't fail the claim itself.
+      console.error("[Shopify] Claim webhook registration needs reconnect:", err);
+      res.json({ success: true, shop: claimedShop });
+      return;
+    }
     console.error("[Shopify] Claim error:", err);
     res.status(500).json({ error: "internal_error" });
   }
@@ -398,9 +461,13 @@ router.post("/sync/products", requireAuth, async (req, res) => {
       return;
     }
 
-    const count = await syncProducts(storeId, rows[0].shopify_shop, rows[0].shopify_access_token);
+    const count = await syncProducts(storeId, rows[0].shopify_shop);
     res.json({ success: true, synced: count });
   } catch (err: any) {
+    if (err instanceof ShopifyReauthRequiredError) {
+      res.status(409).json({ error: "needs_reconnect", message: "Shopify connection expired — please reconnect." });
+      return;
+    }
     console.error("[Shopify] Sync products error:", err);
     res.status(500).json({ error: "sync_failed", message: err.message });
   }
@@ -421,10 +488,14 @@ router.post("/sync/orders", requireAuth, async (req, res) => {
       return;
     }
 
-    const count = await syncOrders(storeId, rows[0].shopify_shop, rows[0].shopify_access_token);
+    const count = await syncOrders(storeId, rows[0].shopify_shop);
     console.log("[Shopify] Sync orders result:", JSON.stringify({ synced: count }));
     res.json({ success: true, synced: count });
   } catch (err: any) {
+    if (err instanceof ShopifyReauthRequiredError) {
+      res.status(409).json({ error: "needs_reconnect", message: "Shopify connection expired — please reconnect." });
+      return;
+    }
     console.error("[Shopify] Sync orders error:", err);
     res.status(500).json({ error: "sync_failed", message: err.message });
   }
@@ -452,7 +523,7 @@ router.post("/register-webhooks", requireAuth, async (req, res) => {
       return;
     }
 
-    const result = await registerWebhooks(store.shopify_shop, store.shopify_access_token, storeId);
+    const result = await registerWebhooks(storeId, store.shopify_shop);
 
     res.json({
       success: true,
@@ -469,6 +540,10 @@ router.post("/register-webhooks", requireAuth, async (req, res) => {
       },
     });
   } catch (err: any) {
+    if (err instanceof ShopifyReauthRequiredError) {
+      res.status(409).json({ error: "needs_reconnect", message: "Shopify connection expired — please reconnect." });
+      return;
+    }
     console.error("[Shopify] Register webhooks error:", err);
     res.status(500).json({ error: "register_failed", message: err.message });
   }
@@ -822,7 +897,7 @@ router.post("/webhooks/app/uninstalled", async (req, res) => {
       return;
     }
 
-    await pool.query(`UPDATE stores SET shopify_access_token = NULL, updated_at = NOW() WHERE id = $1`, [storeId]);
+    await pool.query(`UPDATE stores SET shopify_access_token = NULL, shopify_needs_reconnect = false, updated_at = NOW() WHERE id = $1`, [storeId]);
     console.log(`[Shopify] Cleared access token for store ${storeId} (shop ${shop} uninstalled)`);
   } catch (err) {
     console.error("[Shopify] app/uninstalled processing error:", err);
@@ -830,11 +905,11 @@ router.post("/webhooks/app/uninstalled", async (req, res) => {
 });
 
 // ─── Helper: sync products ────────────────────────────────────────────────────
-async function syncProducts(storeId: string, shop: string, accessToken: string): Promise<number> {
+async function syncProducts(storeId: string, shop: string): Promise<number> {
   let shopifyProducts: any[] = [];
   let url = "/products.json?limit=250&status=active";
   while (url) {
-    const res = await shopifyFetch(shop, accessToken, url) as any;
+    const res = await shopifyFetch(storeId, url) as any;
     shopifyProducts = shopifyProducts.concat(res.products || []);
     // Shopify pagination via Link header — handled via next page_info
     const nextMatch = res.next_page_info ? `/products.json?limit=250&page_info=${res.next_page_info}` : null;
@@ -881,7 +956,7 @@ async function syncProducts(storeId: string, shop: string, accessToken: string):
 }
 
 // ─── Helper: sync existing orders ────────────────────────────────────────────
-async function syncOrders(storeId: string, shop: string, accessToken: string): Promise<number> {
+async function syncOrders(storeId: string, shop: string): Promise<number> {
   // Ensure new columns exist (idempotent)
   await pool.query(`
     ALTER TABLE orders ADD COLUMN IF NOT EXISTS shopify_order_number TEXT;
@@ -899,7 +974,7 @@ async function syncOrders(storeId: string, shop: string, accessToken: string): P
   let shopifyOrders: any[] = [];
   let url = "/orders.json?limit=250&status=any";
   while (url) {
-    const res = await shopifyFetch(shop, accessToken, url) as any;
+    const res = await shopifyFetch(storeId, url) as any;
     shopifyOrders = shopifyOrders.concat(res.orders || []);
     url = res.next_page_info ? `/orders.json?limit=250&page_info=${res.next_page_info}` : "";
   }
@@ -1134,9 +1209,8 @@ export const COMPLIANCE_WEBHOOK_URLS = {
 // in the /webhook dispatcher above. Registering a topic with no handler would
 // just mean Shopify delivering events this app silently drops.
 async function registerWebhooks(
-  shop: string,
-  accessToken: string,
-  storeId: string
+  storeId: string,
+  shop: string
 ): Promise<{ registered: string[]; failed: { topic: string; error: string }[] }> {
   const webhooks = [
     { topic: "orders/create", address: `${API_BASE_URL}/api/shopify/webhook` },
@@ -1149,12 +1223,17 @@ async function registerWebhooks(
 
   for (const wh of webhooks) {
     try {
-      await shopifyFetch(shop, accessToken, "/webhooks.json", {
+      await shopifyFetch(storeId, "/webhooks.json", {
         method: "POST",
         body: JSON.stringify({ webhook: { topic: wh.topic, address: wh.address, format: "json" } }),
       });
       registered.push(wh.topic);
     } catch (err: any) {
+      // The store needs reconnection — every remaining topic would fail
+      // identically, so stop instead of burning 2 more calls on a dead
+      // token. Let the caller (routes above) turn this into a 409.
+      if (err instanceof ShopifyReauthRequiredError) throw err;
+
       const message = String(err?.message || err);
       // Shopify 422s an exact (topic, address) duplicate — that means the
       // subscription is already in place, so treat it as success.
