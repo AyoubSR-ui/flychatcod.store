@@ -101,6 +101,7 @@ const StatusBadge = ({ status }: { status: string }) => {
     disconnected: { label: "Disconnected", color: "bg-gray-100 text-gray-600 border-gray-200", icon: XCircle },
     pending: { label: "Pending", color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: Clock },
     error: { label: "Error", color: "bg-red-100 text-red-800 border-red-200", icon: AlertCircle },
+    needs_reconnect: { label: "Reconnect needed", color: "bg-red-100 text-red-800 border-red-200", icon: AlertCircle },
   };
   const s = map[status] || map.disconnected;
   const Icon = s.icon;
@@ -570,7 +571,7 @@ export default function Channels() {
                 <h2 className="text-lg font-bold text-foreground mb-3 flex items-center gap-2">
                   <ShopifyIcon /> Shopify Integration
                 </h2>
-                <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${shopifyStatus?.connected ? "border-green-300" : "border-border"}`}>
+                <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${shopifyStatus?.connected ? "border-green-300" : shopifyStatus?.needsReconnect ? "border-red-300" : "border-border"}`}>
                   <div className="h-2 bg-gradient-to-r from-[#95BF47] to-[#5E8E3E]" />
                   <div className="p-6 space-y-4">
                     <div className="flex items-center gap-3">
@@ -578,7 +579,7 @@ export default function Channels() {
                       <div>
                         <h3 className="font-bold text-foreground">Shopify</h3>
                         <div className="mt-1 flex flex-col gap-1">
-                          <StatusBadge status={shopifyStatus?.connected ? "connected" : "disconnected"} />
+                          <StatusBadge status={shopifyStatus?.needsReconnect ? "needs_reconnect" : shopifyStatus?.connected ? "connected" : "disconnected"} />
                           {shopifyStatus?.shop && <span className="text-xs text-muted-foreground font-medium">{shopifyStatus.shop}</span>}
                         </div>
                       </div>
@@ -598,7 +599,12 @@ export default function Channels() {
                         </button>
                       </div>
                     )}
-                    {!shopifyStatus?.connected && (
+                    {shopifyStatus?.needsReconnect ? (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-xs">
+                        <p className="font-bold mb-1">Reconnect needed</p>
+                        <p>Your Shopify connection expired. Orders and products have stopped syncing — reconnect to pick back up where you left off.</p>
+                      </div>
+                    ) : !shopifyStatus?.connected && (
                       <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-xs">
                         <p className="font-bold mb-1">What you get:</p>
                         <p>• Products auto-synced from Shopify to FlyChat</p>
@@ -618,8 +624,8 @@ export default function Channels() {
                         </button>
                       ) : (
                         <button onClick={() => setShopifyModalOpen(true)}
-                          className="flex-1 py-2 rounded-xl text-sm font-bold bg-[#95BF47] text-white hover:bg-[#7da33a] transition-all">
-                          Connect Shopify
+                          className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${shopifyStatus?.needsReconnect ? "bg-red-600 text-white hover:bg-red-700" : "bg-[#95BF47] text-white hover:bg-[#7da33a]"}`}>
+                          {shopifyStatus?.needsReconnect ? "Reconnect Shopify" : "Connect Shopify"}
                         </button>
                       )}
                     </div>
