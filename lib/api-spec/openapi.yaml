@@ -58,6 +58,12 @@ paths:
       operationId: authSignup
       tags: [auth]
       summary: Sign up a new user
+      description: >-
+        Always creates a new account, even if this email already has one or
+        more accounts elsewhere (own store + invited stores are separate
+        accounts — see users.email, not unique). Check
+        otherAccountsExist on the response to offer logging into an
+        existing account as an alternative.
       requestBody:
         required: true
         content:
@@ -73,12 +79,6 @@ paths:
                 $ref: "#/components/schemas/AuthResponse"
         "400":
           description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "409":
-          description: Email already in use
           content:
             application/json:
               schema:
@@ -1202,6 +1202,9 @@ components:
           type: string
         needsOnboarding:
           type: boolean
+        otherAccountsExist:
+          type: boolean
+          description: Signup only — true if this email already had one or more other accounts before this one was created.
       required: [user, token, needsOnboarding]
 
     LoginAccountOption:

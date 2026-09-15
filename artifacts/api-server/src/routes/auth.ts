@@ -31,11 +31,13 @@ router.post("/signup", async (req, res) => {
       return;
     }
 
-    const [existing] = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase())).limit(1);
-    if (existing) {
-      res.status(409).json({ error: "conflict", message: "Email already in use" });
-      return;
-    }
+    // No longer a hard block: one email can own several accounts (own
+    // store + invited stores — see users.email, no longer unique), so
+    // signing up again under an email that already has an account just
+    // creates another one, scoped to this new store. otherAccountsExist
+    // lets the frontend surface "log in instead" rather than silently
+    // stacking accounts the person may not have meant to create.
+    const others = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
 
     const userId = generateId("usr");
     const passwordHash = hashPassword(password);
@@ -58,6 +60,7 @@ router.post("/signup", async (req, res) => {
       user: serializeUser(user),
       token,
       needsOnboarding: true,
+      otherAccountsExist: others.length > 0,
     });
   } catch (err) {
     console.error("Signup error:", err);
@@ -173,6 +176,13 @@ router.post("/reset-password", async (req, res) => {
     const users = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
     if (users.length > 0) {
       const accounts = await Promise.all(users.map(async (user) => {
+        // Invalidate any earlier unused token for this account first — an
+        // older reset email still sitting in an inbox shouldn't stay valid
+        // once a newer one has been requested.
+        await db.update(passwordResetTokensTable)
+          .set({ usedAt: new Date() })
+          .where(and(eq(passwordResetTokensTable.userId, user.id), isNull(passwordResetTokensTable.usedAt)));
+
         const token = randomBytes(32).toString("hex");
         await db.insert(passwordResetTokensTable).values({
           id: generateId("prt"),

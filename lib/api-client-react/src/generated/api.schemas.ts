@@ -82,6 +82,8 @@ export interface AuthResponse {
   user: User;
   token: string;
   needsOnboarding: boolean;
+  /** Signup only — true if this email already had one or more other accounts before this one was created. */
+  otherAccountsExist?: boolean;
 }
 
 export type LoginAccountOptionRole =
