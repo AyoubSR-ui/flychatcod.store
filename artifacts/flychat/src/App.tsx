@@ -118,7 +118,7 @@ function Router() {
       <Route path="/billing">{() => <ProtectedRoute component={Billing} roles={["owner"]} />}</Route>
       <Route path="/settings">{() => <ProtectedRoute component={Settings} roles={["owner", "admin"]} />}</Route>
       <Route path="/ai-settings">{() => <ProtectedRoute component={AiSettings} roles={["owner", "admin"]} />}</Route>
-      <Route path="/admin">{() => <ProtectedRoute component={Admin} />}</Route>
+      <Route path="/admin">{() => <ProtectedRoute component={Admin} roles={["superadmin"]} />}</Route>
 
       <Route component={NotFound} />
     </Switch>

@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { pool } from "@workspace/db";
-import { requireAuth } from "../middlewares/auth.js";
+import { db, pool, auditLogsTable } from "@workspace/db";
+import { requireAuth, requireOwner } from "../middlewares/auth.js";
+import { generateId } from "../lib/id.js";
 
 const router = Router();
 
@@ -187,6 +188,18 @@ async function getStorePlan(storeId: string): Promise<string> {
 // never populated lead_phone). Rows with no resolvable phone are skipped —
 // a raw Messenger/Instagram PSID is not a phone number Meta can match.
 const PHONE_PATTERN = /0[567]\d{8}|0[234]\d{7}|\+213\d{9}/;
+
+async function logExportAudit(storeId: string, userId: string, rowCount: number): Promise<void> {
+  await db.insert(auditLogsTable).values({
+    id: generateId("audit"),
+    storeId,
+    userId,
+    event: "export_engaged_csv",
+    description: `Engaged-leads CSV exported (${rowCount} row${rowCount === 1 ? "" : "s"})`,
+    metadata: { rowCount },
+  });
+}
+
 router.get("/export-engaged-csv", requireAuth, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
@@ -206,6 +219,11 @@ router.get("/export-engaged-csv", requireAuth, async (req, res) => {
       if (!phone) continue;
       csvRows.push([row.customer_name || "", phone, row.lead_wilaya || "", row.channel || ""]);
     }
+
+    const rowCount = csvRows.length - 1; // exclude header
+    logExportAudit(storeId, req.user!.id, rowCount).catch(err =>
+      console.error("[Analytics] Failed to log export-engaged-csv audit entry:", err)
+    );
 
     const csv = csvRows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -312,7 +330,7 @@ router.get("/optimizer/status", requireAuth, async (req, res) => {
 // 'qualified_lead' | 'order_confirmed' — NOT 'qualified'/'confirmed'. Gated
 // behind requireAuth (not a hardcoded secret) and scoped to the calling
 // user's own store — remove this route once the backfill has been run.
-router.post("/admin/backfill-lead-stages", requireAuth, async (req, res) => {
+router.post("/admin/backfill-lead-stages", requireOwner, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }

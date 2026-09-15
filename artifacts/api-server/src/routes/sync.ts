@@ -3,7 +3,7 @@ import { db, pool } from "@workspace/db";
 import { conversationsTable, messagesTable, storesTable, customersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { generateId } from "../lib/id.js";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, requireOwner } from "../middlewares/auth.js";
 import { fetchMessengerProfile, fetchInstagramProfile } from "../lib/fetch-meta-profile.js";
 import { ensureProfilePicColumns } from "../lib/schema-bootstrap.js";
 
@@ -16,7 +16,7 @@ router.get("/ping", (_req, res) => { res.json({ ok: true }); });
 // stuck on "Messenger User" / "Instagram User". This re-resolves their real
 // name via Graph API using the PSID/IGSID stored in customers.phone.
 const GENERIC_NAMES = ["Messenger User", "Instagram User", ""];
-router.get("/backfill-names", requireAuth, async (req, res) => {
+router.get("/backfill-names", requireOwner, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -188,7 +188,7 @@ export async function syncInstagramOutgoing(): Promise<{ synced: number; skipped
 // Messenger: GET /me/conversations?platform=messenger  (page access token)
 // Instagram: GET /me/conversations?platform=instagram  (IG access token)
 // WhatsApp:  not supported via Graph API — messages not retrievable historically
-router.get("/meta-conversations", requireAuth, async (req, res) => {
+router.get("/meta-conversations", requireOwner, async (req, res) => {
   let currentChannel = "none";
   try {
     const storeId = req.user!.storeId!;
@@ -326,7 +326,7 @@ router.get("/meta-conversations", requireAuth, async (req, res) => {
 // ─── Export Training Data (JSONL) ─────────────────────────────────────────────
 // Returns high-quality conversations (confirmed orders OR qualified leads, 6+ msgs,
 // customer asked about price/wilaya/size) as clean OpenAI fine-tuning JSONL.
-router.get("/export-training-data", requireAuth, async (req, res) => {
+router.get("/export-training-data", requireOwner, async (req, res) => {
   try {
     const storeId = req.user!.storeId!;
 
