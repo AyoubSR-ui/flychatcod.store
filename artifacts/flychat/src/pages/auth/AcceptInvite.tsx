@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { MessageSquare, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export default function AcceptInvite() {
   const [, navigate] = useLocation();
@@ -136,7 +137,7 @@ export default function AcceptInvite() {
               ) : (
                 <div>
                   <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Password *</label>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} placeholder="Min. 8 characters"
+                  <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} placeholder="Min. 8 characters"
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
               )}

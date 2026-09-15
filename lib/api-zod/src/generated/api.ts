@@ -29,6 +29,7 @@ export const AuthSignupBody = zod.object({
 });
 
 /**
+ * A single email can own several accounts (own store + invited stores). If more than one account matches email+password, this returns a selection prompt (requiresSelection, selectionToken, accounts) instead of a session — trade it for a session via POST /auth/login/select.
  * @summary Login with email/password
  */
 export const AuthLoginBody = zod.object({
@@ -36,7 +37,48 @@ export const AuthLoginBody = zod.object({
   password: zod.string(),
 });
 
-export const AuthLoginResponse = zod.object({
+export const AuthLoginResponse = zod
+  .object({
+    user: zod
+      .object({
+        id: zod.string(),
+        email: zod.string(),
+        name: zod.string(),
+        role: zod.enum(["owner", "admin", "agent", "superadmin"]),
+        language: zod.enum(["en", "fr"]),
+        organizationId: zod.string().nullish(),
+        storeId: zod.string().nullish(),
+        onboardingCompleted: zod.boolean(),
+        createdAt: zod.date(),
+      })
+      .optional(),
+    token: zod.string().optional(),
+    needsOnboarding: zod.boolean().optional(),
+    requiresSelection: zod.boolean().optional(),
+    selectionToken: zod.string().optional(),
+    accounts: zod
+      .array(
+        zod.object({
+          userId: zod.string(),
+          storeName: zod.string(),
+          role: zod.enum(["owner", "admin", "agent", "superadmin"]),
+        }),
+      )
+      .optional(),
+  })
+  .describe(
+    "Either a normal AuthResponse (user, token, needsOnboarding) when exactly one account matched, or a selection prompt (requiresSelection, selectionToken, accounts) when several did.",
+  );
+
+/**
+ * @summary Complete login after picking an account from a login selection prompt
+ */
+export const AuthLoginSelectBody = zod.object({
+  selectionToken: zod.string(),
+  userId: zod.string(),
+});
+
+export const AuthLoginSelectResponse = zod.object({
   user: zod.object({
     id: zod.string(),
     email: zod.string(),
@@ -83,6 +125,21 @@ export const AuthResetPasswordBody = zod.object({
 });
 
 export const AuthResetPasswordResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
+ * @summary Set a new password using a reset token from the reset email
+ */
+export const authResetPasswordConfirmBodyPasswordMin = 8;
+
+export const AuthResetPasswordConfirmBody = zod.object({
+  token: zod.string(),
+  password: zod.string().min(authResetPasswordConfirmBodyPasswordMin),
+});
+
+export const AuthResetPasswordConfirmResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });

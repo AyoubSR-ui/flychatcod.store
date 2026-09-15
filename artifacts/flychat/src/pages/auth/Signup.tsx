@@ -5,6 +5,7 @@ import { useAuthSignup } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { PasswordInput } from "@/components/PasswordInput";
 import { claimPendingShopifyInstall, hasPendingShopifyClaim } from "@/lib/shopify-claim";
 
 export default function Signup() {
@@ -111,14 +112,13 @@ export default function Signup() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Password</label>
-                <input 
-                  type="password" 
+                <PasswordInput
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
                   minLength={8}
-                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all" 
-                  placeholder="••••••••" 
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                  placeholder="••••••••"
                 />
                 <p className="mt-2 text-xs text-muted-foreground">Must be at least 8 characters.</p>
               </div>

@@ -90,6 +90,98 @@ export async function sendInviteEmail(params: InviteEmailParams): Promise<boolea
     return false;
   }
 }
+// ─── Password reset email ─────────────────────────────────────────────────────
+// One email per request, even when the address owns several accounts — each
+// account gets its own reset link (own token, own store), listed separately
+// so the recipient can tell which link resets which store's password.
+interface PasswordResetEmailParams {
+  to: string;
+  accounts: { storeName: string; resetUrl: string }[];
+}
+
+export async function sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<boolean> {
+  const apiKey = getResendApiKey();
+  if (!apiKey) {
+    console.warn("[Email] RESEND_API_KEY not set — password reset email NOT sent to", params.to);
+    return false;
+  }
+
+  const linksHtml = params.accounts.map(a => `
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">
+          <tr><td align="center" style="background:#f8fafc;border-radius:12px;padding:16px;">
+            <p style="margin:0 0 12px;color:#1a1a2e;font-size:14px;font-weight:700;">${a.storeName}</p>
+            <a href="${a.resetUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 32px;border-radius:12px;text-decoration:none;font-weight:700;font-size:14px;">
+              Reset Password / Réinitialiser
+            </a>
+          </td></tr>
+        </table>`).join("");
+
+  const multiAccountNote = params.accounts.length > 1
+    ? `<p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 20px;">
+         This email address has ${params.accounts.length} FlyChat COD accounts. Choose which one's password to reset below.<br>
+         Cette adresse email possède ${params.accounts.length} comptes FlyChat COD. Choisissez le mot de passe à réinitialiser ci-dessous.
+       </p>`
+    : "";
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+  <tr><td align="center">
+    <table width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <tr><td style="background:linear-gradient(135deg,#2563eb,#1d4ed8);padding:32px 40px;text-align:center;">
+        <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:800;letter-spacing:-0.5px;">FlyChat COD</h1>
+      </td></tr>
+      <tr><td style="padding:40px;">
+        <h2 style="margin:0 0 8px;font-size:20px;color:#1a1a2e;">Reset your password / Réinitialiser votre mot de passe</h2>
+        <p style="color:#64748b;font-size:15px;line-height:1.6;margin:0 0 24px;">
+          We received a request to reset the password for this email address.<br>
+          Nous avons reçu une demande de réinitialisation du mot de passe pour cette adresse email.
+        </p>
+        ${multiAccountNote}
+        ${linksHtml}
+        <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:24px 0 0;">
+          Each link expires in 1 hour and can only be used once. If you didn't request this, you can safely ignore this email.<br>
+          Chaque lien expire dans 1 heure et ne peut être utilisé qu'une seule fois. Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.
+        </p>
+      </td></tr>
+      <tr><td style="background:#f8fafc;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0;">
+        <p style="margin:0;color:#94a3b8;font-size:12px;">© FlyChat COD — SaaS for COD e-commerce sellers</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [params.to],
+        subject: "Reset your password — FlyChat COD",
+        html,
+      }),
+    });
+
+    if (!resp.ok) {
+      console.error("[Email] Password reset email error:", resp.status, await resp.text());
+      return false;
+    }
+
+    const result = await resp.json() as { id?: string };
+    console.log("[Email] Password reset email sent to", params.to, "— Resend ID:", result.id);
+    return true;
+  } catch (err) {
+    console.error("[Email] Failed to send password reset email:", err);
+    return false;
+  }
+}
+
 // ─── Subscription confirmation email ─────────────────────────────────────────
 interface SubscriptionEmailParams {
   to: string;

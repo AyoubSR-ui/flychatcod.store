@@ -1,9 +1,21 @@
 import { Router } from "express";
-import { db, usersTable, organizationsTable, storesTable, subscriptionsTable, teamMembersTable, widgetConfigsTable, channelConnectionsTable, inviteTokensTable } from "@workspace/db";
+import { db, usersTable, organizationsTable, storesTable, subscriptionsTable, teamMembersTable, widgetConfigsTable, channelConnectionsTable, inviteTokensTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, and, isNull, gt } from "drizzle-orm";
-import { hashPassword, verifyPassword, createToken } from "../lib/auth.js";
+import { hashPassword, verifyPassword, createToken, verifyToken, hashToken } from "../lib/auth.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
+import { sendPasswordResetEmail } from "../lib/email.js";
+import { randomBytes } from "crypto";
+
+function buildResetUrl(token: string): string {
+  const configured = process.env.APP_BASE_URL
+    || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null);
+  const base = configured || "http://localhost:5173";
+  return `${base}/reset-password/confirm?token=${token}`;
+}
+
+const LOGIN_SELECTION_TTL_SECONDS = 5 * 60;
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 const router = Router();
 
@@ -53,6 +65,21 @@ router.post("/signup", async (req, res) => {
   }
 });
 
+function issueAuthResponse(user: typeof usersTable.$inferSelect) {
+  const token = createToken({ userId: user.id, email: user.email, storeId: user.storeId });
+  return {
+    user: serializeUser(user),
+    token,
+    needsOnboarding: !user.onboardingCompleted,
+  };
+}
+
+async function storeNameFor(storeId: string | null): Promise<string> {
+  if (!storeId) return "No store yet";
+  const [store] = await db.select({ name: storesTable.name }).from(storesTable).where(eq(storesTable.id, storeId)).limit(1);
+  return store?.name || "Store";
+}
+
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -61,24 +88,64 @@ router.post("/login", async (req, res) => {
       return;
     }
 
-    // Find all accounts with this email (user may have multiple — own store + invited stores)
-   const users = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
-   const user = users.find(u => verifyPassword(password, u.passwordHash));
-   if (!user) {
-   res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
-   return;
-  }
+    // Find all accounts with this email (a person may have several — own store + invited stores)
+    const users = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
+    const matches = users.filter(u => verifyPassword(password, u.passwordHash));
 
-    const token = createToken({ userId: user.id, email: user.email, storeId: user.storeId });
+    if (matches.length === 0) {
+      res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
+      return;
+    }
 
+    if (matches.length === 1) {
+      res.json(issueAuthResponse(matches[0]));
+      return;
+    }
 
-    res.json({
-      user: serializeUser(user),
-      token,
-      needsOnboarding: !user.onboardingCompleted,
-    });
+    // Several accounts share this email+password — don't silently pick one.
+    // Hand back a short-lived token naming exactly these candidate ids;
+    // /auth/login/select trades it (plus a chosen userId) for a real session,
+    // without re-sending the password.
+    const selectionToken = createToken(
+      { kind: "login_select", email: email.toLowerCase(), candidates: matches.map(u => u.id) },
+      LOGIN_SELECTION_TTL_SECONDS
+    );
+    const accounts = await Promise.all(matches.map(async (u) => ({
+      userId: u.id,
+      storeName: await storeNameFor(u.storeId),
+      role: u.role,
+    })));
+
+    res.json({ requiresSelection: true, selectionToken, accounts });
   } catch (err) {
     console.error("Login error:", err);
+    res.status(500).json({ error: "internal_error", message: "Login failed" });
+  }
+});
+
+router.post("/login/select", async (req, res) => {
+  try {
+    const { selectionToken, userId } = req.body;
+    if (!selectionToken || !userId) {
+      res.status(400).json({ error: "validation_error", message: "selectionToken and userId are required" });
+      return;
+    }
+
+    const payload = verifyToken(selectionToken);
+    if (!payload || payload.kind !== "login_select" || !Array.isArray(payload.candidates) || !payload.candidates.includes(userId)) {
+      res.status(401).json({ error: "unauthorized", message: "This selection has expired. Please log in again." });
+      return;
+    }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    if (!user) {
+      res.status(401).json({ error: "unauthorized", message: "This selection has expired. Please log in again." });
+      return;
+    }
+
+    res.json(issueAuthResponse(user));
+  } catch (err) {
+    console.error("Login select error:", err);
     res.status(500).json({ error: "internal_error", message: "Login failed" });
   }
 });
@@ -91,13 +158,74 @@ router.get("/me", requireAuth, async (req, res) => {
   res.json(serializeUser(req.user!));
 });
 
+const RESET_SENT_MESSAGE = "If an account exists with this email, a reset link will be sent.";
+
 router.post("/reset-password", async (req, res) => {
   const { email } = req.body;
   if (!email) {
     res.status(400).json({ error: "validation_error", message: "email is required" });
     return;
   }
-  res.json({ success: true, message: "If an account exists with this email, a reset link will be sent." });
+
+  // Always the same response whether or not the email matches an account —
+  // never let this endpoint be used to probe which emails are registered.
+  try {
+    const users = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
+    if (users.length > 0) {
+      const accounts = await Promise.all(users.map(async (user) => {
+        const token = randomBytes(32).toString("hex");
+        await db.insert(passwordResetTokensTable).values({
+          id: generateId("prt"),
+          userId: user.id,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+        });
+        return { storeName: await storeNameFor(user.storeId), resetUrl: buildResetUrl(token) };
+      }));
+      await sendPasswordResetEmail({ to: email.toLowerCase(), accounts });
+    }
+  } catch (err) {
+    console.error("Reset password request error:", err);
+    // Still fall through to the generic success response below.
+  }
+
+  res.json({ success: true, message: RESET_SENT_MESSAGE });
+});
+
+router.post("/reset-password/confirm", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      res.status(400).json({ error: "validation_error", message: "token and password are required" });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: "validation_error", message: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const [resetToken] = await db.select().from(passwordResetTokensTable)
+      .where(eq(passwordResetTokensTable.tokenHash, hashToken(token)))
+      .limit(1);
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      res.status(400).json({ error: "invalid_token", message: "This reset link is invalid or has expired. Please request a new one." });
+      return;
+    }
+
+    await db.update(usersTable)
+      .set({ passwordHash: hashPassword(password), updatedAt: new Date() })
+      .where(eq(usersTable.id, resetToken.userId));
+
+    await db.update(passwordResetTokensTable)
+      .set({ usedAt: new Date() })
+      .where(eq(passwordResetTokensTable.id, resetToken.id));
+
+    res.json({ success: true, message: "Password updated. You can now log in." });
+  } catch (err) {
+    console.error("Reset password confirm error:", err);
+    res.status(500).json({ error: "internal_error", message: "Failed to reset password" });
+  }
 });
 
 router.get("/validate-invite", async (req, res) => {
