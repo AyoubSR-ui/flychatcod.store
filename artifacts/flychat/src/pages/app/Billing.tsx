@@ -4,6 +4,7 @@ import { CreditCard, Check, Zap, ArrowUpRight, FileText, Bot, AlertTriangle, Spa
 import { useGetSubscription, useGetPlans, useGetBillingAiStatus } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { getSubscriptionStatusBadge } from "@/lib/subscription-status";
 
 const PLAN_COLORS: Record<string, string> = {
   free: "from-gray-400 to-gray-500",
@@ -100,17 +101,18 @@ export default function Billing() {
                     <h3 className="text-xl font-display font-bold text-foreground capitalize">
                       {plans.find(p => p.id === sub.plan)?.name ?? sub.plan}
                     </h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        sub.status === "active" ? "bg-green-100 text-green-800"
-                        : sub.status === "trialing" ? "bg-blue-100 text-blue-800"
-                        : "bg-gray-100 text-gray-600"
-                      }`}>
-                        {sub.status === "trialing" ? "Trial" : sub.status}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${getSubscriptionStatusBadge(sub.status).className}`}>
+                        {getSubscriptionStatusBadge(sub.status).label}
                       </span>
+                      {sub.cancelAtPeriodEnd && sub.status !== "cancelled" && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                          Cancels at period end
+                        </span>
+                      )}
                       {sub.currentPeriodEnd && (
                         <span className="text-xs text-muted-foreground">
-                          {sub.status === "trialing" ? "Trial ends" : "Renews"} {format(new Date(sub.currentPeriodEnd), 'MMM dd, yyyy')}
+                          {sub.cancelAtPeriodEnd ? "Access ends" : sub.status === "trialing" ? "Trial ends" : "Renews"} {format(new Date(sub.currentPeriodEnd), 'MMM dd, yyyy')}
                         </span>
                       )}
                     </div>

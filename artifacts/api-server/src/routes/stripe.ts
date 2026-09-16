@@ -3,7 +3,8 @@ import Stripe from "stripe";
 import { db, pool, subscriptionsTable, storesTable, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireOwner } from "../middlewares/auth.js";
-import { sendSubscriptionEmail, sendTopUpEmail } from "../lib/email.js";
+import { sendSubscriptionEmail, sendTopUpEmail, sendPaymentFailedEmail } from "../lib/email.js";
+import { mapStripeStatus, getOrganizationIdForStripeCustomer } from "../lib/subscription-status.js";
 
 const router = Router();
 const stripeKey = process.env.STRIPE_SECRET_KEY || "";
@@ -198,21 +199,14 @@ router.post("/webhook", async (req, res) => {
         } 
         break;
         }
-      // ── Subscription activated ────────────────────────────────────────────
+      // ── Subscription created or updated (plan change, renewal, status
+      //    change, or a pending cancel_at_period_end flip) ───────────────────
       case "customer.subscription.created":
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
-        
 
-    
-        // Find user by stripe customer id
-        const { rows } = await pool.query(
-          `SELECT u.organization_id FROM users u WHERE u.stripe_customer_id = $1 LIMIT 1`,
-          [customerId]
-        ).catch(() => ({ rows: [] }));
-
-        const organizationId = rows[0]?.organization_id;
+        const organizationId = await getOrganizationIdForStripeCustomer(customerId);
         if (!organizationId) break;
 
         // Get price ID from subscription
@@ -228,58 +222,68 @@ router.post("/webhook", async (req, res) => {
         const periodStart = subscription.items.data[0]?.current_period_start
          ? new Date(subscription.items.data[0].current_period_start * 1000)
          : new Date();
-        
+
         const monthlyCredits = PLAN_CREDITS[planKey] || 0;
+        const status = mapStripeStatus(subscription.status);
 
         await pool.query(
-          `UPDATE subscriptions SET 
-            plan = $1, 
+          `UPDATE subscriptions SET
+            plan = $1,
             status = $2,
             current_period_start = $3,
             current_period_end = $4,
             ai_monthly_credits_included = $5,
             ai_credits_reset_at = $4,
             external_subscription_id = $6,
+            cancel_at_period_end = $7,
             updated_at = NOW()
-          WHERE organization_id = $7`,
-          [planKey, subscription.status === "active" ? "active" : "trialing", periodStart, periodEnd, monthlyCredits, subscription.id, organizationId]
+          WHERE organization_id = $8`,
+          [planKey, status, periodStart, periodEnd, monthlyCredits, subscription.id, subscription.cancel_at_period_end, organizationId]
         );
-        console.log(`[Stripe] Updated plan to ${planKey} for org ${organizationId}`);
-        // Send subscription confirmation email
-    try {
-     const { rows: userRows } = await pool.query(
-    `SELECT email, name FROM users WHERE stripe_customer_id = $1 LIMIT 1`,
-    [customerId]
-     );
-     if (userRows[0]) {
-    await sendSubscriptionEmail({
-      to: userRows[0].email,
-      name: userRows[0].name || "there",
-      planName: planKey.charAt(0).toUpperCase() + planKey.slice(1),
-      amount: planKey === "starter" ? "$19" : planKey === "pro" ? "$49" : "$99",
-      nextBillingDate: periodEnd.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
-      isUpgrade: true,
-    });
-    }
-     } catch {}
+        console.log(`[Stripe] Updated plan to ${planKey} (status ${status}) for org ${organizationId}`);
+
+        // Send the "plan active" confirmation only when the subscription is
+        // actually active — otherwise a failed-card event would fire both
+        // this "upgraded!" email and the payment-failed email below.
+        if (status === "active") {
+          try {
+            const { rows: userRows } = await pool.query(
+              `SELECT email, name FROM users WHERE stripe_customer_id = $1 LIMIT 1`,
+              [customerId]
+            );
+            if (userRows[0]) {
+              await sendSubscriptionEmail({
+                to: userRows[0].email,
+                name: userRows[0].name || "there",
+                planName: planKey.charAt(0).toUpperCase() + planKey.slice(1),
+                amount: planKey === "starter" ? "$19" : planKey === "pro" ? "$49" : "$99",
+                nextBillingDate: periodEnd.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+                isUpgrade: true,
+              });
+            }
+          } catch {}
+        }
         break;
       }
 
-      // ── Subscription cancelled ────────────────────────────────────────────
+      // ── Subscription cancelled (immediate, or a period-end cancel that
+      //    just reached its end date) ─────────────────────────────────────────
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
         const customerId = subscription.customer as string;
 
-        const { rows } = await pool.query(
-          `SELECT u.organization_id FROM users u WHERE u.stripe_customer_id = $1 LIMIT 1`,
-          [customerId]
-        ).catch(() => ({ rows: [] }));
-
-        const organizationId = rows[0]?.organization_id;
+        const organizationId = await getOrganizationIdForStripeCustomer(customerId);
         if (!organizationId) break;
 
         await pool.query(
-          `UPDATE subscriptions SET plan = 'free', status = 'active', ai_monthly_credits_included = 50, updated_at = NOW() WHERE organization_id = $1`,
+          `UPDATE subscriptions SET
+            plan = 'free',
+            status = 'cancelled',
+            ai_monthly_credits_included = 50,
+            cancel_at_period_end = false,
+            external_subscription_id = NULL,
+            updated_at = NOW()
+          WHERE organization_id = $1`,
           [organizationId]
         );
         console.log(`[Stripe] Subscription cancelled — downgraded to free for org ${organizationId}`);
@@ -291,17 +295,12 @@ router.post("/webhook", async (req, res) => {
         const invoice = event.data.object as Stripe.Invoice;
         const customerId = invoice.customer as string;
 
-        const { rows } = await pool.query(
-          `SELECT u.organization_id FROM users u WHERE u.stripe_customer_id = $1 LIMIT 1`,
-          [customerId]
-        ).catch(() => ({ rows: [] }));
-
-        const organizationId = rows[0]?.organization_id;
+        const organizationId = await getOrganizationIdForStripeCustomer(customerId);
         if (!organizationId) break;
 
         // Reset monthly credits on renewal
         await pool.query(
-          `UPDATE subscriptions SET 
+          `UPDATE subscriptions SET
             ai_credits_used_current_period = 0,
             ai_credits_reset_at = NOW() + INTERVAL '1 month',
             updated_at = NOW()
@@ -309,6 +308,44 @@ router.post("/webhook", async (req, res) => {
           [organizationId]
         );
         console.log(`[Stripe] Invoice paid — reset credits for org ${organizationId}`);
+        break;
+      }
+
+      // ── Invoice payment failed (fires on every failed renewal attempt,
+      //    including the retries leading up to past_due/unpaid/deleted) ──────
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = invoice.customer as string;
+
+        const organizationId = await getOrganizationIdForStripeCustomer(customerId);
+        if (!organizationId) break;
+
+        // Defensive write: customer.subscription.updated normally carries
+        // the past_due status around the same time, but if that event is
+        // delayed or lost, this stops the merchant seeing "active"/"trialing"
+        // during the retry window.
+        await pool.query(
+          `UPDATE subscriptions SET status = 'past_due', updated_at = NOW()
+           WHERE organization_id = $1 AND status != 'cancelled'`,
+          [organizationId]
+        );
+        console.log(`[Stripe] Invoice payment failed — marked past_due for org ${organizationId}`);
+
+        try {
+          const { rows: userRows } = await pool.query(
+            `SELECT u.email, u.name, s.plan FROM users u
+             JOIN subscriptions s ON s.organization_id = u.organization_id
+             WHERE u.stripe_customer_id = $1 LIMIT 1`,
+            [customerId]
+          );
+          if (userRows[0]) {
+            await sendPaymentFailedEmail({
+              to: userRows[0].email,
+              name: userRows[0].name || "there",
+              planName: (userRows[0].plan || "free").charAt(0).toUpperCase() + (userRows[0].plan || "free").slice(1),
+            });
+          }
+        } catch {}
         break;
       }
     }

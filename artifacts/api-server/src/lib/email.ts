@@ -178,6 +178,75 @@ export async function sendSubscriptionEmail(params: SubscriptionEmailParams): Pr
   }
 }
 
+// ─── Payment failed email ─────────────────────────────────────────────────────
+interface PaymentFailedEmailParams {
+  to: string;
+  name: string;
+  planName: string;
+}
+
+export async function sendPaymentFailedEmail(params: PaymentFailedEmailParams): Promise<boolean> {
+  const apiKey = getResendApiKey();
+  if (!apiKey) return false;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;">
+  <tr><td align="center">
+    <table width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <tr><td style="background:linear-gradient(135deg,#dc2626,#b91c1c);padding:32px 40px;text-align:center;">
+        <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:800;">FlyChat COD</h1>
+        <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">Payment Failed</p>
+      </td></tr>
+      <tr><td style="padding:40px;">
+        <h2 style="margin:0 0 8px;font-size:20px;color:#1a1a2e;">⚠️ We couldn't process your payment</h2>
+        <p style="color:#64748b;font-size:15px;line-height:1.6;margin:0 0 24px;">
+          Hi <strong>${params.name}</strong>, the latest payment for your <strong>FlyChat COD ${params.planName}</strong> subscription didn't go through. Please update your payment method to avoid any interruption.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+          <tr><td align="center">
+            <a href="https://flychatcodstore-production-a2e8.up.railway.app/billing" style="display:inline-block;background:#dc2626;color:#ffffff;padding:14px 40px;border-radius:12px;text-decoration:none;font-weight:700;font-size:15px;">
+              Update Payment Method
+            </a>
+          </td></tr>
+        </table>
+        <p style="color:#94a3b8;font-size:13px;line-height:1.5;margin:0;">
+          Stripe will automatically retry the payment a few times. You can also update your card anytime from the Billing page.
+        </p>
+      </td></tr>
+      <tr><td style="background:#f8fafc;padding:20px 40px;text-align:center;border-top:1px solid #e2e8f0;">
+        <p style="margin:0;color:#94a3b8;font-size:12px;">© FlyChat COD — SaaS for COD e-commerce sellers</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [params.to],
+        subject: `Payment failed — FlyChat COD ${params.planName}`,
+        html,
+      }),
+    });
+    if (!resp.ok) { console.error("[Email] Payment failed email error:", await resp.text()); return false; }
+    const result = await resp.json() as { id?: string };
+    console.log("[Email] Payment failed email sent to", params.to, "— Resend ID:", result.id);
+    return true;
+  } catch (err) {
+    console.error("[Email] Failed to send payment failed email:", err);
+    return false;
+  }
+}
+
 // ─── Top-up confirmation email ────────────────────────────────────────────────
 interface TopUpEmailParams {
   to: string;

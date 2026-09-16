@@ -994,7 +994,7 @@ export const RemoveTeamMemberResponse = zod.object({
 export const GetSubscriptionResponse = zod.object({
   id: zod.string(),
   organizationId: zod.string(),
-  plan: zod.enum(["free", "basic", "pro", "ai_addon"]),
+  plan: zod.enum(["free", "basic", "pro", "ai_addon", "starter", "agency"]),
   status: zod.enum(["active", "cancelled", "past_due", "trialing"]),
   currentPeriodStart: zod.date().optional(),
   currentPeriodEnd: zod.date().optional(),

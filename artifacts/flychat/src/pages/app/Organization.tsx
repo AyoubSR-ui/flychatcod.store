@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { Building2, Store, Plus, CreditCard, Users, Check, ArrowUpRight } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useGetSubscription } from "@workspace/api-client-react";
+import { getSubscriptionStatusBadge } from "@/lib/subscription-status";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 
@@ -141,12 +142,15 @@ export default function Organization() {
               </div>
               <div>
                 <p className="font-bold text-foreground capitalize text-lg">{plan} Plan</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                    sub?.status === "active" ? "bg-green-100 text-green-800"
-                    : sub?.status === "trialing" ? "bg-blue-100 text-blue-800"
-                    : "bg-gray-100 text-gray-600"
-                  }`}>{sub?.status === "trialing" ? "Trial" : sub?.status || "Free"}</span>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${getSubscriptionStatusBadge(sub?.status).className}`}>
+                    {getSubscriptionStatusBadge(sub?.status).label}
+                  </span>
+                  {sub?.cancelAtPeriodEnd && sub.status !== "cancelled" && (
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                      Cancels at period end
+                    </span>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     Up to {storeLimit === 5 ? "5 stores" : "1 store"} · {plan === "agency" ? "30,000" : plan === "pro" ? "10,000" : plan === "starter" ? "2,000" : "50"} AI messages/mo
                   </span>

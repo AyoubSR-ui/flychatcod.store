@@ -727,6 +727,8 @@ export const SubscriptionPlan = {
   basic: "basic",
   pro: "pro",
   ai_addon: "ai_addon",
+  starter: "starter",
+  agency: "agency",
 } as const;
 
 export type SubscriptionStatus =

@@ -2022,7 +2022,7 @@ components:
           type: string
         plan:
           type: string
-          enum: [free, basic, pro, ai_addon]
+          enum: [free, basic, pro, ai_addon, starter, agency]
         status:
           type: string
           enum: [active, cancelled, past_due, trialing]

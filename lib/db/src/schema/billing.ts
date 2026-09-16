@@ -2,7 +2,12 @@ import { pgTable, text, boolean, integer, timestamp, pgEnum, numeric } from "dri
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const planEnum = pgEnum("plan", ["free", "basic", "pro", "ai_addon"]);
+// "basic" and "ai_addon" predate the current starter/pro/agency plan naming
+// and aren't referenced by any current code path (ai_addon gets a special
+// label in Admin.tsx's plan-distribution view, suggesting historical rows
+// exist) — kept rather than removed since production already has these
+// values and dropping them would break any row still carrying one.
+export const planEnum = pgEnum("plan", ["free", "basic", "pro", "ai_addon", "starter", "agency"]);
 export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "cancelled", "past_due", "trialing"]);
 export const aiRunStatusEnum = pgEnum("ai_run_status", ["success", "failed", "blocked_no_credits", "blocked_plan", "blocked_mode", "blocked_sender"]);
 
