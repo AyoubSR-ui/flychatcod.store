@@ -1,9 +1,14 @@
 import { createHmac, randomBytes, createHash } from "crypto";
+import bcrypt from "bcryptjs";
 import { db, usersTable, type User } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || "flychat-dev-secret-change-in-prod";
-const SALT_ROUNDS = 10;
+// bcrypt work factor. Bumped from the previously-unused SALT_ROUNDS = 10:
+// this only runs on signup/accept-invite/login submits, not a hot path, and
+// 12 costs roughly 250ms/hash vs ~60ms at 10 — an easy trade for
+// meaningfully higher brute-force resistance if the hash table ever leaks.
+const SALT_ROUNDS = 12;
 
 function base64UrlEncode(str: string): string {
   return Buffer.from(str).toString("base64url");
@@ -35,14 +40,25 @@ export function verifyToken(token: string): Record<string, unknown> | null {
   }
 }
 
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = createHash("sha256").update(password + salt).digest("hex");
-  return `${salt}:${hash}`;
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, SALT_ROUNDS);
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+// bcrypt hashes always start with $2a$/$2b$/$2y$ (version) followed by the
+// cost factor — anything else is the old scheme (`${salt}:${sha256hex}`,
+// see legacyVerify below). Lets verifyPassword accept both formats during
+// the transition, and login() re-hash a legacy row the moment it verifies
+// successfully (see routes/auth.ts) — no forced reset, no user-visible
+// change, passwords migrate to bcrypt as people log in.
+const BCRYPT_PREFIX = /^\$2[aby]\$/;
+
+export function isLegacyHash(stored: string): boolean {
+  return !BCRYPT_PREFIX.test(stored);
+}
+
+function legacyVerify(password: string, stored: string): boolean {
   const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
   const computed = createHash("sha256").update(password + salt).digest("hex");
   return computed === hash;
 }
@@ -53,6 +69,13 @@ export function verifyPassword(password: string, stored: string): boolean {
 // original link.
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (isLegacyHash(stored)) {
+    return legacyVerify(password, stored);
+  }
+  return bcrypt.compare(password, stored);
 }
 
 export async function getUserFromToken(token: string): Promise<User | null> {

@@ -10,7 +10,20 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-console.log("[DB] Connecting to:", process.env.DATABASE_URL?.slice(0, 50));
+// Host + database name only — never credentials. process.env.DATABASE_URL
+// itself (or any prefix of it) must never reach a log line: for a typical
+// postgresql://user:password@host:port/db string the password sits right
+// after the first ':', so even a truncated slice can leak it.
+function describeConnection(connectionString: string): string {
+  try {
+    const url = new URL(connectionString);
+    return `${url.hostname}${url.port ? `:${url.port}` : ""}${url.pathname}`;
+  } catch {
+    return "(unparseable connection string)";
+  }
+}
+
+console.log("[DB] Connecting to:", describeConnection(process.env.DATABASE_URL));
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 export const db = drizzle(pool, { schema });
 

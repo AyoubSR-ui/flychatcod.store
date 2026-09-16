@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, usersTable, organizationsTable, storesTable, subscriptionsTable, teamMembersTable, widgetConfigsTable, channelConnectionsTable, inviteTokensTable, passwordResetTokensTable } from "@workspace/db";
 import { eq, and, isNull, gt } from "drizzle-orm";
-import { hashPassword, verifyPassword, createToken, verifyToken, hashToken } from "../lib/auth.js";
+import { hashPassword, verifyPassword, isLegacyHash, createToken, verifyToken, hashToken } from "../lib/auth.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { sendPasswordResetEmail } from "../lib/email.js";
@@ -40,7 +40,7 @@ router.post("/signup", async (req, res) => {
     const others = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
 
     const userId = generateId("usr");
-    const passwordHash = hashPassword(password);
+    const passwordHash = await hashPassword(password);
 
     await db.insert(usersTable).values({
       id: userId,
@@ -93,11 +93,32 @@ router.post("/login", async (req, res) => {
 
     // Find all accounts with this email (a person may have several — own store + invited stores)
     const users = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase()));
-    const matches = users.filter(u => verifyPassword(password, u.passwordHash));
+    const matches: typeof users = [];
+    for (const candidate of users) {
+      if (await verifyPassword(password, candidate.passwordHash)) matches.push(candidate);
+    }
 
     if (matches.length === 0) {
       res.status(401).json({ error: "unauthorized", message: "Invalid email or password" });
       return;
+    }
+
+    // Transparent bcrypt migration — every entry in `matches` just verified
+    // against this exact plaintext password, whether there's one or
+    // several, so it's safe to re-hash all of them here. (Once past this
+    // point, a multi-match login never sees the plaintext again —
+    // /login/select trades a selection token for a session without
+    // resending the password — so this is the only place migration can
+    // happen for those accounts.) No forced reset, nothing user-visible.
+    for (const match of matches) {
+      if (isLegacyHash(match.passwordHash)) {
+        try {
+          const passwordHash = await hashPassword(password);
+          await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, match.id));
+        } catch (err) {
+          console.error("[Auth] Failed to migrate password hash for user", match.id, err);
+        }
+      }
     }
 
     if (matches.length === 1) {
@@ -224,7 +245,7 @@ router.post("/reset-password/confirm", async (req, res) => {
     }
 
     await db.update(usersTable)
-      .set({ passwordHash: hashPassword(password), updatedAt: new Date() })
+      .set({ passwordHash: await hashPassword(password), updatedAt: new Date() })
       .where(eq(usersTable.id, resetToken.userId));
 
     await db.update(passwordResetTokensTable)
@@ -304,7 +325,7 @@ router.post("/accept-invite", async (req, res) => {
   .from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
 
   const userId = generateId("usr");
-  const passwordHash = hashPassword(password);
+  const passwordHash = await hashPassword(password);
 
   await db.insert(usersTable).values({
   id: userId,

@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Database dumps — never commit real data. Migrations here are .ts scripts
+# (scripts/src/migrate-*.ts), not .sql files, so this has no exceptions.
+*.sql
