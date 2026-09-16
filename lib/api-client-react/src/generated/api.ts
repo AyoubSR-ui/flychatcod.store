@@ -174,6 +174,7 @@ export function useHealthCheck<
 }
 
 /**
+ * Always creates a new account, even if this email already has one or more accounts elsewhere (own store + invited stores are separate accounts — see users.email, not unique). Check otherAccountsExist on the response to offer logging into an existing account as an alternative.
  * @summary Sign up a new user
  */
 export const getAuthSignupUrl = () => {

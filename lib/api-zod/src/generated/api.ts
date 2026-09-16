@@ -15,6 +15,7 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
+ * Always creates a new account, even if this email already has one or more accounts elsewhere (own store + invited stores are separate accounts — see users.email, not unique). Check otherAccountsExist on the response to offer logging into an existing account as an alternative.
  * @summary Sign up a new user
  */
 export const authSignupBodyPasswordMin = 8;
@@ -92,6 +93,12 @@ export const AuthLoginSelectResponse = zod.object({
   }),
   token: zod.string(),
   needsOnboarding: zod.boolean(),
+  otherAccountsExist: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Signup only — true if this email already had one or more other accounts before this one was created.",
+    ),
 });
 
 /**
