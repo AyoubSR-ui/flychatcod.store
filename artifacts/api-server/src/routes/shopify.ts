@@ -986,7 +986,10 @@ async function syncOrders(storeId: string, shop: string): Promise<number> {
     const customerName = `${so.customer?.first_name || ""} ${so.customer?.last_name || ""}`.trim() || "Unknown";
     const customerEmail = so.customer?.email || so.email || "";
     const customerPhone = so.customer?.phone || so.shipping_address?.phone || so.billing_address?.phone || "";
-    const wilaya = normalizeWilayaForStorage(so.shipping_address?.city || so.billing_address?.city || "");
+    // .inferredCommune is ignored here — Shopify orders don't have a
+    // commune column wired into either INSERT below yet (a real gap, not
+    // an oversight; the AI chat path is what this task targeted).
+    const wilaya = normalizeWilayaForStorage(so.shipping_address?.city || so.billing_address?.city || "").wilaya;
     const address = [so.shipping_address?.address1, so.shipping_address?.address2].filter(Boolean).join(", ") || "";
 
     const shippingAddress = so.shipping_address ? {
@@ -1102,7 +1105,8 @@ async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<v
   const customerName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Unknown";
   const customerEmail = order.customer?.email || order.email || "";
   const customerPhone = order.customer?.phone || order.shipping_address?.phone || order.billing_address?.phone || "";
-  const wilaya = normalizeWilayaForStorage(order.shipping_address?.city || "");
+  // .inferredCommune ignored here too — see the other call site's comment.
+  const wilaya = normalizeWilayaForStorage(order.shipping_address?.city || "").wilaya;
   const shippingLine = order.shipping_lines?.[0];
 
   const shippingAddress = order.shipping_address ? {

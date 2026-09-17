@@ -1,5 +1,5 @@
 import { ALGERIA_WILAYAS } from "./algeria-communes-data.js";
-import { normalizeGeoKey, stripArabic, resolveWilayaName } from "@workspace/db";
+import { normalizeGeoKey, stripArabic, resolveWilayaName, findWilayasByCommune } from "@workspace/db";
 
 const WILAYA_NAMES = ALGERIA_WILAYAS.map(w => w.name);
 
@@ -71,15 +71,46 @@ export function getWilayaCode(wilayaName: string): number {
   throw new Error(`Unknown wilaya "${wilayaName}" — doesn't match a wilaya or commune name. Check the order's wilaya field.`);
 }
 
+export interface WilayaStorageResult {
+  wilaya: string;
+  // Set only when `raw` wasn't a wilaya at all but unambiguously matched a
+  // commune (in exactly one wilaya) — e.g. the AI extracts "Bir el Djir"
+  // (a commune of Oran, not a wilaya) as the customer's wilaya. Callers that
+  // have a commune column should store this alongside the corrected wilaya
+  // rather than losing the (more specific, and correct) information the
+  // customer actually gave.
+  inferredCommune?: string;
+}
+
 // Best-effort cleanup for storing a wilaya value coming from an external,
 // uncontrolled source (Shopify's shipping_address.city, or whatever the AI
-// agent extracted from a chat message) — resolves to the canonical dataset
-// name when possible, otherwise falls back to an Arabic-stripped, trimmed
-// version of the raw text rather than storing it completely unprocessed.
+// agent extracted from a chat message). Resolution order:
+//   1. A real wilaya (any case/accent/script/slang) — resolveWilayaName.
+//   2. A commune name that exists in exactly one wilaya — infer that wilaya
+//      and surface the commune via inferredCommune (see findWilayasByCommune
+//      for why "exactly one": ~740 real orders were audited and 43 commune
+//      names in the dataset exist in more than one wilaya, e.g. "Bougara" is
+//      a commune of both Blida and Tiaret — guessing wrong there would
+//      misroute a real parcel, so an ambiguous match falls through to (3)
+//      instead of picking one).
+//   3. Arabic-stripped, trimmed raw text — never store it completely
+//      unprocessed, but don't invent a wilaya we're not sure of either.
 // Never throws — callers needing a hard failure on an unresolvable wilaya
 // should use getWilayaCode instead (dispatch time).
-export function normalizeWilayaForStorage(raw: string): string {
+export function normalizeWilayaForStorage(raw: string): WilayaStorageResult {
   const trimmed = raw.trim();
-  if (!trimmed) return trimmed;
-  return resolveWilayaName(trimmed, WILAYA_NAMES) ?? (stripArabic(trimmed) || trimmed);
+  if (!trimmed) return { wilaya: trimmed };
+
+  const resolved = resolveWilayaName(trimmed, WILAYA_NAMES);
+  if (resolved) return { wilaya: resolved };
+
+  const matches = findWilayasByCommune(trimmed, ALGERIA_WILAYAS);
+  if (matches.length === 1) {
+    const wilaya = matches[0];
+    const target = normalizeGeoKey(trimmed);
+    const commune = wilaya.communes.find(c => normalizeGeoKey(c) === target)!;
+    return { wilaya: wilaya.name, inferredCommune: commune };
+  }
+
+  return { wilaya: stripArabic(trimmed) || trimmed };
 }

@@ -488,7 +488,7 @@ export async function callAiBridge(params: {
  * 4. Accent-stripped substring match
  */
 export function findWilayaKey(wilayaPrices: Record<string, any>, rawWilaya: string): string | undefined {
-  const normalized = normalizeWilayaForStorage(rawWilaya);
+  const normalized = normalizeWilayaForStorage(rawWilaya).wilaya;
   const normalizedLow = normalized.toLowerCase();
   const rawLow = rawWilaya.toLowerCase().trim();
   const strippedNorm = stripAccents(normalizedLow);
@@ -592,6 +592,16 @@ async function executeCreateOrderSilent(
 
     console.log(`[AI Bridge] Creating order — items: ${itemsTotal}, shipping: ${shippingPrice}, total: ${total}, option: ${shippingOption}`);
 
+    // action.wilaya is sometimes actually a commune name ("Bir el Djir" for
+    // Oran) — normalizeWilayaForStorage catches that and hands back the real
+    // wilaya plus the commune, instead of storing a commune name in the
+    // wilaya column (see the wilaya-normalization backfill for how much of
+    // that already happened before this write-time fix existed).
+    const wilayaResult = normalizeWilayaForStorage(action.wilaya!);
+    if (wilayaResult.inferredCommune) {
+      console.log(`[AI Bridge] "${action.wilaya}" is a commune of ${wilayaResult.wilaya}, not a wilaya — storing wilaya=${wilayaResult.wilaya}, commune=${wilayaResult.inferredCommune}`);
+    }
+
     await db.insert(ordersTable).values({
       id: orderId, storeId, conversationId,
       customerId: customerId ?? null,
@@ -599,7 +609,8 @@ async function executeCreateOrderSilent(
       orderNumber,
       customerName: action.customerName,
       customerPhone: action.customerPhone,
-      wilaya: normalizeWilayaForStorage(action.wilaya!),
+      wilaya: wilayaResult.wilaya,
+      commune: wilayaResult.inferredCommune ?? null,
       address: action.address ?? null,
       isCod: true,
       total,
@@ -732,7 +743,14 @@ async function executeUpdateOrderSilent(
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (updateData.shippingOption) updates.shippingOption = updateData.shippingOption;
     if (updateData.address) updates.address = updateData.address;
-    if (updateData.wilaya) updates.wilaya = normalizeWilayaForStorage(updateData.wilaya);
+    if (updateData.wilaya) {
+      const wilayaResult = normalizeWilayaForStorage(updateData.wilaya);
+      updates.wilaya = wilayaResult.wilaya;
+      // Only set commune when we actually inferred one — don't clear an
+      // existing commune just because this update touched wilaya for an
+      // unrelated reason.
+      if (wilayaResult.inferredCommune) updates.commune = wilayaResult.inferredCommune;
+    }
 
     // ── Recalculate shipping fee if option or wilaya changed ──────────────────
     if (updateData.shippingOption || updateData.wilaya) {

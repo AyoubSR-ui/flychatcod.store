@@ -173,3 +173,24 @@ export function resolveWilayaName(raw: string, wilayaNames: string[]): string | 
   }
   return WILAYA_ALIASES[trimmed.toLowerCase()];
 }
+
+// Minimal shape needed to search communes — kept generic (not tied to the
+// api-server Wilaya interface) so this module stays dataset-agnostic.
+export interface WilayaCommuneList {
+  communes: string[];
+}
+
+// Some AI-captured "wilaya" values are actually a commune name — the model
+// extracted a real place, just not the right *level* of place ("Bir el Djir"
+// is a commune of Oran, not a wilaya). Finds every wilaya (from the given
+// list) with a commune matching raw after normalization. Zero matches means
+// raw isn't a recognizable place at all; exactly one is an unambiguous
+// inference (that wilaya, that exact commune spelling); more than one means
+// the commune name exists in multiple wilayas (43 such names in the real
+// dataset, e.g. "Bougara" is a commune of both Blida and Tiaret) — callers
+// must not guess which one in that case.
+export function findWilayasByCommune<T extends WilayaCommuneList>(raw: string, wilayas: T[]): T[] {
+  const key = normalizeGeoKey(raw);
+  if (!key) return [];
+  return wilayas.filter(w => w.communes.some(c => normalizeGeoKey(c) === key));
+}
