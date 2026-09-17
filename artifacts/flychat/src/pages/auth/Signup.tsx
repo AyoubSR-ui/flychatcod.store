@@ -4,7 +4,9 @@ import { MessageSquare, Loader2 } from "lucide-react";
 import { useAuthSignup } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { PasswordInput } from "@/components/PasswordInput";
 import { claimPendingShopifyInstall, hasPendingShopifyClaim } from "@/lib/shopify-claim";
 
 export default function Signup() {
@@ -31,6 +33,23 @@ export default function Signup() {
   const signupMutation = useAuthSignup({
     mutation: {
       onSuccess: async (data) => {
+        // Signup always creates a new account now — an email with existing
+        // accounts elsewhere (own store + invited stores) no longer 409s,
+        // it just gets one more, scoped to this new store. Surface that
+        // rather than silently stacking accounts the person may not have
+        // meant to create.
+        if (data.otherAccountsExist) {
+          toast({
+            title: "New account created",
+            description: "This email already had another FlyChat account — this creates a separate one for this new store.",
+            action: (
+              <ToastAction altText="Log in instead" onClick={() => setLocation("/login")}>
+                Log in instead
+              </ToastAction>
+            ),
+          });
+        }
+
         // See Login.tsx: a pending Shopify install (GET /install ->
         // /callback with no FlyChat account yet) is claimed right after
         // this brand-new account gets its session token, then routed
@@ -51,13 +70,10 @@ export default function Signup() {
         }
       },
       onError: (err: any) => {
-        const isConflict = err?.status === 409;
         toast({
           variant: "destructive",
-          title: isConflict ? "Email already registered" : "Signup failed",
-          description: isConflict
-            ? "An account with this email already exists. Log in instead, or use a different email."
-            : (err.message || "An error occurred. Please try again."),
+          title: "Signup failed",
+          description: err.message || "An error occurred. Please try again.",
         });
       }
     }
@@ -111,14 +127,13 @@ export default function Signup() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-2">Password</label>
-                <input 
-                  type="password" 
+                <PasswordInput
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
                   minLength={8}
-                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all" 
-                  placeholder="••••••••" 
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+                  placeholder="••••••••"
                 />
                 <p className="mt-2 text-xs text-muted-foreground">Must be at least 8 characters.</p>
               </div>

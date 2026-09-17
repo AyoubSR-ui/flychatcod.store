@@ -13,9 +13,11 @@ function base64UrlDecode(str: string): string {
   return Buffer.from(str, "base64url").toString("utf-8");
 }
 
-export function createToken(payload: Record<string, unknown>): string {
+const SEVEN_DAYS_SECONDS = 60 * 60 * 24 * 7;
+
+export function createToken(payload: Record<string, unknown>, ttlSeconds: number = SEVEN_DAYS_SECONDS): string {
   const header = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const body = base64UrlEncode(JSON.stringify({ ...payload, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7 }));
+  const body = base64UrlEncode(JSON.stringify({ ...payload, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + ttlSeconds }));
   const sig = createHmac("sha256", JWT_SECRET).update(`${header}.${body}`).digest("base64url");
   return `${header}.${body}.${sig}`;
 }
@@ -43,6 +45,14 @@ export function verifyPassword(password: string, stored: string): boolean {
   const [salt, hash] = stored.split(":");
   const computed = createHash("sha256").update(password + salt).digest("hex");
   return computed === hash;
+}
+
+// For high-entropy random tokens (password reset links) — no salt needed,
+// unlike hashPassword: the token itself already has 256 bits of randomness,
+// so a plain digest is enough to make the stored value useless without the
+// original link.
+export function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 export async function getUserFromToken(token: string): Promise<User | null> {

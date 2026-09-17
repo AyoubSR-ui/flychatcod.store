@@ -14,3 +14,4 @@ export * from "./audit";
 export * from "./carriers";
 export * from "./order-events";
 export * from "./shopify-pending-installs";
+export * from "./password-reset";

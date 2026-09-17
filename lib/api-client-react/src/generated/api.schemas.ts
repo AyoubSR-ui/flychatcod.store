@@ -44,6 +44,12 @@ export interface ResetPasswordRequest {
   email: string;
 }
 
+export interface ResetPasswordConfirmRequest {
+  token: string;
+  /** @minLength 8 */
+  password: string;
+}
+
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 export const UserRole = {
@@ -76,6 +82,41 @@ export interface AuthResponse {
   user: User;
   token: string;
   needsOnboarding: boolean;
+  /** Signup only — true if this email already had one or more other accounts before this one was created. */
+  otherAccountsExist?: boolean;
+}
+
+export type LoginAccountOptionRole =
+  (typeof LoginAccountOptionRole)[keyof typeof LoginAccountOptionRole];
+
+export const LoginAccountOptionRole = {
+  owner: "owner",
+  admin: "admin",
+  agent: "agent",
+  superadmin: "superadmin",
+} as const;
+
+export interface LoginAccountOption {
+  userId: string;
+  storeName: string;
+  role: LoginAccountOptionRole;
+}
+
+/**
+ * Either a normal AuthResponse (user, token, needsOnboarding) when exactly one account matched, or a selection prompt (requiresSelection, selectionToken, accounts) when several did.
+ */
+export interface LoginResponse {
+  user?: User;
+  token?: string;
+  needsOnboarding?: boolean;
+  requiresSelection?: boolean;
+  selectionToken?: string;
+  accounts?: LoginAccountOption[];
+}
+
+export interface LoginSelectRequest {
+  selectionToken: string;
+  userId: string;
 }
 
 export type OnboardingRequestLanguage =

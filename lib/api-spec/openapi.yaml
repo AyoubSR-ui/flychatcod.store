@@ -58,6 +58,12 @@ paths:
       operationId: authSignup
       tags: [auth]
       summary: Sign up a new user
+      description: >-
+        Always creates a new account, even if this email already has one or
+        more accounts elsewhere (own store + invited stores are separate
+        accounts — see users.email, not unique). Check
+        otherAccountsExist on the response to offer logging into an
+        existing account as an alternative.
       requestBody:
         required: true
         content:
@@ -77,18 +83,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
-        "409":
-          description: Email already in use
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/login:
     post:
       operationId: authLogin
       tags: [auth]
       summary: Login with email/password
+      description: >-
+        A single email can own several accounts (own store + invited
+        stores). If more than one account matches email+password, this
+        returns a selection prompt (requiresSelection, selectionToken,
+        accounts) instead of a session — trade it for a session via
+        POST /auth/login/select.
       requestBody:
         required: true
         content:
@@ -97,13 +103,38 @@ paths:
               $ref: "#/components/schemas/LoginRequest"
       responses:
         "200":
+          description: Login successful, or a selection prompt if several accounts match
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login/select:
+    post:
+      operationId: authLoginSelect
+      tags: [auth]
+      summary: Complete login after picking an account from a login selection prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginSelectRequest"
+      responses:
+        "200":
           description: Login successful
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
         "401":
-          description: Invalid credentials
+          description: Selection token invalid, expired, or userId not among its candidates
           content:
             application/json:
               schema:
@@ -159,6 +190,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/reset-password/confirm:
+    post:
+      operationId: authResetPasswordConfirm
+      tags: [auth]
+      summary: Set a new password using a reset token from the reset email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordConfirmRequest"
+      responses:
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        "400":
+          description: Token invalid, expired, already used, or password too short
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/onboarding:
     post:
@@ -1127,6 +1183,16 @@ components:
           format: email
       required: [email]
 
+    ResetPasswordConfirmRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+          minLength: 8
+      required: [token, password]
+
     AuthResponse:
       type: object
       properties:
@@ -1136,7 +1202,53 @@ components:
           type: string
         needsOnboarding:
           type: boolean
+        otherAccountsExist:
+          type: boolean
+          description: Signup only — true if this email already had one or more other accounts before this one was created.
       required: [user, token, needsOnboarding]
+
+    LoginAccountOption:
+      type: object
+      properties:
+        userId:
+          type: string
+        storeName:
+          type: string
+        role:
+          type: string
+          enum: [owner, admin, agent, superadmin]
+      required: [userId, storeName, role]
+
+    LoginResponse:
+      type: object
+      description: >-
+        Either a normal AuthResponse (user, token, needsOnboarding) when
+        exactly one account matched, or a selection prompt
+        (requiresSelection, selectionToken, accounts) when several did.
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+        needsOnboarding:
+          type: boolean
+        requiresSelection:
+          type: boolean
+        selectionToken:
+          type: string
+        accounts:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoginAccountOption"
+
+    LoginSelectRequest:
+      type: object
+      properties:
+        selectionToken:
+          type: string
+        userId:
+          type: string
+      required: [selectionToken, userId]
 
     User:
       type: object

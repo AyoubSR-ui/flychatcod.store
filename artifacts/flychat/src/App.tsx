@@ -19,6 +19,7 @@ import Support from "@/pages/public/Support";
 import Login from "@/pages/auth/Login";
 import Signup from "@/pages/auth/Signup";
 import ResetPassword from "@/pages/auth/ResetPassword";
+import ResetPasswordConfirm from "@/pages/auth/ResetPasswordConfirm";
 import Onboarding from "@/pages/auth/Onboarding";
 import AcceptInvite from "@/pages/auth/AcceptInvite";
 
@@ -96,6 +97,7 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/reset-password/confirm" component={ResetPasswordConfirm} />
       <Route path="/onboarding" component={Onboarding} />
       <Route path="/accept-invite" component={AcceptInvite} />
 
