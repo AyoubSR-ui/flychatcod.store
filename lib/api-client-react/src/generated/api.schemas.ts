@@ -366,7 +366,10 @@ export interface Order {
   customerName: string;
   customerPhone: string;
   wilaya: string;
+  /** Street address only — see commune for the commune name. */
   address?: string | null;
+  /** Exact commune name from GET /geo/wilayas, scoped to this order's wilaya. Required for dispatch — see POST /orders/{id}/dispatch. */
+  commune?: string | null;
   status: OrderStatus;
   isCod: boolean;
   total: number;
@@ -404,6 +407,7 @@ export interface CreateOrderRequest {
   customerEmail?: string | null;
   wilaya: string;
   address?: string | null;
+  commune?: string | null;
   customerId?: string | null;
   conversationId?: string | null;
   sellerNote?: string | null;
@@ -428,6 +432,7 @@ export interface UpdateOrderRequest {
   sellerNote?: string | null;
   wilaya?: string;
   address?: string | null;
+  commune?: string | null;
 }
 
 export type CustomerDetail = Customer & {
@@ -803,6 +808,17 @@ export type PlanListResponsePlansItem = {
 
 export interface PlanListResponse {
   plans: PlanListResponsePlansItem[];
+}
+
+export interface Wilaya {
+  code: number;
+  name: string;
+  nameAr: string;
+  communes: string[];
+}
+
+export interface WilayaListResponse {
+  wilayas: Wilaya[];
 }
 
 export type StoreSettingsDefaultLanguage =

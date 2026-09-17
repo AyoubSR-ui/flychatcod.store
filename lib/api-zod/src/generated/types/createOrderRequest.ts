@@ -13,6 +13,7 @@ export interface CreateOrderRequest {
   customerEmail?: string | null;
   wilaya: string;
   address?: string | null;
+  commune?: string | null;
   customerId?: string | null;
   conversationId?: string | null;
   sellerNote?: string | null;

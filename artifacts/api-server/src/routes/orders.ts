@@ -106,6 +106,7 @@ router.get("/", requireAuth, async (req, res) => {
         customerEmail: o.customer_email,
         wilaya: o.wilaya,
         address: o.address,
+        commune: o.commune,
         shippingAddress: o.shipping_address,
         total: Number(o.total),
         shippingFee: Number(o.shipping_fee || 0),
@@ -155,7 +156,7 @@ router.get("/", requireAuth, async (req, res) => {
         if (!storeId) { res.status(400).json({ error: "no_store", message: "Complete onboarding first" }); return; }
 
         const {
-          customerName, customerPhone, customerEmail, wilaya, address,
+          customerName, customerPhone, customerEmail, wilaya, address, commune,
           customerId, conversationId, sellerNote, shippingFee = 0,
           shippingOption = null, items = []
         } = req.body;
@@ -228,10 +229,10 @@ router.get("/", requireAuth, async (req, res) => {
 
     await pool.query(
       `INSERT INTO orders (id, order_number, store_id, customer_id, conversation_id, customer_name, customer_phone,
-        customer_email, wilaya, address, seller_note, total, shipping_fee, shipping_option, is_cod, status, assigned_agent_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,'new',$15,NOW(),NOW())`,
+        customer_email, wilaya, address, commune, seller_note, total, shipping_fee, shipping_option, is_cod, status, assigned_agent_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,true,'new',$16,NOW(),NOW())`,
       [orderId, generateOrderNumber(), storeId, finalCustomerId || null, conversationId || null,
-       customerName, customerPhone, customerEmail || null, wilaya, address || null,
+       customerName, customerPhone, customerEmail || null, wilaya, address || null, commune || null,
        sellerNote || null, total, String(shippingFee || 0), shippingOption || null, assignedAgentId]
     );
 
@@ -311,7 +312,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       `${ORDERS_BASE_CTE}
        SELECT b.id, b.order_number as "orderNumber", b.store_id as "storeId", b.customer_id as "customerId",
        b.conversation_id as "conversationId", b.customer_name as "customerName", b.customer_phone as "customerPhone",
-       b.customer_email as "customerEmail", b.wilaya, b.address, b.status, b.is_cod as "isCod",
+       b.customer_email as "customerEmail", b.wilaya, b.address, b.commune, b.status, b.is_cod as "isCod",
        b.total, b.seller_note as "sellerNote", b.created_by_source as "createdBySource",
        b.cancelled_by_source as "cancelledBySource", b.confirmed_by_source as "confirmedBySource",
        b.shipping_fee as "shippingFee", b.shipping_option as "shippingOption",
@@ -373,7 +374,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     await ensureOrderStatusValues();
     await ensureOrdersAgentColumn();
-    const { status, sellerNote, wilaya, address, shippingFee, shippingOption, assignedAgentId, customerName, customerPhone } = req.body;
+    const { status, sellerNote, wilaya, address, commune, shippingFee, shippingOption, assignedAgentId, customerName, customerPhone } = req.body;
 
     let previousStatus: string | null = null;
     if (status) {
@@ -388,6 +389,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (sellerNote !== undefined) { params.push(sellerNote); setClauses.push(`seller_note = $${params.length}`); }
     if (wilaya) { params.push(wilaya); setClauses.push(`wilaya = $${params.length}`); }
     if (address !== undefined) { params.push(address); setClauses.push(`address = $${params.length}`); }
+    if (commune !== undefined) { params.push(commune); setClauses.push(`commune = $${params.length}`); }
     if (shippingFee !== undefined) { params.push(String(shippingFee)); setClauses.push(`shipping_fee = $${params.length}`); }
     if (shippingOption !== undefined) { params.push(shippingOption); setClauses.push(`shipping_option = $${params.length}`); }
     if (assignedAgentId !== undefined) { params.push(assignedAgentId || null); setClauses.push(`assigned_agent_id = $${params.length}`); }

@@ -5,11 +5,10 @@ import {
   Printer, Copy, RefreshCw, CheckCircle2, Loader2, Plus, Trash2, Pencil, CalendarClock,
 } from "lucide-react";
 import React, { useState } from "react";
-import { useGetOrder, useUpdateOrder } from "@workspace/api-client-react";
+import { useGetOrder, useUpdateOrder, useGetWilayas } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
-import { ALGERIA_WILAYAS } from "@/data/algeria-communes";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -130,6 +129,8 @@ function TimelineEvent({ dotColor, title, subtitle, timestamp, by }: { dotColor:
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: order, isLoading, refetch } = useGetOrder(id!);
+  const { data: wilayasData, isLoading: wilayasLoading } = useGetWilayas();
+  const wilayas = wilayasData?.wilayas || [];
   const updateOrder = useUpdateOrder();
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
@@ -316,8 +317,21 @@ export default function OrderDetail() {
   const SHIPPABLE_STATUSES = ["new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed", "shipped"];
   const canCreateParcel = SHIPPABLE_STATUSES.includes(o.status);
   const isScheduled = o.status === "scheduled" && !!o.scheduledShipDate;
-  const wilayaMatch = ALGERIA_WILAYAS.find(w => w.name.toLowerCase() === String(order.wilaya || "").toLowerCase());
+  const wilayaMatch = wilayas.find(w => w.name.toLowerCase() === String(order.wilaya || "").toLowerCase());
   const communesForWilaya: string[] = wilayaMatch?.communes || [];
+  // Same rule the backend enforces at dispatch (isValidCommuneForWilaya) —
+  // flagged here so a bad/missing commune gets fixed via this dropdown.
+  const hasValidCommune = wilayasLoading || (!!order.commune && communesForWilaya.includes(order.commune));
+  // Mirrors COMMUNE_VALIDATION_CUTOFF in
+  // artifacts/api-server/src/routes/carriers.ts — orders created before this
+  // never get blocked from dispatch by the backend, however bad their
+  // commune is (~309 existing orders, per the migration). The amber warning
+  // above still shows for them so an agent fixes it via the dropdown when
+  // they confirm by phone, but dispatch itself must not be blocked here
+  // either, or the UI would contradict what the API actually allows. Keep
+  // these two dates in sync.
+  const COMMUNE_VALIDATION_CUTOFF = new Date("2026-09-17T00:00:00Z");
+  const isPreExistingOrder = new Date(order.createdAt) < COMMUNE_VALIDATION_CUTOFF;
 
   return (
     <AppLayout>
@@ -400,11 +414,11 @@ export default function OrderDetail() {
                   </div>
                   <select
                     value={order.wilaya}
-                    onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, address: "" } as any }); refetch(); }}
+                    onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, commune: "" } as any }); refetch(); }}
                     className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                   >
                     <option value="">Select wilaya...</option>
-                    {ALGERIA_WILAYAS.map(w => <option key={w.code} value={w.name}>{String(w.code).padStart(2, "0")}. {w.name}</option>)}
+                    {wilayas.map(w => <option key={w.code} value={w.name}>{String(w.code).padStart(2, "0")}. {w.name}</option>)}
                   </select>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-sm">
@@ -414,17 +428,30 @@ export default function OrderDetail() {
                   </div>
                   {communesForWilaya.length > 0 ? (
                     <select
-                      value={order.address || ""}
-                      onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { address: e.target.value } as any }); refetch(); }}
+                      value={order.commune || ""}
+                      onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { commune: e.target.value } as any }); refetch(); }}
                       className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                     >
                       <option value="">Select commune...</option>
                       {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   ) : (
-                    <EditableField icon={null} value={order.address || "—"} onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }} />
+                    <EditableField icon={null} value={order.commune || "—"} onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { commune: val } as any }); refetch(); }} />
                   )}
                 </div>
+                {!hasValidCommune && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    {order.commune
+                      ? `"${order.commune}" isn't a valid commune for ${order.wilaya || "this wilaya"} — select one from the dropdown above before creating a parcel.`
+                      : "No commune set — select one above before creating a parcel."}
+                  </p>
+                )}
+                <EditableField
+                  icon={<MapPin className="w-4 h-4 text-muted-foreground shrink-0" />}
+                  label="Street Address"
+                  value={order.address || "—"}
+                  onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }}
+                />
                 {order.conversationId && (
                   <Link href="/inbox" className="flex items-center gap-2 text-sm text-primary hover:underline pt-2 border-t border-border font-medium">
                     <MessageSquare className="w-4 h-4" /> Open Conversation
@@ -459,7 +486,7 @@ export default function OrderDetail() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground shrink-0">Commune</span>
-                    <span className="font-medium text-foreground">{order.address || "—"}</span>
+                    <span className="font-medium text-foreground">{order.commune || "—"}</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground -mt-1.5">Edit wilaya/commune in Customer Info above.</p>
                   <div className="flex items-center justify-between">
@@ -508,7 +535,15 @@ export default function OrderDetail() {
                   </div>
                 )}
 
-                {canCreateParcel && !isScheduled && (
+                {canCreateParcel && !isScheduled && !isPreExistingOrder && !hasValidCommune && (
+                  <div className="pt-3 border-t border-border">
+                    <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      Fix this order's commune above before creating a parcel — couriers reject an invalid or missing commune.
+                    </div>
+                  </div>
+                )}
+
+                {canCreateParcel && !isScheduled && (isPreExistingOrder || hasValidCommune) && (
                   <div className="pt-3 border-t border-border space-y-2.5">
                     <div className="flex gap-2">
                       <button
@@ -809,7 +844,7 @@ export default function OrderDetail() {
           <p className="text-muted-foreground mb-4">{format(new Date(order.createdAt), "MMM dd, yyyy · HH:mm")}</p>
           <p className="font-bold">{order.customerName}</p>
           <p>{order.customerPhone}</p>
-          <p>{order.wilaya}{order.address ? `, ${order.address}` : ""}</p>
+          <p>{[order.address, order.commune, order.wilaya].filter(Boolean).join(", ")}</p>
           <table className="w-full mt-4 border-collapse">
             <thead><tr className="border-b border-black"><th className="text-left py-1">Product</th><th className="text-right py-1">Qty</th><th className="text-right py-1">Total</th></tr></thead>
             <tbody>

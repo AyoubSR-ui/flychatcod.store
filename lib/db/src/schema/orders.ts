@@ -26,7 +26,8 @@ export const ordersTable = pgTable("orders", {
   customerPhone: text("customer_phone").notNull(),
   customerEmail: text("customer_email"),
   wilaya: text("wilaya").notNull(),
-  address: text("address"),
+  address: text("address"), // street address only — commune lives in its own column below
+  commune: text("commune"),
   status: orderStatusEnum("status").notNull().default("new"),
   isCod: boolean("is_cod").notNull().default(true),
   total: numeric("total", { precision: 10, scale: 2 }).notNull(),

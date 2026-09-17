@@ -58,6 +58,20 @@ export function resolveCommuneName(raw: string, wilayaCode: number): string {
   return match || cleaned || raw;
 }
 
+// Unlike resolveCommuneName above (which never blocks — it's a best-effort
+// spelling fix for whatever ends up going to the courier), this is the
+// dispatch-time gate: an order with no commune, or one that doesn't belong
+// to its wilaya at all, should never reach the courier and get rejected as
+// "commune mal écrite" — it should be blocked here with a message that
+// actually says what's wrong, before we spend an API call finding out.
+export function isValidCommuneForWilaya(commune: string | null | undefined, wilayaCode: number): boolean {
+  if (!commune) return false;
+  const wilaya = ALGERIA_WILAYAS.find(w => w.code === wilayaCode);
+  if (!wilaya) return false;
+  const target = communeKey(stripNonLatin(commune));
+  return wilaya.communes.some(c => communeKey(c) === target);
+}
+
 // Throws when a name can't be resolved as either a wilaya or a commune —
 // silently defaulting to Alger (16) would misroute a real parcel with no
 // indication anything went wrong. Better to fail the dispatch loudly.

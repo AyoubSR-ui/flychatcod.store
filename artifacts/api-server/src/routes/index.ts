@@ -26,6 +26,7 @@ import stripeRouter from "./stripe.js";
 import syncRouter from "./sync.js";
 import analyticsRouter from "./analytics.js";
 import carriersRouter from "./carriers.js";
+import geoRouter from "./geo.js";
 
 
 
@@ -58,6 +59,7 @@ router.use("/stripe", stripeRouter);
 router.use("/sync", syncRouter);
 router.use("/analytics", analyticsRouter);
 router.use("/carriers", carriersRouter);
+router.use("/geo", geoRouter);
 router.use("/", storageRouter);
 
 export default router;

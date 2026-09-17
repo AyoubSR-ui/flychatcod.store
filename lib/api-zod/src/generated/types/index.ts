@@ -132,3 +132,5 @@ export * from "./widgetConfig";
 export * from "./widgetConfigDefaultLanguage";
 export * from "./widgetConfigPosition";
 export * from "./widgetConversationResponse";
+export * from "./wilaya";
+export * from "./wilayaListResponse";
