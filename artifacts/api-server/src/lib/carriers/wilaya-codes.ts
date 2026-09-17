@@ -1,4 +1,5 @@
 import { ALGERIA_WILAYAS } from "./algeria-communes-data.js";
+import { COMMUNE_ALIASES } from "./algeria-communes-ar.js";
 import { normalizeGeoKey, stripArabic, resolveWilayaName, findWilayasByCommune } from "@workspace/db";
 
 const WILAYA_NAMES = ALGERIA_WILAYAS.map(w => w.name);
@@ -104,11 +105,15 @@ export function normalizeWilayaForStorage(raw: string): WilayaStorageResult {
   const resolved = resolveWilayaName(trimmed, WILAYA_NAMES);
   if (resolved) return { wilaya: resolved };
 
-  const matches = findWilayasByCommune(trimmed, ALGERIA_WILAYAS);
+  const matches = findWilayasByCommune(trimmed, ALGERIA_WILAYAS, COMMUNE_ALIASES);
   if (matches.length === 1) {
     const wilaya = matches[0];
-    const target = normalizeGeoKey(trimmed);
-    const commune = wilaya.communes.find(c => normalizeGeoKey(c) === target)!;
+    // trimmed itself won't be in wilaya.communes when this matched via
+    // COMMUNE_ALIASES (an Arabic name resolving to a differently-spelled
+    // Latin commune) — normalizeGeoKey(trimmed) would find nothing there,
+    // so match on whichever candidate Latin name(s) resolved to this wilaya.
+    const candidateNames = normalizeGeoKey(trimmed) ? [trimmed] : (COMMUNE_ALIASES[trimmed] ?? []);
+    const commune = wilaya.communes.find(c => candidateNames.some(name => normalizeGeoKey(c) === normalizeGeoKey(name)))!;
     return { wilaya: wilaya.name, inferredCommune: commune };
   }
 

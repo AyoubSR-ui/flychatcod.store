@@ -28,6 +28,14 @@
  *      commune of both Blida and Tiaret): leave it, report it as
  *      ambiguous. Never guess which wilaya.
  *
+ * Pass 2 also covers Arabic-only commune names (خروب, العطاف, واد رهيو, ...)
+ * via COMMUNE_ALIASES (algeria-communes-ar.ts, sourced directly from the
+ * same upstream dataset as algeria-communes.json — not hand-transcribed).
+ * normalizeGeoKey strips Arabic script, so a purely-Arabic value normalizes
+ * to "" and used to fall straight through to "still unresolved" no matter
+ * how well-formed it was; findWilayasByCommune now falls back to this
+ * alias table when that happens, same ambiguity rule applies.
+ *
  * Only ever fills commune (and, for pass 2, wilaya) where commune is still
  * NULL — never overwrites an existing value. Running this multiple times,
  * or any time after add-orders-commune.cjs, is always safe: each run just
@@ -40,11 +48,25 @@
  */
 import { pool, resolveWilayaName, normalizeGeoKey, findWilayasByCommune } from "@workspace/db";
 import wilayasData from "../../artifacts/api-server/src/lib/carriers/algeria-communes.json";
+import communesArData from "../../artifacts/api-server/src/lib/carriers/algeria-communes-ar.json";
 
 interface Wilaya { code: number; name: string; nameAr: string; communes: string[]; }
 const WILAYAS = wilayasData as Wilaya[];
 const WILAYA_NAMES = WILAYAS.map(w => w.name);
 const WILAYA_BY_NAME = new Map(WILAYAS.map(w => [w.name, w]));
+
+// Same COMMUNE_ALIASES built here as in algeria-communes-ar.ts — importing
+// that .ts file directly hits the same rootDir issue as importing
+// algeria-communes-data.ts would (see why wilayasData above is the raw JSON,
+// not the .ts wrapper): scripts/tsconfig.json's rootDir is scripts/src, and
+// the api-server module lives outside it.
+interface CommuneAr { wilayaCode: number; name: string; nameAr: string; }
+const COMMUNE_ALIASES: Record<string, string[]> = {};
+for (const c of communesArData as CommuneAr[]) {
+  const key = c.nameAr.trim();
+  const list = (COMMUNE_ALIASES[key] ??= []);
+  if (!list.includes(c.name)) list.push(c.name);
+}
 
 const APPLY = process.argv.includes("--apply");
 
@@ -88,11 +110,16 @@ const APPLY = process.argv.includes("--apply");
     }
 
     // ── Pass 2: wilaya doesn't resolve — maybe it's actually a commune ────
-    const matchingWilayas = findWilayasByCommune(rawWilaya, WILAYAS);
+    // (Latin or, via COMMUNE_ALIASES, an Arabic-only commune name.)
+    const matchingWilayas = findWilayasByCommune(rawWilaya, WILAYAS, COMMUNE_ALIASES);
     if (matchingWilayas.length === 1) {
       const wilaya = matchingWilayas[0];
+      // rawWilaya itself won't be among wilaya.communes when the match came
+      // from COMMUNE_ALIASES (Arabic name -> differently-spelled Latin
+      // commune) — fall back to whichever alias candidate(s) resolved here.
       const target = normalizeGeoKey(rawWilaya);
-      const commune = wilaya.communes.find(c => normalizeGeoKey(c) === target)!;
+      const candidateNames = target ? [rawWilaya] : (COMMUNE_ALIASES[rawWilaya.trim()] ?? []);
+      const commune = wilaya.communes.find(c => candidateNames.some(name => normalizeGeoKey(c) === normalizeGeoKey(name)))!;
 
       if (APPLY) {
         await pool.query(

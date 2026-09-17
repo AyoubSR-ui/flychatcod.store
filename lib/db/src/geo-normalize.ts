@@ -189,8 +189,37 @@ export interface WilayaCommuneList {
 // the commune name exists in multiple wilayas (43 such names in the real
 // dataset, e.g. "Bougara" is a commune of both Blida and Tiaret) — callers
 // must not guess which one in that case.
-export function findWilayasByCommune<T extends WilayaCommuneList>(raw: string, wilayas: T[]): T[] {
-  const key = normalizeGeoKey(raw);
-  if (!key) return [];
-  return wilayas.filter(w => w.communes.some(c => normalizeGeoKey(c) === key));
+//
+// communeAliases mirrors how resolveWilayaName falls back to WILAYA_ALIASES:
+// normalizeGeoKey strips Arabic script, so a *purely* Arabic commune name
+// ("خروب") normalizes to "" and would otherwise never match anything. When
+// that happens, look up the raw trimmed value in the caller-supplied alias
+// table (Arabic name -> one or more canonical Latin commune names) instead,
+// then resolve each candidate name the normal way — so an Arabic name that
+// happens to name a commune existing in more than one wilaya still comes
+// out ambiguous rather than guessed, exactly like the Latin path. Optional,
+// and keyed on the caller's own dataset, for the same reason wilayaNames is
+// a parameter rather than baked in here: this module has no dependency on
+// where the commune dataset lives.
+export function findWilayasByCommune<T extends WilayaCommuneList>(
+  raw: string,
+  wilayas: T[],
+  communeAliases?: Record<string, string[]>
+): T[] {
+  const trimmed = raw.trim();
+  const key = normalizeGeoKey(trimmed);
+  if (key) {
+    return wilayas.filter(w => w.communes.some(c => normalizeGeoKey(c) === key));
+  }
+
+  const candidates = communeAliases?.[trimmed];
+  if (!candidates?.length) return [];
+  const matched = new Set<T>();
+  for (const name of candidates) {
+    const nameKey = normalizeGeoKey(name);
+    for (const w of wilayas) {
+      if (w.communes.some(c => normalizeGeoKey(c) === nameKey)) matched.add(w);
+    }
+  }
+  return [...matched];
 }
