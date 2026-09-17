@@ -8,24 +8,13 @@ import {
 import { DocButton } from "@/components/DocButton";
 import { DispatchModal } from "@/components/DispatchModal";
 import { Pagination } from "@/components/Pagination";
-import { useCreateOrder, useGetProducts, useGetTeamMembers, getGetOrdersQueryKey } from "@workspace/api-client-react";
+import { useCreateOrder, useGetProducts, useGetTeamMembers, useGetWilayas, getGetOrdersQueryKey } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
-
-const WILAYAS = [
-  "Adrar","Chlef","Laghouat","Oum El Bouaghi","Batna","Béjaïa","Biskra","Béchar",
-  "Blida","Bouira","Tamanrasset","Tébessa","Tlemcen","Tiaret","Tizi Ouzou","Alger",
-  "Djelfa","Jijel","Sétif","Saïda","Skikda","Sidi Bel Abbès","Annaba","Guelma",
-  "Constantine","Médéa","Mostaganem","M'Sila","Mascara","Ouargla","Oran","El Bayadh",
-  "Illizi","Bordj Bou Arréridj","Boumerdès","El Tarf","Tindouf","Tissemsilt","El Oued",
-  "Khenchela","Souk Ahras","Tipaza","Mila","Aïn Defla","Naâma","Aïn Témouchent",
-  "Ghardaïa","Relizane","Timimoun","Bordj Badji Mokhtar","Ouled Djellal","Béni Abbès",
-  "In Salah","In Guezzam","Touggourt","Djanet","El M'Ghair","El Méniaa",
-];
 
 const STATUS_OPTIONS = [
   "new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed",
@@ -104,10 +93,13 @@ const defaultItem = (): OrderItem => ({ productName: "", variant: "", quantity: 
 function CreateOrderModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const createMutation = useCreateOrder();
-  const [form, setForm] = useState({ customerName: "", customerPhone: "", customerEmail: "", wilaya: "", address: "", sellerNote: "" });
+  const { data: wilayasData } = useGetWilayas();
+  const wilayas = wilayasData?.wilayas || [];
+  const [form, setForm] = useState({ customerName: "", customerPhone: "", customerEmail: "", wilaya: "", commune: "", address: "", sellerNote: "" });
   const [items, setItems] = useState<OrderItem[]>([defaultItem()]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const communesForWilaya = wilayas.find(w => w.name === form.wilaya)?.communes || [];
 
   const updateItem = (idx: number, field: keyof OrderItem, value: string | number) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
@@ -118,6 +110,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
     if (!form.customerName.trim()) errs.customerName = "Customer name is required";
     if (!form.customerPhone.trim()) errs.customerPhone = "Phone number is required";
     if (!form.wilaya) errs.wilaya = "Wilaya is required";
+    if (communesForWilaya.length > 0 && !form.commune) errs.commune = "Commune is required";
     if (items.length === 0) errs.items = "At least one item is required";
     items.forEach((item, idx) => {
       if (!item.productName.trim()) errs[`item_${idx}_name`] = "Product name required";
@@ -130,7 +123,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = () => {
     if (!validate()) return;
-    createMutation.mutate({ data: { customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail || undefined, wilaya: form.wilaya, address: form.address || undefined, sellerNote: form.sellerNote || undefined, items: items.map(i => ({ productName: i.productName, variant: i.variant || undefined, quantity: i.quantity, price: i.price })) } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() }); queryClient.invalidateQueries({ queryKey: ["orders-list"] }); queryClient.invalidateQueries({ queryKey: ["orders-stats"] }); onClose(); } });
+    createMutation.mutate({ data: { customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail || undefined, wilaya: form.wilaya, commune: form.commune || undefined, address: form.address || undefined, sellerNote: form.sellerNote || undefined, items: items.map(i => ({ productName: i.productName, variant: i.variant || undefined, quantity: i.quantity, price: i.price })) } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() }); queryClient.invalidateQueries({ queryKey: ["orders-list"] }); queryClient.invalidateQueries({ queryKey: ["orders-stats"] }); onClose(); } });
   };
 
   return (
@@ -163,15 +156,28 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Wilaya <span className="text-red-500">*</span></label>
-                <select value={form.wilaya} onChange={e => setForm(f => ({ ...f, wilaya: e.target.value }))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors.wilaya ? "border-red-400" : "border-border"}`}>
+                <select value={form.wilaya} onChange={e => setForm(f => ({ ...f, wilaya: e.target.value, commune: "" }))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors.wilaya ? "border-red-400" : "border-border"}`}>
                   <option value="">Select wilaya...</option>
-                  {WILAYAS.map(w => <option key={w} value={w}>{w}</option>)}
+                  {wilayas.map(w => <option key={w.code} value={w.name}>{w.name}</option>)}
                 </select>
                 {errors.wilaya && <p className="text-red-500 text-xs mt-1">{errors.wilaya}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Address / Commune</label>
-                <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" placeholder="Rue, commune..." />
+                <label className="block text-sm font-medium mb-1">Commune {communesForWilaya.length > 0 && <span className="text-red-500">*</span>}</label>
+                <select
+                  value={form.commune}
+                  onChange={e => setForm(f => ({ ...f, commune: e.target.value }))}
+                  disabled={!form.wilaya || communesForWilaya.length === 0}
+                  className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white disabled:opacity-50 disabled:cursor-not-allowed ${errors.commune ? "border-red-400" : "border-border"}`}
+                >
+                  <option value="">{form.wilaya ? "Select commune..." : "Select a wilaya first"}</option>
+                  {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                {errors.commune && <p className="text-red-500 text-xs mt-1">{errors.commune}</p>}
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium mb-1">Street Address <span className="text-muted-foreground text-xs font-normal">(optional)</span></label>
+                <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" placeholder="Rue Larbi Ben M'hidi..." />
               </div>
             </div>
             <div className="mt-4">
@@ -544,8 +550,8 @@ export default function Orders() {
                         {/* Ville */}
                         <td className="px-4 py-3">
                           <div className="text-xs font-medium text-foreground">{order.wilaya || "—"}</div>
-                          {order.address && order.address !== order.wilaya && (
-                            <div className="text-[11px] text-muted-foreground">{order.address}</div>
+                          {order.commune && order.commune !== order.wilaya && (
+                            <div className="text-[11px] text-muted-foreground">{order.commune}</div>
                           )}
                         </td>
 

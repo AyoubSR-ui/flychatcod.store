@@ -12,4 +12,5 @@ export interface UpdateOrderRequest {
   sellerNote?: string | null;
   wilaya?: string;
   address?: string | null;
+  commune?: string | null;
 }

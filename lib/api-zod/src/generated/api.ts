@@ -412,7 +412,16 @@ export const GetOrdersResponse = zod.object({
       customerName: zod.string(),
       customerPhone: zod.string(),
       wilaya: zod.string(),
-      address: zod.string().nullish(),
+      address: zod
+        .string()
+        .nullish()
+        .describe("Street address only — see commune for the commune name."),
+      commune: zod
+        .string()
+        .nullish()
+        .describe(
+          "Exact commune name from GET \/geo\/wilayas, scoped to this order's wilaya. Required for dispatch — see POST \/orders\/{id}\/dispatch.",
+        ),
       status: zod.enum([
         "new",
         "awaiting_confirmation",
@@ -455,6 +464,7 @@ export const CreateOrderBody = zod.object({
   customerEmail: zod.string().nullish(),
   wilaya: zod.string(),
   address: zod.string().nullish(),
+  commune: zod.string().nullish(),
   customerId: zod.string().nullish(),
   conversationId: zod.string().nullish(),
   sellerNote: zod.string().nullish(),
@@ -486,7 +496,16 @@ export const GetOrderResponse = zod
     customerName: zod.string(),
     customerPhone: zod.string(),
     wilaya: zod.string(),
-    address: zod.string().nullish(),
+    address: zod
+      .string()
+      .nullish()
+      .describe("Street address only — see commune for the commune name."),
+    commune: zod
+      .string()
+      .nullish()
+      .describe(
+        "Exact commune name from GET \/geo\/wilayas, scoped to this order's wilaya. Required for dispatch — see POST \/orders\/{id}\/dispatch.",
+      ),
     status: zod.enum([
       "new",
       "awaiting_confirmation",
@@ -564,6 +583,7 @@ export const UpdateOrderBody = zod.object({
   sellerNote: zod.string().nullish(),
   wilaya: zod.string().optional(),
   address: zod.string().nullish(),
+  commune: zod.string().nullish(),
 });
 
 export const UpdateOrderResponse = zod.object({
@@ -575,7 +595,16 @@ export const UpdateOrderResponse = zod.object({
   customerName: zod.string(),
   customerPhone: zod.string(),
   wilaya: zod.string(),
-  address: zod.string().nullish(),
+  address: zod
+    .string()
+    .nullish()
+    .describe("Street address only — see commune for the commune name."),
+  commune: zod
+    .string()
+    .nullish()
+    .describe(
+      "Exact commune name from GET \/geo\/wilayas, scoped to this order's wilaya. Required for dispatch — see POST \/orders\/{id}\/dispatch.",
+    ),
   status: zod.enum([
     "new",
     "awaiting_confirmation",
@@ -1077,6 +1106,20 @@ export const GetPlansResponse = zod.object({
       currency: zod.string(),
       interval: zod.string(),
       features: zod.array(zod.string()),
+    }),
+  ),
+});
+
+/**
+ * @summary List Algeria's wilayas and their communes (static reference data)
+ */
+export const GetWilayasResponse = zod.object({
+  wilayas: zod.array(
+    zod.object({
+      code: zod.number(),
+      name: zod.string(),
+      nameAr: zod.string(),
+      communes: zod.array(zod.string()),
     }),
   ),
 });

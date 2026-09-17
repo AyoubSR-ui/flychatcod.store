@@ -4,10 +4,22 @@ import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { ensureCarrierTables } from "../lib/schema-bootstrap.js";
 import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/carriers/index.js";
+import { getWilayaCode, isValidCommuneForWilaya } from "../lib/carriers/wilaya-codes.js";
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 import { logOrderEvent } from "../lib/order-events.js";
 
 const router = Router();
+
+// Orders created before orders.commune existed (or before an agent has had
+// a chance to fix one via OrderDetail's dropdown) shouldn't suddenly start
+// getting blocked from dispatch by a check that didn't exist when they were
+// created — ~309 existing orders have a bad/missing commune, and blocking
+// all of them at once would just be a new outage, not a fix. A hardcoded
+// date (rather than reading the migration's actual run timestamp from the
+// DB) — no DB round-trip needed on every dispatch, no metadata to persist;
+// accurate as long as the migration runs the same day this ships, which is
+// the plan. Bump this if the deploy slips to a different day than intended.
+const COMMUNE_VALIDATION_CUTOFF = new Date("2026-09-17T00:00:00Z");
 
 // ─── GET /api/carriers — registry + connected accounts ────────────────────────
 router.get("/", requireAuth, async (req, res) => {
@@ -159,6 +171,32 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
 
   const shipmentId = generateId("ship");
   try {
+    const isPreExisting = new Date(order.created_at) < COMMUNE_VALIDATION_CUTOFF;
+
+    let toCommune: string;
+    if (isPreExisting) {
+      // Unchanged pre-fix behavior: send whatever's available, never block.
+      // If an agent has since fixed the commune via OrderDetail's dropdown
+      // (which only offers valid options for the order's wilaya), that
+      // fixed value is preferred automatically — no separate "revalidate"
+      // step needed, this just picks it up.
+      toCommune = order.commune || order.address || order.wilaya;
+    } else {
+      // Block before spending an API call on a commune the courier will
+      // just reject as "commune mal écrite" — name the actual problem
+      // rather than surfacing whatever error text Ecotrack sends back for
+      // it. Only applies to orders created after the cutoff above.
+      const wilayaCode = getWilayaCode(order.wilaya);
+      if (!isValidCommuneForWilaya(order.commune, wilayaCode)) {
+        throw new Error(
+          order.commune
+            ? `"${order.commune}" is not a valid commune for ${order.wilaya}. Fix the order's commune before creating a parcel.`
+            : `This order has no commune set for ${order.wilaya}. Set one before creating a parcel.`
+        );
+      }
+      toCommune = order.commune;
+    }
+
     const result = await adapter.createShipment({
       orderId: order.id,
       orderNumber: order.order_number,
@@ -168,9 +206,7 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
       address: order.address || "",
       fromWilaya: "Alger",
       toWilaya: order.wilaya,
-      // NOTE: orders don't have a dedicated commune column — address is the
-      // closest available field. A real gap, not a placeholder oversight.
-      toCommune: order.address || order.wilaya,
+      toCommune,
       price: Number(order.total),
       productList,
       isStopdesk: order.shipping_option === "stopdesk",

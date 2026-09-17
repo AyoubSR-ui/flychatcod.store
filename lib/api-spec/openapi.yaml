@@ -39,6 +39,8 @@ tags:
     description: Billing and subscriptions
   - name: admin
     description: Super admin operations
+  - name: geo
+    description: Static geographic reference data (wilayas/communes)
 paths:
   /healthz:
     get:
@@ -893,6 +895,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/PlanListResponse"
 
+  /geo/wilayas:
+    get:
+      operationId: getWilayas
+      tags: [geo]
+      summary: List Algeria's wilayas and their communes (static reference data)
+      responses:
+        "200":
+          description: Wilaya/commune list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WilayaListResponse"
+
   /settings/store:
     get:
       operationId: getStoreSettings
@@ -1558,6 +1573,11 @@ components:
         address:
           type: string
           nullable: true
+          description: Street address only — see commune for the commune name.
+        commune:
+          type: string
+          nullable: true
+          description: Exact commune name from GET /geo/wilayas, scoped to this order's wilaya. Required for dispatch — see POST /orders/{id}/dispatch.
         status:
           type: string
           enum: [new, awaiting_confirmation, confirmed, shipped, delivered, cancelled, suspicious]
@@ -1649,6 +1669,9 @@ components:
         address:
           type: string
           nullable: true
+        commune:
+          type: string
+          nullable: true
         customerId:
           type: string
           nullable: true
@@ -1690,6 +1713,9 @@ components:
         wilaya:
           type: string
         address:
+          type: string
+          nullable: true
+        commune:
           type: string
           nullable: true
 
@@ -2172,6 +2198,30 @@ components:
                   type: string
             required: [id, name, price, currency, interval, features]
       required: [plans]
+
+    Wilaya:
+      type: object
+      properties:
+        code:
+          type: number
+        name:
+          type: string
+        nameAr:
+          type: string
+        communes:
+          type: array
+          items:
+            type: string
+      required: [code, name, nameAr, communes]
+
+    WilayaListResponse:
+      type: object
+      properties:
+        wilayas:
+          type: array
+          items:
+            $ref: "#/components/schemas/Wilaya"
+      required: [wilayas]
 
     StoreSettings:
       type: object

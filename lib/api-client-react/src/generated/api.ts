@@ -87,6 +87,7 @@ import type {
   User,
   WidgetConfig,
   WidgetConversationResponse,
+  WilayaListResponse,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -3709,6 +3710,81 @@ export function useGetPlans<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetPlansQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List Algeria's wilayas and their communes (static reference data)
+ */
+export const getGetWilayasUrl = () => {
+  return `/api/geo/wilayas`;
+};
+
+export const getWilayas = async (
+  options?: RequestInit,
+): Promise<WilayaListResponse> => {
+  return customFetch<WilayaListResponse>(getGetWilayasUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWilayasQueryKey = () => {
+  return [`/api/geo/wilayas`] as const;
+};
+
+export const getGetWilayasQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWilayas>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getWilayas>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetWilayasQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getWilayas>>> = ({
+    signal,
+  }) => getWilayas({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWilayas>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWilayasQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWilayas>>
+>;
+export type GetWilayasQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List Algeria's wilayas and their communes (static reference data)
+ */
+
+export function useGetWilayas<
+  TData = Awaited<ReturnType<typeof getWilayas>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getWilayas>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWilayasQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
