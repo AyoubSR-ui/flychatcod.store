@@ -1,7 +1,8 @@
-import { db, pool, conversationsTable, messagesTable, ordersTable, orderItemsTable, storesTable } from "@workspace/db";
+import { db, pool, conversationsTable, messagesTable, ordersTable, orderItemsTable, storesTable, stripAccents } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
 import { detectLeadIntent, intentToLeadStage, extractConversationState } from "./lead-intent.js";
+import { normalizeWilayaForStorage } from "./carriers/wilaya-codes.js";
 
 const AGENT_URL = process.env.AI_AGENT_URL;
 const AGENT_SECRET = process.env.AGENT_SECRET || "";
@@ -473,130 +474,11 @@ export async function callAiBridge(params: {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // WILAYA NORMALIZATION
-// ── Darija Latin + Arabic → French/Official wilaya names ─────────────────────
-const WILAYA_ALIASES: Record<string, string> = {
-  // ── Latin Darija → French ──────────────────────────────────────────────────
-  "wahran": "Oran", "ouahran": "Oran",
-  "dzayer": "Alger", "dzair": "Alger", "el djazair": "Alger",
-  "qsantina": "Constantine", "ksantina": "Constantine", "casantina": "Constantine",
-  "3annaba": "Annaba", "3naba": "Annaba",
-  "setif": "Sétif", "stif": "Sétif",
-  "tlemcen": "Tlemcen", "tilimsan": "Tlemcen",
-  "batna": "Batna",
-  "sidi bel abbes": "Sidi Bel Abbès", "sba": "Sidi Bel Abbès",
-  "biskra": "Biskra",
-  "blida": "Blida", "boufarik": "Blida",
-  "bejaia": "Béjaïa", "bgayet": "Béjaïa", "bgayette": "Béjaïa",
-  "tizi ouzou": "Tizi Ouzou", "tizi wezzu": "Tizi Ouzou",
-  "msila": "M'Sila", "m'sila": "M'Sila",
-  "mostaganem": "Mostaganem", "musteghanem": "Mostaganem",
-  "chlef": "Chlef", "chelef": "Chlef",
-  "tiaret": "Tiaret", "tihert": "Tiaret",
-  "bechar": "Béchar", "bashar": "Béchar",
-  "ouargla": "Ouargla", "wargla": "Ouargla", "wergla": "Ouargla",
-  "ghardaia": "Ghardaïa", "ghardaya": "Ghardaïa",
-  "laghouat": "Laghouat", "leghouat": "Laghouat",
-  "djelfa": "Djelfa", "jalfa": "Djelfa",
-  "medea": "Médéa", "medya": "Médéa",
-  "bouira": "Bouira", "bwira": "Bouira",
-  "boumerdes": "Boumerdès", "bumerdes": "Boumerdès",
-  "tipaza": "Tipaza", "tipasa": "Tipaza",
-  "ain defla": "Aïn Defla",
-  "ain temouchent": "Aïn Témouchent",
-  "relizane": "Relizane", "ghilizane": "Relizane",
-  "mascara": "Mascara",
-  "saida": "Saïda",
-  "naama": "Naâma",
-  "el bayadh": "El Bayadh",
-  "adrar": "Adrar",
-  "tamanrasset": "Tamanrasset", "tamenrasset": "Tamanrasset",
-  "illizi": "Illizi",
-  "tindouf": "Tindouf",
-  "khenchela": "Khenchela",
-  "souk ahras": "Souk Ahras",
-  "tebessa": "Tébessa", "tbessa": "Tébessa",
-  "oum el bouaghi": "Oum El Bouaghi",
-  "bordj bou arreridj": "Bordj Bou Arréridj", "bba": "Bordj Bou Arréridj",
-  "mila": "Mila",
-  "jijel": "Jijel",
-  "skikda": "Skikda",
-  "guelma": "Guelma",
-  "el tarf": "El Tarf",
-  "el oued": "El Oued", "l oued": "El Oued",
-  "ouled djellal": "Ouled Djellal",
-  "touggourt": "Touggourt", "tougourt": "Touggourt",
-  "in salah": "In Salah", "in guezzam": "In Guezzam",
-
-  // ── Arabic → French (FIX: extraction may return Arabic wilaya names) ────────
-  "الجزائر": "Alger", "الجزائر العاصمة": "Alger",
-  "وهران": "Oran",
-  "قسنطينة": "Constantine",
-  "عنابة": "Annaba",
-  "سطيف": "Sétif",
-  "تلمسان": "Tlemcen",
-  "باتنة": "Batna",
-  "سيدي بلعباس": "Sidi Bel Abbès",
-  "بسكرة": "Biskra",
-  "البليدة": "Blida",
-  "بجاية": "Béjaïa",
-  "تيزي وزو": "Tizi Ouzou",
-  "المسيلة": "M'Sila",
-  "مستغانم": "Mostaganem",
-  "الشلف": "Chlef",
-  "تيارت": "Tiaret",
-  "بشار": "Béchar",
-  "ورقلة": "Ouargla",
-  "غرداية": "Ghardaïa",
-  "الأغواط": "Laghouat",
-  "الجلفة": "Djelfa",
-  "المدية": "Médéa",
-  "البويرة": "Bouira",
-  "بومرداس": "Boumerdès",
-  "تيبازة": "Tipaza",
-  "عين الدفلى": "Aïn Defla",
-  "عين تموشنت": "Aïn Témouchent",
-  "غليزان": "Relizane",
-  "معسكر": "Mascara",
-  "سعيدة": "Saïda",
-  "النعامة": "Naâma",
-  "البيض": "El Bayadh",
-  "أدرار": "Adrar",
-  "تمنراست": "Tamanrasset",
-  "إليزي": "Illizi",
-  "تندوف": "Tindouf",
-  "خنشلة": "Khenchela",
-  "سوق أهراس": "Souk Ahras",
-  "تبسة": "Tébessa",
-  "أم البواقي": "Oum El Bouaghi",
-  "برج بوعريريج": "Bordj Bou Arréridj",
-  "ميلة": "Mila",
-  "جيجل": "Jijel",
-  "سكيكدة": "Skikda",
-  "قالمة": "Guelma",
-  "الطارف": "El Tarf",
-  "الوادي": "El Oued",
-  "أولاد جلال": "Ouled Djellal",
-  "تقرت": "Touggourt",
-  "عين صالح": "In Salah",
-  "عين قزام": "In Guezzam",
-};
-
-/**
- * Strip accents: "Béjaïa" → "bejaia", "Sétif" → "setif"
- */
-function stripAccents(str: string): string {
-  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-function normalizeWilaya(wilaya: string): string {
-  const lower = wilaya.toLowerCase().trim();
-  // Check Latin aliases first
-  if (WILAYA_ALIASES[lower]) return WILAYA_ALIASES[lower];
-  // Check Arabic aliases (exact match on original string)
-  const trimmed = wilaya.trim();
-  if (WILAYA_ALIASES[trimmed]) return WILAYA_ALIASES[trimmed];
-  return wilaya;
-}
+// Moved to the shared normalizer in @workspace/db (lib/db/src/geo-normalize.ts) —
+// this file used to have its own separate WILAYA_ALIASES/normalizeWilaya/
+// stripAccents, one of three overlapping implementations across the codebase.
+// normalizeWilayaForStorage (carriers/wilaya-codes.ts) wraps resolveWilayaName
+// with this store's own ALGERIA_WILAYAS list.
 
 /**
  * Find the matching key in wilayaPrices — 4-strategy lookup:
@@ -606,7 +488,7 @@ function normalizeWilaya(wilaya: string): string {
  * 4. Accent-stripped substring match
  */
 export function findWilayaKey(wilayaPrices: Record<string, any>, rawWilaya: string): string | undefined {
-  const normalized = normalizeWilaya(rawWilaya);
+  const normalized = normalizeWilayaForStorage(rawWilaya).wilaya;
   const normalizedLow = normalized.toLowerCase();
   const rawLow = rawWilaya.toLowerCase().trim();
   const strippedNorm = stripAccents(normalizedLow);
@@ -679,7 +561,7 @@ async function executeCreateOrderSilent(
 
         console.log(`[AI Bridge] shippingCalc:`, JSON.stringify({
           rawWilaya: action.wilaya,
-          normalizedWilaya: normalizeWilaya(action.wilaya!),
+          normalizedWilaya: normalizeWilayaForStorage(action.wilaya!),
           wilayaKeyFound: wilayaKey ?? "NOT FOUND",
           shippingOption,
           availableKeys: Object.keys(wilayaPrices),
@@ -710,6 +592,16 @@ async function executeCreateOrderSilent(
 
     console.log(`[AI Bridge] Creating order — items: ${itemsTotal}, shipping: ${shippingPrice}, total: ${total}, option: ${shippingOption}`);
 
+    // action.wilaya is sometimes actually a commune name ("Bir el Djir" for
+    // Oran) — normalizeWilayaForStorage catches that and hands back the real
+    // wilaya plus the commune, instead of storing a commune name in the
+    // wilaya column (see the wilaya-normalization backfill for how much of
+    // that already happened before this write-time fix existed).
+    const wilayaResult = normalizeWilayaForStorage(action.wilaya!);
+    if (wilayaResult.inferredCommune) {
+      console.log(`[AI Bridge] "${action.wilaya}" is a commune of ${wilayaResult.wilaya}, not a wilaya — storing wilaya=${wilayaResult.wilaya}, commune=${wilayaResult.inferredCommune}`);
+    }
+
     await db.insert(ordersTable).values({
       id: orderId, storeId, conversationId,
       customerId: customerId ?? null,
@@ -717,7 +609,8 @@ async function executeCreateOrderSilent(
       orderNumber,
       customerName: action.customerName,
       customerPhone: action.customerPhone,
-      wilaya: action.wilaya,
+      wilaya: wilayaResult.wilaya,
+      commune: wilayaResult.inferredCommune ?? null,
       address: action.address ?? null,
       isCod: true,
       total,
@@ -850,7 +743,14 @@ async function executeUpdateOrderSilent(
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (updateData.shippingOption) updates.shippingOption = updateData.shippingOption;
     if (updateData.address) updates.address = updateData.address;
-    if (updateData.wilaya) updates.wilaya = updateData.wilaya;
+    if (updateData.wilaya) {
+      const wilayaResult = normalizeWilayaForStorage(updateData.wilaya);
+      updates.wilaya = wilayaResult.wilaya;
+      // Only set commune when we actually inferred one — don't clear an
+      // existing commune just because this update touched wilaya for an
+      // unrelated reason.
+      if (wilayaResult.inferredCommune) updates.commune = wilayaResult.inferredCommune;
+    }
 
     // ── Recalculate shipping fee if option or wilaya changed ──────────────────
     if (updateData.shippingOption || updateData.wilaya) {
