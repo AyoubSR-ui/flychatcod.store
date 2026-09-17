@@ -78,6 +78,27 @@ router.patch("/store", requireOwnerOrAdmin, async (req, res) => {
   }
 });
 
+// Personal dashboard-language preference — deliberately separate from
+// PATCH /store's defaultLanguage above, which is store-wide (customer
+// widget default) and gated to owner/admin. This is every signed-in user's
+// own preference (the sidebar LanguageSwitcher), agents included, and only
+// ever touches their own users.language row.
+router.patch("/language", requireAuth, async (req, res) => {
+  try {
+    const { language } = req.body;
+    if (language !== "en" && language !== "fr") {
+      res.status(400).json({ error: "invalid_language", message: "language must be \"en\" or \"fr\"" });
+      return;
+    }
+
+    await db.update(usersTable).set({ language, updatedAt: new Date() }).where(eq(usersTable.id, req.user!.id));
+    res.json({ language });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to update language preference" });
+  }
+});
+
 router.get("/ai", requireOwnerOrAdmin, async (req, res) => {
   try {
     const user = req.user!;

@@ -36,18 +36,12 @@ const STATUS_COLORS: Record<string, string> = {
   suspicious: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
-const DELIVERY_OPTIONS = [
-  { value: "not_shipped", label: "Non expédiée" },
-  { value: "label_created", label: "Étiquette créée" },
-  { value: "label_purchased", label: "Étiquette achetée" },
-  { value: "label_printed", label: "Étiquette imprimée" },
-  { value: "confirmed", label: "Confirmé" },
-  { value: "in_transit", label: "En transit" },
-  { value: "out_for_delivery", label: "En cours de livraison" },
-  { value: "delivered", label: "Livré" },
-  { value: "failed", label: "Échec" },
-  { value: "cancelled", label: "Annulé" },
-];
+const DELIVERY_VALUES = [
+  "not_shipped", "label_created", "label_purchased", "label_printed", "confirmed",
+  "in_transit", "out_for_delivery", "delivered", "failed", "cancelled",
+] as const;
+const getDeliveryOptions = (t: (key: string) => string) =>
+  DELIVERY_VALUES.map(value => ({ value, label: t(`delivery.${value}`) }));
 
 const DELIVERY_COLORS: Record<string, string> = {
   not_shipped: "bg-gray-100 text-gray-500",
@@ -65,13 +59,13 @@ const DELIVERY_COLORS: Record<string, string> = {
 // Real, currently-integrated order sources only — no placeholder entries for
 // channels FlyChat COD doesn't actually connect to yet (e.g. TikTok, Snapchat,
 // Google Sheets aren't wired anywhere in this codebase).
-const SOURCE_OPTIONS = [
-  { value: "shopify", label: "Shopify" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "instagram", label: "Instagram" },
-  { value: "messenger", label: "Facebook" },
-  { value: "widget", label: "Widget" },
-  { value: "manual", label: "Manuel" },
+const getSourceOptions = (t: (key: string) => string) => [
+  { value: "shopify", label: t("source.shopify") },
+  { value: "whatsapp", label: t("source.whatsapp") },
+  { value: "instagram", label: t("source.instagram") },
+  { value: "messenger", label: t("source.facebook") },
+  { value: "widget", label: t("source.widget") },
+  { value: "manual", label: t("source.manual") },
 ];
 
 function SourceIcon({ source, className = "w-3.5 h-3.5" }: { source?: string; className?: string }) {
@@ -91,6 +85,7 @@ interface OrderItem { productName: string; variant: string; quantity: number; pr
 const defaultItem = (): OrderItem => ({ productName: "", variant: "", quantity: 1, price: 0 });
 
 function CreateOrderModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const createMutation = useCreateOrder();
   const { data: wilayasData } = useGetWilayas();
@@ -107,15 +102,15 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!form.customerName.trim()) errs.customerName = "Customer name is required";
-    if (!form.customerPhone.trim()) errs.customerPhone = "Phone number is required";
-    if (!form.wilaya) errs.wilaya = "Wilaya is required";
-    if (communesForWilaya.length > 0 && !form.commune) errs.commune = "Commune is required";
-    if (items.length === 0) errs.items = "At least one item is required";
+    if (!form.customerName.trim()) errs.customerName = t("orders.modal.err.name_required");
+    if (!form.customerPhone.trim()) errs.customerPhone = t("orders.modal.err.phone_required");
+    if (!form.wilaya) errs.wilaya = t("orders.modal.err.wilaya_required");
+    if (communesForWilaya.length > 0 && !form.commune) errs.commune = t("orders.modal.err.commune_required");
+    if (items.length === 0) errs.items = t("order.items_required");
     items.forEach((item, idx) => {
-      if (!item.productName.trim()) errs[`item_${idx}_name`] = "Product name required";
-      if (item.price <= 0) errs[`item_${idx}_price`] = "Price must be > 0";
-      if (item.quantity < 1) errs[`item_${idx}_qty`] = "Quantity must be at least 1";
+      if (!item.productName.trim()) errs[`item_${idx}_name`] = t("orders.modal.err.product_name_required");
+      if (item.price <= 0) errs[`item_${idx}_price`] = t("order.price_required");
+      if (item.quantity < 1) errs[`item_${idx}_qty`] = t("orders.modal.err.qty_required");
     });
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -132,97 +127,97 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between p-6 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center"><Package className="w-5 h-5 text-primary" /></div>
-            <div><h2 className="text-lg font-bold text-foreground">Create New Order</h2><p className="text-xs text-muted-foreground">Cash on Delivery</p></div>
+            <div><h2 className="text-lg font-bold text-foreground">{t("orders.modal.title")}</h2><p className="text-xs text-muted-foreground">{t("orders.modal.subtitle")}</p></div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary transition-colors">✕</button>
         </div>
         <div className="overflow-y-auto flex-1 p-6 space-y-6">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">Customer Info</h3>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">{t("order.customer_info")}</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Full Name <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-1">{t("order.name")} <span className="text-red-500">*</span></label>
                 <input value={form.customerName} onChange={e => setForm(f => ({ ...f, customerName: e.target.value }))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 ${errors.customerName ? "border-red-400" : "border-border"}`} placeholder="Ahmed Benali" />
                 {errors.customerName && <p className="text-red-500 text-xs mt-1">{errors.customerName}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Phone <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-1">{t("order.phone")} <span className="text-red-500">*</span></label>
                 <input value={form.customerPhone} onChange={e => setForm(f => ({ ...f, customerPhone: e.target.value }))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 ${errors.customerPhone ? "border-red-400" : "border-border"}`} placeholder="0550 123 456" />
                 {errors.customerPhone && <p className="text-red-500 text-xs mt-1">{errors.customerPhone}</p>}
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium mb-1">Email <span className="text-muted-foreground text-xs font-normal">(optional)</span></label>
+                <label className="block text-sm font-medium mb-1">{t("order.email")}</label>
                 <input type="email" value={form.customerEmail} onChange={e => setForm(f => ({ ...f, customerEmail: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" placeholder="customer@example.com" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Wilaya <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-1">{t("order.wilaya")} <span className="text-red-500">*</span></label>
                 <select value={form.wilaya} onChange={e => setForm(f => ({ ...f, wilaya: e.target.value, commune: "" }))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors.wilaya ? "border-red-400" : "border-border"}`}>
-                  <option value="">Select wilaya...</option>
+                  <option value="">{t("orders.modal.select_wilaya")}</option>
                   {wilayas.map(w => <option key={w.code} value={w.name}>{w.name}</option>)}
                 </select>
                 {errors.wilaya && <p className="text-red-500 text-xs mt-1">{errors.wilaya}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Commune {communesForWilaya.length > 0 && <span className="text-red-500">*</span>}</label>
+                <label className="block text-sm font-medium mb-1">{t("orderDetail.commune")} {communesForWilaya.length > 0 && <span className="text-red-500">*</span>}</label>
                 <select
                   value={form.commune}
                   onChange={e => setForm(f => ({ ...f, commune: e.target.value }))}
                   disabled={!form.wilaya || communesForWilaya.length === 0}
                   className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white disabled:opacity-50 disabled:cursor-not-allowed ${errors.commune ? "border-red-400" : "border-border"}`}
                 >
-                  <option value="">{form.wilaya ? "Select commune..." : "Select a wilaya first"}</option>
+                  <option value="">{form.wilaya ? t("orders.modal.select_commune") : t("orders.modal.select_wilaya_first")}</option>
                   {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {errors.commune && <p className="text-red-500 text-xs mt-1">{errors.commune}</p>}
               </div>
               <div className="sm:col-span-2">
-                <label className="block text-sm font-medium mb-1">Street Address <span className="text-muted-foreground text-xs font-normal">(optional)</span></label>
+                <label className="block text-sm font-medium mb-1">{t("orders.modal.street_address")}</label>
                 <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" placeholder="Rue Larbi Ben M'hidi..." />
               </div>
             </div>
             <div className="mt-4">
-              <label className="block text-sm font-medium mb-1">Seller Note</label>
-              <textarea value={form.sellerNote} onChange={e => setForm(f => ({ ...f, sellerNote: e.target.value }))} rows={2} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none" placeholder="Internal note about this order..." />
+              <label className="block text-sm font-medium mb-1">{t("order.note")}</label>
+              <textarea value={form.sellerNote} onChange={e => setForm(f => ({ ...f, sellerNote: e.target.value }))} rows={2} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20 resize-none" placeholder={t("orders.modal.note_placeholder")} />
             </div>
           </div>
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Order Items</h3>
-              <button onClick={() => setItems(prev => [...prev, defaultItem()])} className="flex items-center gap-1 text-xs text-primary font-semibold hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"><Plus className="w-3 h-3" /> Add Item</button>
+              <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{t("orders.modal.order_items")}</h3>
+              <button onClick={() => setItems(prev => [...prev, defaultItem()])} className="flex items-center gap-1 text-xs text-primary font-semibold hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"><Plus className="w-3 h-3" /> {t("orders.modal.add_item")}</button>
             </div>
             {errors.items && <p className="text-red-500 text-xs mb-2">{errors.items}</p>}
             <div className="space-y-3">
               {items.map((item, idx) => (
                 <div key={idx} className="bg-secondary/30 rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-muted-foreground">Item {idx + 1}</span>
+                    <span className="text-xs font-bold text-muted-foreground">{t("orders.modal.item_n").replace("{n}", String(idx + 1))}</span>
                     {items.length > 1 && <button onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2">
-                      <input value={item.productName} onChange={e => updateItem(idx, "productName", e.target.value)} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_name`] ? "border-red-400" : "border-border"}`} placeholder="Product name *" />
+                      <input value={item.productName} onChange={e => updateItem(idx, "productName", e.target.value)} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_name`] ? "border-red-400" : "border-border"}`} placeholder={t("orders.modal.product_placeholder")} />
                       {errors[`item_${idx}_name`] && <p className="text-red-500 text-xs mt-1">{errors[`item_${idx}_name`]}</p>}
                     </div>
-                    <input value={item.variant} onChange={e => updateItem(idx, "variant", e.target.value)} className="px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder="Variant (color, size...)" />
+                    <input value={item.variant} onChange={e => updateItem(idx, "variant", e.target.value)} className="px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder={t("orders.modal.variant_placeholder")} />
                     <div className="grid grid-cols-2 gap-2">
-                      <input type="number" min={1} value={item.quantity} onChange={e => updateItem(idx, "quantity", Number(e.target.value))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_qty`] ? "border-red-400" : "border-border"}`} placeholder="Qty" />
-                      <input type="number" min={0} value={item.price || ""} onChange={e => updateItem(idx, "price", Number(e.target.value))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_price`] ? "border-red-400" : "border-border"}`} placeholder="Price DZD" />
+                      <input type="number" min={1} value={item.quantity} onChange={e => updateItem(idx, "quantity", Number(e.target.value))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_qty`] ? "border-red-400" : "border-border"}`} placeholder={t("order.qty")} />
+                      <input type="number" min={0} value={item.price || ""} onChange={e => updateItem(idx, "price", Number(e.target.value))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_price`] ? "border-red-400" : "border-border"}`} placeholder={t("orders.modal.price_placeholder")} />
                     </div>
                   </div>
-                  <div className="text-right text-xs text-muted-foreground">Subtotal: <span className="font-bold text-foreground">DZD {(item.price * item.quantity).toLocaleString()}</span></div>
+                  <div className="text-right text-xs text-muted-foreground">{t("orders.modal.subtotal")} <span className="font-bold text-foreground">DZD {(item.price * item.quantity).toLocaleString()}</span></div>
                 </div>
               ))}
             </div>
             <div className="mt-4 flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-5 py-3">
-              <span className="font-bold text-foreground">Total (COD)</span>
+              <span className="font-bold text-foreground">{t("orders.modal.total_cod")}</span>
               <span className="text-xl font-bold text-primary">DZD {total.toLocaleString()}</span>
             </div>
           </div>
         </div>
         <div className="p-6 border-t border-border shrink-0 flex gap-3 justify-end">
-          <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary transition-colors">Cancel</button>
+          <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary transition-colors">{t("common.cancel")}</button>
           <button onClick={handleSubmit} disabled={createMutation.isPending} className="px-6 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2 transition-colors">
-            {createMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : "Create Order"}
+            {createMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> {t("orders.modal.creating")}</> : t("order.create")}
           </button>
         </div>
       </div>
@@ -263,6 +258,8 @@ export default function Orders() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
   const { t } = useI18n();
+  const DELIVERY_OPTIONS = getDeliveryOptions(t);
+  const SOURCE_OPTIONS = getSourceOptions(t);
   const queryClient = useQueryClient();
 
   const { data: productsData } = useGetProducts({ limit: 200 });
@@ -348,9 +345,9 @@ export default function Orders() {
     try {
       const res = await fetch(`${API_BASE}/api/voice/call-order/${orderId}`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (data.success) { alert("✅ AI call initiated! Customer will receive a call shortly."); invalidateOrders(); }
-      else alert("❌ " + (data.message || "Failed to initiate call. Check voice configuration."));
-    } catch { alert("❌ Network error. Please try again."); }
+      if (data.success) { alert(t("orders.voice_call_success")); invalidateOrders(); }
+      else alert(data.message ? "❌ " + data.message : t("orders.voice_call_failed"));
+    } catch { alert(t("orders.network_error")); }
     finally { setCallingOrderId(null); }
   };
 
@@ -368,34 +365,34 @@ export default function Orders() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-display font-bold text-foreground">Orders</h1>
+                <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.orders")}</h1>
                 <DocButton docId="orders" />
               </div>
-              <p className="text-muted-foreground mt-1">Manage and confirm your Cash on Delivery orders.</p>
+              <p className="text-muted-foreground mt-1">{t("orders.subtitle")}</p>
             </div>
             <button onClick={() => setShowCreate(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2 transition-colors">
-              <Plus className="w-4 h-4" /> Create Order
+              <Plus className="w-4 h-4" /> {t("order.create")}
             </button>
           </div>
 
           {/* ── KPI summary bar ── */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KpiCard icon={<ShoppingBag className="w-4 h-4 text-blue-600" />} iconBg="bg-blue-100" label="Total commandes" value={statsData?.total ?? "—"} sub={statsData ? `${statsData.today} aujourd'hui` : undefined} />
-            <KpiCard icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} iconBg="bg-green-100" label="Confirmées" value={statsData?.confirmed ?? "—"} sub={statsData ? `${statsData.confirmedRate}%` : undefined} />
-            <KpiCard icon={<XCircle className="w-4 h-4 text-red-600" />} iconBg="bg-red-100" label="Annulées" value={statsData?.cancelled ?? "—"} sub={statsData ? `${statsData.cancelledRate}%` : undefined} />
-            <KpiCard icon={<AlertTriangle className="w-4 h-4 text-orange-600" />} iconBg="bg-orange-100" label="Échec livraison" value={statsData?.deliveryFailed ?? "—"} sub={statsData ? `${statsData.deliveryFailedRate}%` : undefined} />
-            <KpiCard icon={<TrendingUp className="w-4 h-4 text-teal-600" />} iconBg="bg-teal-100" label="Taux de livraison" value={statsData ? `${statsData.deliveryRate}%` : "—"} />
-            <KpiCard icon={<Truck className="w-4 h-4 text-purple-600" />} iconBg="bg-purple-100" label="Livrées / période" value={statsData?.delivered ?? "—"} />
+            <KpiCard icon={<ShoppingBag className="w-4 h-4 text-blue-600" />} iconBg="bg-blue-100" label={t("orders.kpi.total")} value={statsData?.total ?? "—"} sub={statsData ? t("orders.kpi.total_today").replace("{n}", String(statsData.today)) : undefined} />
+            <KpiCard icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} iconBg="bg-green-100" label={t("orders.kpi.confirmed")} value={statsData?.confirmed ?? "—"} sub={statsData ? `${statsData.confirmedRate}%` : undefined} />
+            <KpiCard icon={<XCircle className="w-4 h-4 text-red-600" />} iconBg="bg-red-100" label={t("orders.kpi.cancelled")} value={statsData?.cancelled ?? "—"} sub={statsData ? `${statsData.cancelledRate}%` : undefined} />
+            <KpiCard icon={<AlertTriangle className="w-4 h-4 text-orange-600" />} iconBg="bg-orange-100" label={t("orders.kpi.delivery_failed")} value={statsData?.deliveryFailed ?? "—"} sub={statsData ? `${statsData.deliveryFailedRate}%` : undefined} />
+            <KpiCard icon={<TrendingUp className="w-4 h-4 text-teal-600" />} iconBg="bg-teal-100" label={t("orders.kpi.delivery_rate")} value={statsData ? `${statsData.deliveryRate}%` : "—"} />
+            <KpiCard icon={<Truck className="w-4 h-4 text-purple-600" />} iconBg="bg-purple-100" label={t("orders.kpi.delivered_period")} value={statsData?.delivered ?? "—"} />
           </div>
 
           <div className="bg-card border border-border rounded-2xl shadow-sm flex flex-col">
             {/* ── Date quick tabs ── */}
             <div className="p-4 border-b border-border flex flex-wrap items-center gap-2">
-              {[["all", "Tout"], ["today", "Aujourd'hui"], ["yesterday", "Hier"], ["week", "Cette semaine"]].map(([key, label]) => (
+              {([["all", t("orders.tab.all")], ["today", t("orders.tab.today")], ["yesterday", t("orders.tab.yesterday")], ["week", t("orders.tab.week")]] as const).map(([key, label]) => (
                 <button key={key} onClick={() => applyDateTab(key as any)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${dateTab === key ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"}`}>{label}</button>
               ))}
               <div className="flex items-center gap-1.5">
-                <button onClick={() => setDateTab("custom")} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${dateTab === "custom" ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"}`}>Plus</button>
+                <button onClick={() => setDateTab("custom")} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${dateTab === "custom" ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"}`}>{t("orders.tab.more")}</button>
                 {dateTab === "custom" && (
                   <>
                     <input type="date" onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value ? new Date(e.target.value).toISOString() : "" }))} className="px-2 py-1 border border-border rounded-lg text-xs" />
@@ -410,39 +407,39 @@ export default function Orders() {
             <div className="p-4 border-b border-border flex flex-wrap gap-2 items-center">
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} type="text" placeholder="Order #, customer, phone..." className="w-full pl-9 pr-4 py-2 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
+                <input value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} type="text" placeholder={t("orders.search_placeholder")} className="w-full pl-9 pr-4 py-2 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
               </div>
 
               <select value={filters.source} onChange={e => setFilters(f => ({ ...f, source: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">All sources</option>
+                <option value="all">{t("orders.filter.all_sources")}</option>
                 {SOURCE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
 
               <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">All statuses</option>
-                <option value="duplicate">⚠ Duplicate</option>
+                <option value="all">{t("orders.filter.all_statuses")}</option>
+                <option value="duplicate">{t("orders.filter.duplicate")}</option>
                 {STATUS_OPTIONS.map(s => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
               </select>
 
               <select value={filters.delivery} onChange={e => setFilters(f => ({ ...f, delivery: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">All delivery</option>
+                <option value="all">{t("orders.filter.all_delivery")}</option>
                 {DELIVERY_OPTIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
               </select>
 
               <select value={filters.carrier} onChange={e => setFilters(f => ({ ...f, carrier: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">All companies</option>
-                <option value="none">Sans colis</option>
+                <option value="all">{t("orders.filter.all_companies")}</option>
+                <option value="none">{t("orders.filter.no_carrier")}</option>
                 {carrierConnections.map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
 
               <select value={filters.agent} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">All agents</option>
-                <option value="unassigned">Unassigned</option>
+                <option value="all">{t("orders.filter.all_agents")}</option>
+                <option value="unassigned">{t("orders.filter.unassigned")}</option>
                 {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
               </select>
 
               <select value={filters.product} onChange={e => setFilters(f => ({ ...f, product: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">All products</option>
+                <option value="all">{t("orders.filter.all_products")}</option>
                 {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
@@ -451,16 +448,16 @@ export default function Orders() {
               <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Commande</th>
-                    <th className="px-4 py-3 font-medium">Agent</th>
-                    <th className="px-4 py-3 font-medium">Suivi</th>
-                    <th className="px-4 py-3 font-medium">Client</th>
-                    <th className="px-4 py-3 font-medium">Ville</th>
-                    <th className="px-4 py-3 font-medium">Statut</th>
-                    <th className="px-4 py-3 font-medium">Exécution</th>
-                    <th className="px-4 py-3 font-medium text-right">Total</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.order")}</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.agent")}</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.tracking")}</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.customer")}</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.city")}</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.status")}</th>
+                    <th className="px-4 py-3 font-medium">{t("orders.table.execution")}</th>
+                    <th className="px-4 py-3 font-medium text-right">{t("orders.table.total")}</th>
                     <th className="px-4 py-3 font-medium cursor-pointer select-none" onClick={() => setSort(s => s === "desc" ? "asc" : "desc")}>
-                      Date {sort === "desc" ? "↓" : "↑"}
+                      {t("orders.table.date")} {sort === "desc" ? "↓" : "↑"}
                     </th>
                   </tr>
                 </thead>
@@ -472,8 +469,8 @@ export default function Orders() {
                       <td colSpan={9} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center"><Package className="w-7 h-7" /></div>
-                          <p className="font-medium">No orders found</p>
-                          <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">Create your first order →</button>
+                          <p className="font-medium">{t("orders.no_orders")}</p>
+                          <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">{t("orders.create_first")}</button>
                         </div>
                       </td>
                     </tr>
@@ -494,7 +491,7 @@ export default function Orders() {
                               <span className="relative group inline-flex">
                                 <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
                                 <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 hidden group-hover:block whitespace-nowrap bg-gray-900 text-white text-[11px] rounded-lg px-2.5 py-1.5 z-20 shadow-lg">
-                                  Possible duplicate of: {dup.join(", ")}
+                                  {t("orders.duplicate_of").replace("{list}", dup.join(", "))}
                                 </span>
                               </span>
                             )}
@@ -511,7 +508,7 @@ export default function Orders() {
                             onChange={e => handleAssignAgent(order.id, e.target.value)}
                             className={`px-2 py-1 rounded-lg text-xs font-semibold border outline-none cursor-pointer ${order.assignedAgentId ? "bg-secondary text-foreground border-border" : "bg-gray-50 text-muted-foreground border-gray-200"}`}
                           >
-                            <option value="">Unassigned</option>
+                            <option value="">{t("orders.filter.unassigned")}</option>
                             {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                           </select>
                         </td>
@@ -531,10 +528,10 @@ export default function Orders() {
                             </span>
                           ) : order.status === "confirmed" || order.status === "self_confirmed" ? (
                             <button onClick={() => setDispatchOrderId(order.id)} className="inline-flex items-center gap-1 px-2 py-1 text-primary bg-primary/10 hover:bg-primary/20 rounded-lg text-[11px] font-bold transition-colors">
-                              <Send className="w-3 h-3" /> Créer colis
+                              <Send className="w-3 h-3" /> {t("orders.create_parcel")}
                             </button>
                           ) : (
-                            <span className="text-xs text-muted-foreground">Sans colis</span>
+                            <span className="text-xs text-muted-foreground">{t("orders.no_parcel")}</span>
                           )}
                         </td>
 
@@ -587,7 +584,7 @@ export default function Orders() {
                               <button
                                 onClick={() => handleVoiceCall(order.id)}
                                 disabled={callingOrderId === order.id}
-                                title="Trigger AI confirmation call"
+                                title={t("orders.voice_call_title")}
                                 className="inline-flex items-center p-1.5 text-orange-500 hover:text-white hover:bg-orange-500 bg-orange-50 border border-orange-200 rounded-lg transition-colors disabled:opacity-50"
                               >
                                 {callingOrderId === order.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PhoneCall className="w-3.5 h-3.5" />}
@@ -608,7 +605,7 @@ export default function Orders() {
               limit={ordersData?.limit || limit}
               onPageChange={setPage}
               onLimitChange={setLimit}
-              itemLabel="orders"
+              itemLabel={t("orders.item_label")}
             />
           </div>
         </div>
