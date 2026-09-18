@@ -134,10 +134,13 @@ export class EcotrackAdapter implements CarrierAdapter {
   // Anderson has actually been probed live so far.
   //
   // GET api/v1/get/communes -> [{ nom, wilaya_id, code_postal, has_stop_desk }]
-  // GET api/v1/get/desks    -> { my_desk, other_desks } — per-desk field names
-  //   beyond name/wilaya/commune/address/phone/map-link are unconfirmed (the
-  //   live response wasn't inspected key-by-key), so parsing below checks the
-  //   common French/English candidates and keeps `raw` so nothing is lost.
+  // GET api/v1/get/desks    -> { my_desk, other_desks }. Exact shape confirmed
+  //   live (Anderson, 2026-09):
+  //     my_desk: { hub_id, hub_name, location: { wilaya, commune, adresse,
+  //                phone, phone2, email, map }, working_hours: [] }
+  //     other_desks: [ same shape, array ]
+  //   `my_desk` is a single object (the merchant's own hub), not an array —
+  //   distinct from `other_desks`, the rest of the carrier's network.
   // GET api/v1/get/fees     -> [{ wilaya_id, tarif, tarif_stopdesk }]
   async getGeoData(): Promise<CarrierGeoData> {
     const headers = this.buildHeaders();
@@ -167,24 +170,29 @@ export class EcotrackAdapter implements CarrierAdapter {
       }))
       .filter((c) => c.name && c.wilayaCode > 0);
 
-    const parseDesk = (d: any, isOwn: boolean): CarrierDesk => ({
-      name: String(d.name ?? d.nom ?? ""),
-      wilaya: d.wilaya != null ? String(d.wilaya) : undefined,
-      commune: d.commune != null ? String(d.commune) : undefined,
-      address: d.address ?? d.adresse ?? undefined,
-      phone: d.phone ?? d.telephone ?? undefined,
-      mapLink: d.map_link ?? d.mapLink ?? d.lien ?? d.google_map ?? d.maps_link ?? undefined,
-      isOwn,
-      raw: d,
-    });
-    const myDeskList: any[] = Array.isArray(desksRaw?.my_desk)
-      ? desksRaw.my_desk
-      : desksRaw?.my_desk ? [desksRaw.my_desk] : [];
+    const parseDesk = (d: any, isOwn: boolean): CarrierDesk => {
+      const location = d?.location ?? {};
+      return {
+        id: d?.hub_id != null ? String(d.hub_id) : undefined,
+        name: String(d?.hub_name ?? ""),
+        wilaya: location.wilaya != null ? String(location.wilaya) : undefined,
+        commune: location.commune != null ? String(location.commune) : undefined,
+        address: location.adresse != null ? String(location.adresse) : undefined,
+        phone: location.phone != null ? String(location.phone) : undefined,
+        phone2: location.phone2 != null ? String(location.phone2) : undefined,
+        email: location.email != null ? String(location.email) : undefined,
+        mapLink: location.map != null ? String(location.map) : undefined,
+        workingHours: Array.isArray(d?.working_hours) ? d.working_hours : undefined,
+        isOwn,
+        raw: d,
+      };
+    };
+    // my_desk is a single object, not an array — the merchant's own hub.
     const otherDeskList: any[] = Array.isArray(desksRaw?.other_desks) ? desksRaw.other_desks : [];
     const desks: CarrierDesk[] = [
-      ...myDeskList.map((d) => parseDesk(d, true)),
+      ...(desksRaw?.my_desk ? [parseDesk(desksRaw.my_desk, true)] : []),
       ...otherDeskList.map((d) => parseDesk(d, false)),
-    ];
+    ].filter((d) => d.id || d.name);
 
     const fees: CarrierFee[] = (Array.isArray(feesRaw) ? feesRaw : [])
       .map((f): CarrierFee => ({
