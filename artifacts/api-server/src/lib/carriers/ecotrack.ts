@@ -57,6 +57,18 @@ export const ECOTRACK_TENANTS: Record<string, { name: string; domain: string }> 
   world_express: { name: "WorldExpress", domain: "https://world-express.ecotrack.dz/" },
 };
 
+// Several Ecotrack list endpoints return an object keyed by index
+// (`{"0":{...},"1":{...}}`) instead of a plain JSON array — confirmed live on
+// both get/communes and (nested under "livraison") get/fees. Object.values()
+// on such an object yields the same ordering a real array would (integer-like
+// keys iterate in ascending numeric order per the JS spec), so this is a safe
+// normalization, not a guess at ordering.
+function toArray(raw: unknown): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object") return Object.values(raw);
+  return [];
+}
+
 export class EcotrackAdapter implements CarrierAdapter {
   readonly carrier: string;
   private domain: string;
@@ -133,15 +145,23 @@ export class EcotrackAdapter implements CarrierAdapter {
   // expected to work unchanged for every tenant in ECOTRACK_TENANTS; only
   // Anderson has actually been probed live so far.
   //
-  // GET api/v1/get/communes -> [{ nom, wilaya_id, code_postal, has_stop_desk }]
+  // GET api/v1/get/communes -> NOT a plain array — an object keyed by index:
+  //   {"0":{nom,wilaya_id,code_postal,has_stop_desk}, "1":{...}, ...}
+  //   has_stop_desk is 0/1, not a boolean. Confirmed live (production, 2026-09):
+  //   the first deploy assumed a plain array here and silently produced zero
+  //   communes — Array.isArray() on an index-keyed object is false, so the
+  //   whole list was dropped with no error. toArray() below normalizes it.
   // GET api/v1/get/desks    -> { my_desk, other_desks }. Exact shape confirmed
   //   live (Anderson, 2026-09):
   //     my_desk: { hub_id, hub_name, location: { wilaya, commune, adresse,
   //                phone, phone2, email, map }, working_hours: [] }
   //     other_desks: [ same shape, array ]
   //   `my_desk` is a single object (the merchant's own hub), not an array —
-  //   distinct from `other_desks`, the rest of the carrier's network.
-  // GET api/v1/get/fees     -> [{ wilaya_id, tarif, tarif_stopdesk }]
+  //   distinct from `other_desks`, the rest of the carrier's network. This
+  //   shape parsed correctly from the first deploy — not touched here.
+  // GET api/v1/get/fees     -> NOT a bare array either — the array is nested
+  //   under a "livraison" key: {"livraison":[{wilaya_id,tarif,tarif_stopdesk}, ...]}.
+  //   Same silent-zero bug as communes, confirmed live 2026-09.
   async getGeoData(): Promise<CarrierGeoData> {
     const headers = this.buildHeaders();
 
@@ -157,11 +177,11 @@ export class EcotrackAdapter implements CarrierAdapter {
       }
     }
 
-    const communesRaw = (await communesRes.json()) as any[];
+    const communesRaw = (await communesRes.json()) as any;
     const desksRaw = (await desksRes.json()) as any;
-    const feesRaw = (await feesRes.json()) as any[];
+    const feesRaw = (await feesRes.json()) as any;
 
-    const communes: CarrierCommune[] = (Array.isArray(communesRaw) ? communesRaw : [])
+    const communes: CarrierCommune[] = toArray(communesRaw)
       .map((c): CarrierCommune => ({
         name: String(c.nom ?? c.name ?? ""),
         wilayaCode: Number(c.wilaya_id ?? c.wilayaId ?? 0),
@@ -194,7 +214,10 @@ export class EcotrackAdapter implements CarrierAdapter {
       ...otherDeskList.map((d) => parseDesk(d, false)),
     ].filter((d) => d.id || d.name);
 
-    const fees: CarrierFee[] = (Array.isArray(feesRaw) ? feesRaw : [])
+    // The array lives under "livraison" — fall back to treating the whole
+    // body as array-like if that key is ever absent, rather than assuming
+    // the nesting is permanent.
+    const fees: CarrierFee[] = toArray(feesRaw?.livraison ?? feesRaw)
       .map((f): CarrierFee => ({
         wilayaCode: Number(f.wilaya_id ?? f.wilayaId ?? 0),
         tarif: Number(f.tarif ?? 0),
