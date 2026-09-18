@@ -8,7 +8,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-product
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
 interface CredentialField { key: string; label: string; placeholder: string; secret?: boolean; }
-interface CarrierMeta { id: string; name: string; implemented: boolean; credentialFields: CredentialField[]; logo?: string; }
+interface CarrierMeta { id: string; name: string; status: "live" | "not_available"; credentialFields: CredentialField[]; logo?: string; }
 interface CarrierConnection { id: string; carrier: string; label: string; status: string; created_at: string; }
 
 function CarrierLogo({ logo, name, size = "w-9 h-9" }: { logo?: string; name: string; size?: string }) {
@@ -192,7 +192,7 @@ export default function Delivery() {
                       </div>
                     ))}
                   </div>
-                  {registryById[carrier]?.implemented && (
+                  {registryById[carrier]?.status === "live" && (
                     <button
                       onClick={() => setConnectMeta(registryById[carrier])}
                       className="w-full px-5 py-2.5 text-sm font-bold text-primary hover:bg-primary/5 border-t border-border flex items-center justify-center gap-1.5 transition-colors"
@@ -211,18 +211,18 @@ export default function Delivery() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {registry.filter(meta => !connectionsByCarrier[meta.id]).map(meta => (
-                <div key={meta.id} className={`bg-card border rounded-2xl shadow-sm p-5 space-y-3 ${meta.implemented ? "border-border" : "border-border opacity-60"}`}>
+                <div key={meta.id} className={`bg-card border rounded-2xl shadow-sm p-5 space-y-3 ${meta.status === "live" ? "border-border" : "border-border opacity-60"}`}>
                   <div className="flex items-center gap-3">
                     <CarrierLogo logo={meta.logo} name={meta.name} />
                     <div className="font-bold text-foreground">{meta.name}</div>
                   </div>
-                  {meta.implemented ? (
+                  {meta.status === "live" ? (
                     <button onClick={() => setConnectMeta(meta)} className="w-full py-2 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 flex items-center justify-center gap-1.5">
                       <Plus className="w-3.5 h-3.5" /> {t("deliveryPage.connect")}
                     </button>
                   ) : (
                     <div className="w-full py-2 rounded-xl text-sm font-bold bg-secondary text-muted-foreground text-center flex items-center justify-center gap-1.5">
-                      <XCircle className="w-3.5 h-3.5" /> {t("deliveryPage.coming_soon")}
+                      <XCircle className="w-3.5 h-3.5" /> {t("deliveryPage.not_available")}
                     </div>
                   )}
                 </div>

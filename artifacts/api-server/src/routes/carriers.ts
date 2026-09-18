@@ -143,8 +143,8 @@ router.post("/connect", requireOwnerOrAdmin, async (req, res) => {
 
     const meta = getCarrierMeta(carrier);
     if (!meta) { res.status(400).json({ error: "unknown_carrier", message: `Unknown carrier "${carrier}"` }); return; }
-    if (!meta.implemented) {
-      res.status(400).json({ error: "not_implemented", message: `${meta.name} isn't connected yet — its API integration hasn't been built.` });
+    if (meta.status !== "live") {
+      res.status(400).json({ error: "not_available", message: `${meta.name} integration is in progress — not available yet.` });
       return;
     }
 

@@ -107,10 +107,18 @@ export interface CredentialField {
   secret?: boolean;
 }
 
+// "live": the adapter's real HTTP calls are wired and verified against a
+// real connected account — dispatch will actually attempt delivery.
+// "not_available": everything else, regardless of whether the credential
+// shape is known — createShipment throws today, so no merchant should be
+// able to "successfully connect" it (see the carrier honesty audit: four
+// carriers previously showed "Connected" while every dispatch would fail).
+export type CarrierStatus = "live" | "not_available";
+
 export interface CarrierMeta {
   id: string;
   name: string;
-  implemented: boolean;
+  status: CarrierStatus;
   credentialFields: CredentialField[];
   // Real logo URL, verified to actually resolve to an image (not guessed) —
   // omitted entirely for carriers without one rather than faking a path.

@@ -322,7 +322,7 @@ const translations: Record<Language, Record<string, string>> = {
     "deliveryPage.rename": "Rename",
     "deliveryPage.disconnect": "Disconnect",
     "deliveryPage.add_another": "Add another account",
-    "deliveryPage.coming_soon": "Coming soon",
+    "deliveryPage.not_available": "Integration in progress — not available yet",
     // ── AiSettings.tsx ──
     "aiSettings.page_subtitle": "Configure how your AI agent behaves across all channels.",
     "aiSettings.section.how_it_works": "How It Works",
@@ -1093,7 +1093,7 @@ const translations: Record<Language, Record<string, string>> = {
     "deliveryPage.rename": "Renommer",
     "deliveryPage.disconnect": "Déconnecter",
     "deliveryPage.add_another": "Ajouter un autre compte",
-    "deliveryPage.coming_soon": "Bientôt disponible",
+    "deliveryPage.not_available": "Intégration en cours — pas encore disponible",
     // ── AiSettings.tsx ──
     "aiSettings.page_subtitle": "Configurez le comportement de votre agent IA sur tous les canaux.",
     "aiSettings.section.how_it_works": "Comment ça marche",
