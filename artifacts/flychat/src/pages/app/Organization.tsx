@@ -4,6 +4,7 @@ import { Building2, Store, Plus, CreditCard, Users, Check, ArrowUpRight } from "
 import { useAuth } from "@/hooks/use-auth";
 import { useGetSubscription } from "@workspace/api-client-react";
 import { getSubscriptionStatusBadge } from "@/lib/subscription-status";
+import { useI18n } from "@/hooks/use-i18n";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 
@@ -33,6 +34,7 @@ interface OrgData {
 }
 
 export default function Organization() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const { data: sub } = useGetSubscription();
   const [org, setOrg] = useState<OrgData | null>(null);
@@ -144,7 +146,7 @@ export default function Organization() {
                 <p className="font-bold text-foreground capitalize text-lg">{plan} Plan</p>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${getSubscriptionStatusBadge(sub?.status).className}`}>
-                    {getSubscriptionStatusBadge(sub?.status).label}
+                    {t(getSubscriptionStatusBadge(sub?.status).labelKey)}
                   </span>
                   {sub?.cancelAtPeriodEnd && sub.status !== "cancelled" && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
