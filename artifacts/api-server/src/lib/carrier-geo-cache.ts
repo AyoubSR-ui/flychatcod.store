@@ -76,6 +76,15 @@ export async function refreshCarrierGeoCache(connectionId: string): Promise<void
   }
 }
 
+export async function getCarrierGeoCache(connectionId: string) {
+  await ensureCarrierTables();
+  const { rows } = await pool.query(
+    `SELECT * FROM carrier_connection_geo_cache WHERE carrier_connection_id = $1 LIMIT 1`,
+    [connectionId]
+  );
+  return rows[0] ?? null;
+}
+
 export async function refreshAllCarrierGeoCaches(): Promise<void> {
   await ensureCarrierTables();
   const { rows } = await pool.query(`SELECT id FROM carrier_connections WHERE status = 'connected'`);

@@ -7,7 +7,7 @@ import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/c
 import { getWilayaCode, isValidCommuneForWilaya } from "../lib/carriers/wilaya-codes.js";
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 import { logOrderEvent } from "../lib/order-events.js";
-import { refreshCarrierGeoCache } from "../lib/carrier-geo-cache.js";
+import { refreshCarrierGeoCache, getCarrierGeoCache } from "../lib/carrier-geo-cache.js";
 import { verifyCarrierConnection, getCarrierVerification } from "../lib/carrier-verification.js";
 import { ALGERIA_WILAYAS } from "../lib/carriers/algeria-communes-data.js";
 import { normalizeGeoKey } from "@workspace/db";
@@ -271,6 +271,41 @@ router.post("/:id/verify", requireOwnerOrAdmin, async (req, res) => {
     });
   } catch (err) {
     console.error("[Carriers] Verify error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ─── POST /api/carriers/:id/refresh-geo — re-run the geo cache fetch on demand ─
+// Same fetch as the one run automatically on connect and by the daily cron
+// (see refreshCarrierGeoCache) — read-only against the carrier's API. Exists
+// so a cache can be re-populated (e.g. after a parser fix) without waiting
+// for the next deploy's boot-time run or the next 24h cron tick.
+router.post("/:id/refresh-geo", requireOwnerOrAdmin, async (req, res) => {
+  try {
+    await ensureCarrierTables();
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { rows: ownRows } = await pool.query(
+      `SELECT id FROM carrier_connections WHERE id = $1 AND store_id = $2 LIMIT 1`,
+      [req.params.id, storeId]
+    );
+    if (!ownRows[0]) { res.status(404).json({ error: "not_found" }); return; }
+
+    await refreshCarrierGeoCache(String(req.params.id));
+    const cache = await getCarrierGeoCache(String(req.params.id));
+    if (!cache) { res.status(404).json({ error: "not_found" }); return; }
+
+    res.json({
+      fetchedAt: cache.fetched_at,
+      lastAttemptedAt: cache.last_attempted_at,
+      lastError: cache.last_error,
+      communeCount: Array.isArray(cache.communes) ? cache.communes.length : 0,
+      deskCount: Array.isArray(cache.desks) ? cache.desks.length : 0,
+      feeCount: Array.isArray(cache.fees) ? cache.fees.length : 0,
+    });
+  } catch (err) {
+    console.error("[Carriers] Refresh geo error:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
