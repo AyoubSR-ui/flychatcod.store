@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Truck, CheckCircle2, XCircle, AlertCircle, Loader2, Plus, Trash2, Pencil, Check, X } from "lucide-react";
+import { useI18n } from "@/hooks/use-i18n";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -23,13 +24,14 @@ function CarrierLogo({ logo, name, size = "w-9 h-9" }: { logo?: string; name: st
 }
 
 function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose: () => void; onSuccess: () => void }) {
+  const { t } = useI18n();
   const [label, setLabel] = useState("");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const handleConnect = async () => {
-    if (!label.trim()) { setError("Account label is required."); return; }
+    if (!label.trim()) { setError(t("deliveryPage.err.label_required")); return; }
     setError(""); setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/carriers/connect`, {
@@ -41,7 +43,7 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
       if (!res.ok) throw new Error(data.message || "Connection failed");
       onSuccess(); onClose();
     } catch (err: any) {
-      setError(err.message || "Failed to connect.");
+      setError(err.message || t("deliveryPage.err.connect_failed"));
     } finally { setLoading(false); }
   };
 
@@ -50,12 +52,12 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3">
           <CarrierLogo logo={meta.logo} name={meta.name} size="w-10 h-10" />
-          <div><h2 className="font-bold text-foreground text-lg">Connect {meta.name}</h2><p className="text-xs text-muted-foreground">Add a carrier account</p></div>
+          <div><h2 className="font-bold text-foreground text-lg">{t("deliveryPage.connect_title").replace("{name}", meta.name)}</h2><p className="text-xs text-muted-foreground">{t("deliveryPage.connect_desc")}</p></div>
         </div>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-foreground">Account Label</label>
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Main account"
+            <label className="text-sm font-medium text-foreground">{t("deliveryPage.account_label")}</label>
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder={t("deliveryPage.account_label_placeholder")}
               className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
           </div>
           {meta.credentialFields.map(f => (
@@ -73,9 +75,9 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
         </div>
         {error && <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
         <div className="flex gap-3 pt-1">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">Cancel</button>
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
           <button onClick={handleConnect} disabled={loading} className="flex-1 py-2.5 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-2">
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />} Connect
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />} {t("deliveryPage.connect")}
           </button>
         </div>
       </div>
@@ -84,6 +86,7 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
 }
 
 export default function Delivery() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [connectMeta, setConnectMeta] = useState<CarrierMeta | null>(null);
   const [successMsg, setSuccessMsg] = useState("");
@@ -138,8 +141,8 @@ export default function Delivery() {
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-5xl mx-auto space-y-6">
           <div>
-            <h1 className="text-3xl font-display font-bold text-foreground flex items-center gap-3"><Truck className="w-7 h-7 text-primary" /> Delivery</h1>
-            <p className="text-muted-foreground mt-1">Connect Algerian delivery companies to dispatch confirmed orders as colis.</p>
+            <h1 className="text-3xl font-display font-bold text-foreground flex items-center gap-3"><Truck className="w-7 h-7 text-primary" /> {t("deliveryPage.title")}</h1>
+            <p className="text-muted-foreground mt-1">{t("deliveryPage.subtitle")}</p>
           </div>
 
           {successMsg && (
@@ -158,7 +161,7 @@ export default function Delivery() {
                     <CarrierLogo logo={registryById[carrier]?.logo} name={carrier} size="w-7 h-7" />
                     <span className="font-bold text-sm text-foreground">{registryById[carrier]?.name || carrier}</span>
                     <span className="text-xs text-muted-foreground">
-                      {accounts.length} account{accounts.length > 1 ? "s" : ""} connected
+                      {t("deliveryPage.accounts_connected").replace("{n}", String(accounts.length))}
                     </span>
                   </div>
                   <div className="divide-y divide-border/50">
@@ -181,9 +184,9 @@ export default function Delivery() {
                         )}
                         {renamingId !== c.id && (
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200"><CheckCircle2 className="w-3 h-3" /> Connected</span>
-                            <button onClick={() => startRename(c)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors" title="Rename"><Pencil className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => handleDisconnect(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Disconnect"><Trash2 className="w-4 h-4" /></button>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200"><CheckCircle2 className="w-3 h-3" /> {t("deliveryPage.connected_badge")}</span>
+                            <button onClick={() => startRename(c)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors" title={t("deliveryPage.rename")}><Pencil className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleDisconnect(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title={t("deliveryPage.disconnect")}><Trash2 className="w-4 h-4" /></button>
                           </div>
                         )}
                       </div>
@@ -194,7 +197,7 @@ export default function Delivery() {
                       onClick={() => setConnectMeta(registryById[carrier])}
                       className="w-full px-5 py-2.5 text-sm font-bold text-primary hover:bg-primary/5 border-t border-border flex items-center justify-center gap-1.5 transition-colors"
                     >
-                      <Plus className="w-3.5 h-3.5" /> Add another account
+                      <Plus className="w-3.5 h-3.5" /> {t("deliveryPage.add_another")}
                     </button>
                   )}
                 </div>
@@ -204,7 +207,7 @@ export default function Delivery() {
 
           {/* ── Available carriers ── */}
           {isLoading ? (
-            <div className="text-center py-10 text-muted-foreground">Loading...</div>
+            <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {registry.filter(meta => !connectionsByCarrier[meta.id]).map(meta => (
@@ -215,11 +218,11 @@ export default function Delivery() {
                   </div>
                   {meta.implemented ? (
                     <button onClick={() => setConnectMeta(meta)} className="w-full py-2 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary/90 flex items-center justify-center gap-1.5">
-                      <Plus className="w-3.5 h-3.5" /> Connect
+                      <Plus className="w-3.5 h-3.5" /> {t("deliveryPage.connect")}
                     </button>
                   ) : (
                     <div className="w-full py-2 rounded-xl text-sm font-bold bg-secondary text-muted-foreground text-center flex items-center justify-center gap-1.5">
-                      <XCircle className="w-3.5 h-3.5" /> Coming soon
+                      <XCircle className="w-3.5 h-3.5" /> {t("deliveryPage.coming_soon")}
                     </div>
                   )}
                 </div>
@@ -233,7 +236,7 @@ export default function Delivery() {
         <ConnectModal
           meta={connectMeta}
           onClose={() => setConnectMeta(null)}
-          onSuccess={() => { setSuccessMsg(`${connectMeta.name} connected!`); invalidate(); }}
+          onSuccess={() => { setSuccessMsg(t("deliveryPage.connected_success").replace("{name}", connectMeta.name)); invalidate(); }}
         />
       )}
     </AppLayout>
