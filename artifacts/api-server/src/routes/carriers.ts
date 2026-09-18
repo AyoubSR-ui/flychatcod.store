@@ -8,6 +8,7 @@ import { getWilayaCode, isValidCommuneForWilaya } from "../lib/carriers/wilaya-c
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 import { logOrderEvent } from "../lib/order-events.js";
 import { refreshCarrierGeoCache } from "../lib/carrier-geo-cache.js";
+import { verifyCarrierConnection, getCarrierVerification } from "../lib/carrier-verification.js";
 import { ALGERIA_WILAYAS } from "../lib/carriers/algeria-communes-data.js";
 import { normalizeGeoKey } from "@workspace/db";
 
@@ -32,10 +33,30 @@ router.get("/", requireAuth, async (req, res) => {
     if (!storeId) { res.json({ registry: CARRIER_REGISTRY, connections: [] }); return; }
 
     const { rows } = await pool.query(
-      `SELECT id, carrier, label, status, created_at FROM carrier_connections WHERE store_id = $1 ORDER BY created_at DESC`,
+      `SELECT cc.id, cc.carrier, cc.label, cc.status, cc.created_at,
+              v.status AS verification_status, v.checked_at AS verification_checked_at,
+              v.message AS verification_message, v.failure_reason AS verification_failure_reason
+       FROM carrier_connections cc
+       LEFT JOIN carrier_connection_verifications v ON v.carrier_connection_id = cc.id
+       WHERE cc.store_id = $1
+       ORDER BY cc.created_at DESC`,
       [storeId]
     );
-    res.json({ registry: CARRIER_REGISTRY, connections: rows });
+    // `status` on the connection row itself (connected/error/disconnected) is a
+    // separate, older concept — verification is nested so the UI can't confuse
+    // "credentials were saved" with "credentials were confirmed to work."
+    const connections = rows.map((r) => ({
+      id: r.id, carrier: r.carrier, label: r.label, status: r.status, created_at: r.created_at,
+      verification: r.verification_status
+        ? {
+            status: r.verification_status,
+            checkedAt: r.verification_checked_at,
+            message: r.verification_message,
+            failureReason: r.verification_failure_reason,
+          }
+        : null,
+    }));
+    res.json({ registry: CARRIER_REGISTRY, connections });
   } catch (err) {
     console.error("[Carriers] List error:", err);
     res.status(500).json({ error: "internal_error" });
@@ -161,7 +182,29 @@ router.post("/connect", requireOwnerOrAdmin, async (req, res) => {
       [id, storeId, carrier, label, encryptCredentials(credentials!)]
     );
 
-    res.status(201).json({ id, carrier, label, status: "connected" });
+    // Awaited (unlike the geo cache below): the whole point of verification is
+    // that the connect response itself reflects real state instead of
+    // "Connected" meaning only "credentials were saved" — see the carrier
+    // verification project. Bounded by each adapter's own probe timeout (10s
+    // for Ecotrack); verifyCarrierConnection never throws past its own
+    // boundary, but this is still wrapped defensively in case of a genuinely
+    // unexpected DB error, so a verification hiccup can never fail the connect.
+    const verification = await verifyCarrierConnection(id).catch((err) => {
+      console.error("[Carriers] Initial verification failed:", err);
+      return null;
+    });
+
+    res.status(201).json({
+      id, carrier, label, status: "connected",
+      verification: verification
+        ? {
+            status: verification.status,
+            checkedAt: verification.checked_at,
+            message: verification.message,
+            failureReason: verification.failure_reason,
+          }
+        : null,
+    });
 
     // Fire-and-forget: populate the geo cache (communes/desks/fees) right
     // away rather than waiting for tomorrow's cron. Never awaited — must not
@@ -193,6 +236,41 @@ router.patch("/:id/rename", requireOwnerOrAdmin, async (req, res) => {
     res.json(rows[0]);
   } catch (err) {
     console.error("[Carriers] Rename error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ─── POST /api/carriers/:id/verify — re-run the connection probe on demand ─────
+// Same probe as the one run automatically on connect (see verifyCarrierConnection)
+// — read-only, never mutates carrier-side state. Lets a merchant re-check after
+// fixing credentials without disconnecting and reconnecting.
+router.post("/:id/verify", requireOwnerOrAdmin, async (req, res) => {
+  try {
+    await ensureCarrierTables();
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { rows: ownRows } = await pool.query(
+      `SELECT id FROM carrier_connections WHERE id = $1 AND store_id = $2 LIMIT 1`,
+      [req.params.id, storeId]
+    );
+    if (!ownRows[0]) { res.status(404).json({ error: "not_found" }); return; }
+
+    const verification = await verifyCarrierConnection(String(req.params.id));
+    if (!verification) { res.status(404).json({ error: "not_found" }); return; }
+
+    res.json({
+      status: verification.status,
+      checkedAt: verification.checked_at,
+      probePath: verification.probe_path,
+      httpStatus: verification.http_status,
+      carrierErrorCode: verification.carrier_error_code,
+      message: verification.message,
+      failureReason: verification.failure_reason,
+      latencyMs: verification.latency_ms,
+    });
+  } catch (err) {
+    console.error("[Carriers] Verify error:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
@@ -248,6 +326,28 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
   );
   const connection = connRows[0];
   if (!connection) throw new Error("Carrier account not found");
+
+  // ─── Verification gate ───────────────────────────────────────────────────────
+  // failed: credentials are confirmed not to work — block before spending an
+  //   API call on a connection that will just reject it, same reasoning as the
+  //   commune validation below. A merchant fixes credentials and re-verifies
+  //   (POST /api/carriers/:id/verify) to clear this.
+  // unverified (including no verification row at all — connections made before
+  //   this feature shipped, or a carrier with no probe yet): allowed, with a
+  //   warning carried through to the dispatch response rather than silently
+  //   proceeding as if nothing were unknown.
+  // verified: proceeds normally, no warning.
+  const verification = await getCarrierVerification(carrierConnectionId);
+  if (verification?.status === "failed") {
+    throw new Error(
+      `This carrier connection failed verification` +
+      `${verification.failure_reason ? ` (${verification.failure_reason})` : ""}` +
+      `: ${verification.message || "no details recorded"}. Fix the credentials and re-verify before dispatching.`
+    );
+  }
+  const dispatchWarning = !verification || verification.status === "unverified"
+    ? "This carrier connection hasn't been verified as working — dispatching anyway, but check the result carefully."
+    : undefined;
 
   const { rows: orderRows } = await pool.query(
     `SELECT o.*, COALESCE(
@@ -331,7 +431,7 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
       metadata: { carrier: connection.carrier, trackingNumber: result.trackingNumber, labelUrl: result.labelUrl || null },
     }).catch(err => console.error("[Carriers] Failed to log label_created event:", err));
 
-    return { trackingNumber: result.trackingNumber, status: "label_created" };
+    return { trackingNumber: result.trackingNumber, status: "label_created", warning: dispatchWarning };
   } catch (err: any) {
     await pool.query(
       `INSERT INTO shipments (id, order_id, store_id, carrier_connection_id, carrier, status, raw_response, created_at, updated_at)

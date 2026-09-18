@@ -1,4 +1,4 @@
-import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult, CarrierGeoData, CarrierCommune, CarrierDesk, CarrierFee } from "./types.js";
+import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult, CarrierGeoData, CarrierCommune, CarrierDesk, CarrierFee, CarrierVerificationResult } from "./types.js";
 import { getWilayaCode, resolveCommuneName } from "./wilaya-codes.js";
 import { normalizeAlgerianPhone } from "./phone-format.js";
 
@@ -203,5 +203,87 @@ export class EcotrackAdapter implements CarrierAdapter {
       .filter((f) => f.wilayaCode > 0);
 
     return { communes, desks, fees };
+  }
+
+  // ─── Connection verification ─────────────────────────────────────────────────
+  // GET api/v1/validate/token?api_token={token} — a read-only token check, never
+  // a parcel creation or anything else that mutates carrier-side state.
+  //
+  // Auth here is a QUERY PARAM, not the Authorization: Bearer header every other
+  // call on this adapter uses — this endpoint is a documented exception (see the
+  // carrier honesty audit's ZR Express research, which found the same pattern
+  // independently verified against Ecotrack's own validate/token endpoint in a
+  // third-party live-tested integration). Response contract as specified:
+  //   success:true + message "VALID_TOKEN"        -> verified
+  //   message "INVALID_TOKEN" or "TOKEN_NOT_ALLOWED" -> failed, bad credentials
+  // Anything else (unexpected shape, 5xx, timeout, network failure) is reported
+  // as "unverified" rather than guessed either way — a probe that can't tell
+  // must never claim it can.
+  async verifyConnection(): Promise<CarrierVerificationResult> {
+    const path = "api/v1/validate/token";
+    const url = `${this.domain}${path}?api_token=${encodeURIComponent(this.credentials.token)}`;
+    const started = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" }, signal: controller.signal });
+      const latencyMs = Date.now() - started;
+
+      let body: any = null;
+      try { body = await res.json(); } catch { /* non-JSON body — handled below via res.status/marker fallback */ }
+      const marker = typeof body?.message === "string" ? body.message : undefined;
+
+      if (res.status === 429 || (marker && /too many attempts/i.test(marker))) {
+        return {
+          status: "unverified", probePath: path, httpStatus: res.status, carrierErrorCode: marker ?? null,
+          message: "Ecotrack rate-limited this check — try again shortly.",
+          failureReason: "rate_limited", latencyMs,
+        };
+      }
+      if (res.ok && body?.success === true && marker === "VALID_TOKEN") {
+        return {
+          status: "verified", probePath: path, httpStatus: res.status, carrierErrorCode: marker,
+          message: "Token verified against Ecotrack.", latencyMs,
+        };
+      }
+      if (marker === "INVALID_TOKEN" || marker === "TOKEN_NOT_ALLOWED") {
+        return {
+          status: "failed", probePath: path, httpStatus: res.status, carrierErrorCode: marker,
+          message: marker === "INVALID_TOKEN"
+            ? "Ecotrack rejected this token as invalid."
+            : "Ecotrack says this token isn't allowed to use the API.",
+          failureReason: "invalid_credentials", latencyMs,
+        };
+      }
+      if (res.status >= 500) {
+        return {
+          status: "unverified", probePath: path, httpStatus: res.status, carrierErrorCode: marker ?? null,
+          message: `Ecotrack returned a server error (HTTP ${res.status}) — couldn't confirm the token either way.`,
+          failureReason: "carrier_outage", latencyMs,
+        };
+      }
+      return {
+        status: "unverified", probePath: path, httpStatus: res.status, carrierErrorCode: marker ?? null,
+        message: `Unrecognized response from Ecotrack's token check (HTTP ${res.status}).`,
+        failureReason: "unknown_error", latencyMs,
+      };
+    } catch (err: any) {
+      const latencyMs = Date.now() - started;
+      if (err?.name === "AbortError") {
+        return {
+          status: "unverified", probePath: path, httpStatus: null, carrierErrorCode: null,
+          message: "Ecotrack didn't respond within 10 seconds.",
+          failureReason: "timeout", latencyMs,
+        };
+      }
+      return {
+        status: "unverified", probePath: path, httpStatus: null, carrierErrorCode: null,
+        message: `Couldn't reach Ecotrack: ${err?.message || String(err)}`,
+        failureReason: "carrier_outage", latencyMs,
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 }
