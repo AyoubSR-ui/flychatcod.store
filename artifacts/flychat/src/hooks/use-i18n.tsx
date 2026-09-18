@@ -696,6 +696,21 @@ const translations: Record<Language, Record<string, string>> = {
     "customerDetail.no_orders": "No orders yet",
     "customerDetail.conversations_title": "Conversations ({n})",
     "customerDetail.no_conversations": "No conversations yet",
+    // ── Admin.tsx ──
+    "admin.title": "Super Admin",
+    "admin.subtitle": "Platform-wide management — restricted access",
+    "admin.admin_only_badge": "ADMIN ONLY",
+    "admin.stat.total_stores": "Total Stores",
+    "admin.stat.total_users": "Total Users",
+    "admin.stat.total_conversations": "Total Conversations",
+    "admin.stat.total_orders": "Total Orders",
+    "admin.plan_distribution": "Plan Distribution",
+    "admin.plan.ai_addon": "AI Add-on",
+    "admin.no_subscriptions": "No subscriptions yet",
+    "admin.recent_signups": "Recent Signups",
+    "admin.no_recent_signups": "No recent signups",
+    "admin.recent_activity": "Recent Activity",
+    "admin.no_recent_activity": "No recent activity",
   },
   fr: {
     "nav.home": "Accueil",
@@ -1384,6 +1399,21 @@ const translations: Record<Language, Record<string, string>> = {
     "customerDetail.no_orders": "Aucune commande pour l'instant",
     "customerDetail.conversations_title": "Conversations ({n})",
     "customerDetail.no_conversations": "Aucune conversation pour l'instant",
+    // ── Admin.tsx ──
+    "admin.title": "Super Admin",
+    "admin.subtitle": "Gestion globale de la plateforme — accès restreint",
+    "admin.admin_only_badge": "ADMIN UNIQUEMENT",
+    "admin.stat.total_stores": "Boutiques totales",
+    "admin.stat.total_users": "Utilisateurs totaux",
+    "admin.stat.total_conversations": "Conversations totales",
+    "admin.stat.total_orders": "Commandes totales",
+    "admin.plan_distribution": "Répartition des plans",
+    "admin.plan.ai_addon": "Module IA",
+    "admin.no_subscriptions": "Aucun abonnement pour l'instant",
+    "admin.recent_signups": "Inscriptions récentes",
+    "admin.no_recent_signups": "Aucune inscription récente",
+    "admin.recent_activity": "Activité récente",
+    "admin.no_recent_activity": "Aucune activité récente",
   }
 };
 
