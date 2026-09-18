@@ -80,10 +80,10 @@ const WILAYA_SHIPPING_DEFAULTS: Record<string, { home: number; pickup: number; r
 };
 
 const CHANNEL_META = {
-  whatsapp:  { label: "WhatsApp",           color: "text-green-700",  bg: "bg-green-50",  border: "border-green-200", dot: "bg-green-500"  },
-  instagram: { label: "Instagram DMs",      color: "text-pink-700",   bg: "bg-pink-50",   border: "border-pink-200",  dot: "bg-pink-500"   },
-  messenger: { label: "Facebook Messenger", color: "text-blue-700",   bg: "bg-blue-50",   border: "border-blue-200",  dot: "bg-blue-500"   },
-  widget:    { label: "Website Widget",     color: "text-violet-700", bg: "bg-violet-50", border: "border-violet-200",dot: "bg-violet-500" },
+  whatsapp:  { labelKey: "settings.autopilot.channel.whatsapp",  color: "text-green-700",  bg: "bg-green-50",  border: "border-green-200", dot: "bg-green-500"  },
+  instagram: { labelKey: "settings.autopilot.channel.instagram", color: "text-pink-700",   bg: "bg-pink-50",   border: "border-pink-200",  dot: "bg-pink-500"   },
+  messenger: { labelKey: "settings.autopilot.channel.messenger", color: "text-blue-700",   bg: "bg-blue-50",   border: "border-blue-200",  dot: "bg-blue-500"   },
+  widget:    { labelKey: "settings.autopilot.channel.widget",    color: "text-violet-700", bg: "bg-violet-50", border: "border-violet-200",dot: "bg-violet-500" },
 } as const;
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
@@ -193,8 +193,8 @@ export default function Settings() {
   };
 
   const handleApplyAiToAll = async (channelKey: string) => {
-    const label = channelKey === "all" ? "ALL channels" : channelKey;
-    if (!confirm(`Enable AI on ALL existing open ${label} conversations? This cannot be undone.`)) return;
+    const label = channelKey === "all" ? t("settings.autopilot.all_channels_label") : channelKey;
+    if (!confirm(t("settings.autopilot.confirm_apply").replace("{channel}", label))) return;
     setApplyingChannel(channelKey);
     try {
       const token = localStorage.getItem("flychat_token") || "";
@@ -209,14 +209,14 @@ export default function Settings() {
       setTimeout(() => setAppliedChannel(null), 5000);
     } catch (err) {
       console.error("Apply AI failed:", err);
-      alert("Failed to apply AI to conversations");
+      alert(t("settings.err.apply_ai_failed"));
     } finally {
       setApplyingChannel(null);
     }
   };
 
   const handleApplyAiToAllConversations = async () => {
-    if (!confirm("This will enable AI autopilot on ALL existing conversations (open + closed, all channels). Are you sure?")) return;
+    if (!confirm(t("settings.autopilot.confirm_all_conversations"))) return;
     setApplyingAll(true);
     try {
       const token = localStorage.getItem("flychat_token") || "";
@@ -229,7 +229,7 @@ export default function Settings() {
       setTimeout(() => setAppliedAllCount(null), 6000);
     } catch (err) {
       console.error("Apply AI to all conversations failed:", err);
-      alert("Failed to apply AI to all conversations");
+      alert(t("settings.err.apply_ai_all_failed"));
     } finally {
       setApplyingAll(false);
     }
@@ -277,7 +277,12 @@ export default function Settings() {
     setShipping(s => ({ ...s, wilayaPrices: updated }));
   };
 
-  const TAB_LABELS = { profile: "Store Profile", language: "Language", shipping: "Shipping", autopilot: "Autopilot" };
+  const TAB_LABELS = {
+    profile: t("settings.tab.profile"),
+    language: t("settings.tab.language"),
+    shipping: t("settings.tab.shipping"),
+    autopilot: t("settings.tab.autopilot"),
+  };
 
   if (isLoading) return (
     <AppLayout><div className="p-10 flex justify-center"><div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" /></div></AppLayout>
@@ -292,7 +297,7 @@ export default function Settings() {
               <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.settings")}</h1>
               <DocButton docId="shipping" />
             </div>
-            <p className="text-muted-foreground mt-1">Configure your store profile and preferences.</p>
+            <p className="text-muted-foreground mt-1">{t("settings.subtitle")}</p>
           </div>
 
           <div className="flex gap-1 bg-secondary/50 p-1 rounded-xl border border-border w-fit">
@@ -308,33 +313,33 @@ export default function Settings() {
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
               <div className="flex items-center gap-3 pb-4 border-b border-border">
                 <Store className="w-5 h-5 text-primary" />
-                <h3 className="font-bold text-foreground">Store Profile</h3>
+                <h3 className="font-bold text-foreground">{t("settings.tab.profile")}</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Store Name *</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("settings.profile.name_label")}</label>
                   <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Business Phone</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("settings.profile.phone_label")}</label>
                   <input value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Store Description</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("settings.profile.description_label")}</label>
                 <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={3} className="w-full border border-border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
               </div>
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Website URL</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("settings.profile.website_label")}</label>
                 <input value={form.websiteUrl} onChange={e => setForm({...form, websiteUrl: e.target.value})} placeholder="https://" className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
               </div>
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Logo URL</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("settings.profile.logo_label")}</label>
                 <input value={form.logoUrl} onChange={e => setForm({...form, logoUrl: e.target.value})} placeholder="https://..." className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
               </div>
               <button onClick={handleSave} disabled={saving}
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
-                {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
+                {saved ? t("settings.saved_check") : saving ? t("common.saving") : t("common.save")}
               </button>
             </div>
           )}
@@ -343,13 +348,13 @@ export default function Settings() {
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-6">
               <div className="flex items-center gap-3 pb-4 border-b border-border">
                 <Globe className="w-5 h-5 text-primary" />
-                <h3 className="font-bold text-foreground">Language Preferences</h3>
+                <h3 className="font-bold text-foreground">{t("settings.language.title")}</h3>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="border border-border rounded-xl p-5 space-y-3">
                   <div>
-                    <p className="font-semibold text-foreground">Interface Language</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Language of the seller dashboard</p>
+                    <p className="font-semibold text-foreground">{t("settings.language.interface_label")}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t("settings.language.interface_hint")}</p>
                   </div>
                   <select value={form.defaultLanguage} onChange={e => setForm({...form, defaultLanguage: e.target.value})}
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
@@ -359,8 +364,8 @@ export default function Settings() {
                 </div>
                 <div className="border border-border rounded-xl p-5 space-y-3">
                   <div>
-                    <p className="font-semibold text-foreground">Widget Language</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Default language shown to visitors</p>
+                    <p className="font-semibold text-foreground">{t("settings.language.widget_label")}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t("settings.language.widget_hint")}</p>
                   </div>
                   <select value={form.widgetLanguage} onChange={e => setForm({...form, widgetLanguage: e.target.value})}
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
@@ -371,7 +376,7 @@ export default function Settings() {
               </div>
               <button onClick={handleSave} disabled={saving}
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
-                {saved ? "✓ Saved!" : saving ? "Saving..." : t("common.save")}
+                {saved ? t("settings.saved_check") : saving ? t("common.saving") : t("common.save")}
               </button>
             </div>
           )}
@@ -383,22 +388,22 @@ export default function Settings() {
                 <div className="flex items-center gap-3 pb-4 border-b border-border">
                   <Truck className="w-5 h-5 text-primary" />
                   <div>
-                    <h3 className="font-bold text-foreground">Shipping Options</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">AI agent will present these options when collecting orders.</p>
+                    <h3 className="font-bold text-foreground">{t("settings.shipping.title")}</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t("settings.shipping.desc")}</p>
                   </div>
                 </div>
 
                 {/* Prioritize */}
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Prioritize Shipping Mode By</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">{t("settings.shipping.prioritize_label")}</label>
                   <div className="flex gap-6">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="radio" checked={shipping.prioritize === "home"} onChange={() => setShipping(s => ({ ...s, prioritize: "home" }))} className="accent-primary" />
-                      <span className="text-sm font-medium">الى البيت (Home)</span>
+                      <span className="text-sm font-medium">{t("settings.shipping.home_radio")}</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="radio" checked={shipping.prioritize === "pickup"} onChange={() => setShipping(s => ({ ...s, prioritize: "pickup" }))} className="accent-primary" />
-                      <span className="text-sm font-medium">من الفرع (Pickup)</span>
+                      <span className="text-sm font-medium">{t("settings.shipping.pickup_radio")}</span>
                     </label>
                   </div>
                 </div>
@@ -406,16 +411,16 @@ export default function Settings() {
                 {/* Labels */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Door Delivery Label</label>
+                    <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("settings.shipping.home_label_field")}</label>
                     <input value={shipping.homeLabel} onChange={e => setShipping(s => ({ ...s, homeLabel: e.target.value }))}
                       className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                   </div>
                   <div className="flex flex-col">
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Stop Desk Label</label>
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{t("settings.shipping.pickup_label_field")}</label>
                       <button onClick={() => setShipping(s => ({ ...s, pickupEnabled: !s.pickupEnabled }))}
                         className={`text-xs px-2 py-1 rounded font-bold ${shipping.pickupEnabled ? "bg-red-100 text-red-600" : "bg-green-100 text-green-700"}`}>
-                        {shipping.pickupEnabled ? "Disable Stop Desk" : "Enable Stop Desk"}
+                        {shipping.pickupEnabled ? t("settings.shipping.disable_stop_desk") : t("settings.shipping.enable_stop_desk")}
                       </button>
                     </div>
                     <input value={shipping.pickupLabel} onChange={e => setShipping(s => ({ ...s, pickupLabel: e.target.value }))}
@@ -430,17 +435,17 @@ export default function Settings() {
                 <div className="p-6 border-b border-border">
                   <div className="flex items-center gap-3 mb-4">
                     <MapPin className="w-5 h-5 text-primary" />
-                    <h3 className="font-bold text-foreground">Manage Pricings</h3>
-                    <span className="ml-auto text-xs text-muted-foreground">{ALL_WILAYAS.length} wilayas</span>
+                    <h3 className="font-bold text-foreground">{t("settings.shipping.manage_pricings")}</h3>
+                    <span className="ml-auto text-xs text-muted-foreground">{t("settings.shipping.wilaya_count").replace("{n}", String(ALL_WILAYAS.length))}</span>
                   </div>
                   {/* Apply All row */}
                   <div className={`grid gap-3 p-3 bg-secondary/50 rounded-xl border border-border ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
-                    <div className="text-sm font-bold text-muted-foreground flex items-center">Apply to All</div>
+                    <div className="text-sm font-bold text-muted-foreground flex items-center">{t("settings.shipping.apply_to_all")}</div>
                     <div className="flex gap-2 items-center">
                       <span className="text-xs text-muted-foreground shrink-0">DZD</span>
                       <input type="number" min={0} value={applyAllHome} onChange={e => setApplyAllHome(e.target.value)}
-                        placeholder="Home price" className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
-                      <button onClick={() => applyAllPrices("home", applyAllHome)} title="Apply to all wilayas"
+                        placeholder={t("settings.shipping.placeholder.home")} className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => applyAllPrices("home", applyAllHome)} title={t("settings.shipping.apply_all_title")}
                         className="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
                         <Check className="w-3.5 h-3.5" />
                       </button>
@@ -449,8 +454,8 @@ export default function Settings() {
                       <div className="flex gap-2 items-center">
                         <span className="text-xs text-muted-foreground shrink-0">DZD</span>
                         <input type="number" min={0} value={applyAllPickup} onChange={e => setApplyAllPickup(e.target.value)}
-                          placeholder="Pickup price" className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
-                        <button onClick={() => applyAllPrices("pickup", applyAllPickup)} title="Apply to all wilayas"
+                          placeholder={t("settings.shipping.placeholder.pickup")} className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
+                        <button onClick={() => applyAllPrices("pickup", applyAllPickup)} title={t("settings.shipping.apply_all_title")}
                           className="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
                           <Check className="w-3.5 h-3.5" />
                         </button>
@@ -459,8 +464,8 @@ export default function Settings() {
                     <div className="flex gap-2 items-center">
                       <span className="text-xs text-muted-foreground shrink-0">DZD</span>
                       <input type="number" min={0} value={applyAllRetour} onChange={e => setApplyAllRetour(e.target.value)}
-                        placeholder="Retour price" className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
-                      <button onClick={() => applyAllPrices("retour", applyAllRetour)} title="Apply to all wilayas"
+                        placeholder={t("settings.shipping.placeholder.retour")} className="flex-1 min-w-0 border border-border rounded-lg px-2 py-1.5 text-sm outline-none bg-background" />
+                      <button onClick={() => applyAllPrices("retour", applyAllRetour)} title={t("settings.shipping.apply_all_title")}
                         className="shrink-0 w-8 h-8 flex items-center justify-center bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
                         <Check className="w-3.5 h-3.5" />
                       </button>
@@ -470,10 +475,10 @@ export default function Settings() {
 
                 {/* Table header */}
                 <div className={`grid bg-secondary/30 border-b border-border text-xs font-bold text-muted-foreground uppercase px-6 py-3 ${shipping.pickupEnabled ? "grid-cols-4" : "grid-cols-3"}`}>
-                  <div>Province</div>
-                  <div>Door Delivery</div>
-                  {shipping.pickupEnabled && <div>Stop Desk</div>}
-                  <div>Retour Price</div>
+                  <div>{t("settings.shipping.table.province")}</div>
+                  <div>{t("settings.shipping.table.home")}</div>
+                  {shipping.pickupEnabled && <div>{t("settings.shipping.table.pickup")}</div>}
+                  <div>{t("settings.shipping.table.retour")}</div>
                 </div>
 
                 {/* Wilaya rows */}
@@ -491,7 +496,7 @@ export default function Settings() {
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => setWilayaEnabled(w, "homeEnabled", !homeOn)}
-                            title={homeOn ? "Click to disable home delivery for this wilaya" : "Click to enable home delivery for this wilaya"}
+                            title={homeOn ? t("settings.shipping.toggle_home_off") : t("settings.shipping.toggle_home_on")}
                             className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-colors shrink-0 ${homeOn ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-600 hover:bg-red-200"}`}>
                             {homeOn ? "✓" : "N/A"}
                           </button>
@@ -507,7 +512,7 @@ export default function Settings() {
                           <div className="flex items-center gap-1.5">
                             <button
                               onClick={() => setWilayaEnabled(w, "pickupEnabled", !pickupOn)}
-                              title={pickupOn ? "Click to disable stop desk for this wilaya" : "Click to enable stop desk for this wilaya"}
+                              title={pickupOn ? t("settings.shipping.toggle_pickup_off") : t("settings.shipping.toggle_pickup_on")}
                               className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-colors shrink-0 ${pickupOn ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-600 hover:bg-red-200"}`}>
                               {pickupOn ? "✓" : "N/A"}
                             </button>
@@ -536,7 +541,7 @@ export default function Settings() {
 
               <button onClick={handleSaveShipping} disabled={shippingSaving}
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${shippingSaved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
-                {shippingSaved ? <><Check className="w-4 h-4" /> Saved!</> : shippingSaving ? "Saving..." : t("common.save")}
+                {shippingSaved ? <><Check className="w-4 h-4" /> {t("aiSettings.saved")}</> : shippingSaving ? t("common.saving") : t("common.save")}
               </button>
             </div>
           )}
@@ -546,50 +551,51 @@ export default function Settings() {
               <div className="flex items-center gap-3 pb-4 border-b border-border">
                 <Bot className="w-5 h-5 text-primary" />
                 <div>
-                  <h3 className="font-bold text-foreground">Channel Autopilot</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Set the default mode for new conversations on each channel.</p>
+                  <h3 className="font-bold text-foreground">{t("settings.autopilot.title")}</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t("settings.autopilot.desc")}</p>
                 </div>
               </div>
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-sm text-violet-800">
-                <p><span className="font-bold">How it works:</span> When a new message arrives on a channel, the conversation starts in the mode you set here.</p>
+                <p><span className="font-bold">{t("adLinks.how_it_works")}</span> {t("settings.autopilot.how_it_works_desc")}</p>
               </div>
               <div className="space-y-3">
                 {(Object.entries(CHANNEL_META) as [Channel, typeof CHANNEL_META[Channel]][]).map(([ch, meta]) => {
                   const isAi = aiModes[ch] === "ai_autopilot";
+                  const channelLabel = t(meta.labelKey);
                   return (
                     <div key={ch} className={`rounded-xl border transition-all ${isAi ? `${meta.bg} ${meta.border}` : "bg-secondary/30 border-border"}`}>
                       <div className="flex items-center justify-between p-4">
                         <div className="flex items-center gap-3">
                           <span className={`w-2.5 h-2.5 rounded-full ${isAi ? meta.dot : "bg-gray-300"}`} />
                           <div>
-                            <p className={`font-semibold text-sm ${isAi ? meta.color : "text-foreground"}`}>{meta.label}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{isAi ? "AI handles new messages automatically" : "Agent handles new messages manually"}</p>
+                            <p className={`font-semibold text-sm ${isAi ? meta.color : "text-foreground"}`}>{channelLabel}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{isAi ? t("settings.autopilot.ai_active_desc") : t("settings.autopilot.human_active_desc")}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs font-medium ${!isAi ? "text-foreground" : "text-muted-foreground"}`}>Human</span>
+                          <span className={`text-xs font-medium ${!isAi ? "text-foreground" : "text-muted-foreground"}`}>{t("ai.human")}</span>
                           <button onClick={() => setAiModes(prev => ({ ...prev, [ch]: isAi ? "human" : "ai_autopilot" }))}
                             className={`relative w-11 h-6 rounded-full transition-colors ${isAi ? "bg-violet-600" : "bg-gray-200"}`}>
                             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${isAi ? "translate-x-5" : "translate-x-0"}`} />
                           </button>
-                          <span className={`text-xs font-medium ${isAi ? "text-violet-700" : "text-muted-foreground"}`}>AI</span>
+                          <span className={`text-xs font-medium ${isAi ? "text-violet-700" : "text-muted-foreground"}`}>{t("ai.generated")}</span>
                         </div>
                       </div>
                       {isAi && (
                         <div className="px-4 pb-3 ml-6 flex items-center gap-3">
                           <p className="text-xs text-muted-foreground">
-                            Apply AI to all existing open {meta.label} conversations
+                            {t("settings.autopilot.apply_to_channel").replace("{channel}", channelLabel)}
                           </p>
                           <button
                             onClick={() => handleApplyAiToAll(ch)}
                             disabled={applyingChannel === ch}
                             className="px-3 py-1.5 bg-primary/10 text-primary text-xs font-bold rounded-lg hover:bg-primary/20 transition-colors disabled:opacity-50"
                           >
-                            {applyingChannel === ch ? "Applying..." : "Apply Now"}
+                            {applyingChannel === ch ? t("settings.applying") : t("settings.autopilot.apply_now")}
                           </button>
                           {appliedChannel === ch && (
                             <span className="text-xs text-green-600 font-medium">
-                              ✅ Done — {appliedCount} conversations updated
+                              {t("settings.autopilot.done_updated").replace("{n}", String(appliedCount))}
                             </span>
                           )}
                         </div>
@@ -600,14 +606,14 @@ export default function Settings() {
               </div>
               <button onClick={handleSaveAiModes} disabled={aiSaving}
                 className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${aiSaved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
-                {aiSaved ? <><Check className="w-4 h-4" /> Saved!</> : aiSaving ? "Saving..." : t("common.save")}
+                {aiSaved ? <><Check className="w-4 h-4" /> {t("aiSettings.saved")}</> : aiSaving ? t("common.saving") : t("common.save")}
               </button>
               <div className="mt-4 pt-4 border-t border-border">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Apply AI to all channels at once</p>
+                    <p className="text-sm font-semibold text-foreground">{t("settings.autopilot.apply_all_channels_title")}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Enable AI on all open conversations across WhatsApp, Instagram and Messenger
+                      {t("settings.autopilot.apply_all_channels_desc")}
                     </p>
                   </div>
                   <button
@@ -615,12 +621,12 @@ export default function Settings() {
                     disabled={applyingChannel === "all"}
                     className="px-4 py-2 bg-primary text-white text-sm font-bold rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-50"
                   >
-                    {applyingChannel === "all" ? "Applying..." : "Apply to All Channels"}
+                    {applyingChannel === "all" ? t("settings.applying") : t("settings.autopilot.apply_all_channels_btn")}
                   </button>
                 </div>
                 {appliedChannel === "all" && (
                   <p className="text-xs text-green-600 font-medium mt-2">
-                    ✅ Done — {appliedCount} conversations updated across all channels
+                    {t("settings.autopilot.done_all_channels").replace("{n}", String(appliedCount))}
                   </p>
                 )}
               </div>
@@ -629,9 +635,9 @@ export default function Settings() {
               <div className="pt-4 border-t border-border">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Apply AI to All Conversations</p>
+                    <p className="text-sm font-semibold text-foreground">{t("settings.autopilot.apply_all_conversations_title")}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Enable AI autopilot on every conversation — all channels, including old and closed ones
+                      {t("settings.autopilot.apply_all_conversations_desc")}
                     </p>
                   </div>
                   <button
@@ -639,12 +645,12 @@ export default function Settings() {
                     disabled={applyingAll}
                     className="px-4 py-2 border border-border text-sm font-bold rounded-xl hover:bg-secondary/60 transition-colors disabled:opacity-50 text-foreground"
                   >
-                    {applyingAll ? "Applying..." : "Apply to All Conversations"}
+                    {applyingAll ? t("settings.applying") : t("settings.autopilot.apply_all_conversations_btn")}
                   </button>
                 </div>
                 {appliedAllCount !== null && (
                   <p className="text-xs text-green-600 font-medium mt-2">
-                    ✅ AI enabled on {appliedAllCount} conversations
+                    {t("settings.autopilot.ai_enabled_count").replace("{n}", String(appliedAllCount))}
                   </p>
                 )}
               </div>
