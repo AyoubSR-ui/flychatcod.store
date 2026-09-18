@@ -45,18 +45,18 @@ const WILAYAS = [
   "In Salah","In Guezzam","Touggourt","Djanet","El M'Ghair","El Méniaa",
 ];
 
-const LEAD_STAGE_BADGE: Record<string, { label: string; color: string }> = {
-  interested:      { label: "Interested",    color: "bg-gray-100 text-gray-600"        },
-  engaged:         { label: "Engaged",       color: "bg-blue-100 text-blue-700"        },
-  qualified_lead:  { label: "🔥 Qualified",  color: "bg-green-100 text-green-700"      },
-  order_confirmed: { label: "✅ Confirmed",  color: "bg-emerald-100 text-emerald-700"  },
+const LEAD_STAGE_BADGE: Record<string, { labelKey: string; color: string }> = {
+  interested:      { labelKey: "inbox.leadStage.interested", color: "bg-gray-100 text-gray-600"        },
+  engaged:         { labelKey: "inbox.leadStage.engaged",    color: "bg-blue-100 text-blue-700"        },
+  qualified_lead:  { labelKey: "inbox.leadStage.qualified",  color: "bg-green-100 text-green-700"      },
+  order_confirmed: { labelKey: "inbox.leadStage.confirmed",  color: "bg-emerald-100 text-emerald-700"  },
 };
 
-const CHANNEL_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; dot: string }> = {
-  whatsapp:  { label: "WhatsApp",  color: "text-green-700",  bg: "bg-green-50",   border: "border-green-200", dot: "bg-green-500"  },
-  instagram: { label: "Instagram", color: "text-pink-700",   bg: "bg-pink-50",    border: "border-pink-200",  dot: "bg-pink-500"   },
-  messenger: { label: "Messenger", color: "text-blue-700",   bg: "bg-blue-50",    border: "border-blue-200",  dot: "bg-blue-500"   },
-  widget:    { label: "Widget",    color: "text-violet-700", bg: "bg-violet-50",  border: "border-violet-200",dot: "bg-violet-500" },
+const CHANNEL_CONFIG: Record<string, { labelKey: string; color: string; bg: string; border: string; dot: string }> = {
+  whatsapp:  { labelKey: "source.whatsapp",       color: "text-green-700",  bg: "bg-green-50",   border: "border-green-200", dot: "bg-green-500"  },
+  instagram: { labelKey: "source.instagram",      color: "text-pink-700",   bg: "bg-pink-50",    border: "border-pink-200",  dot: "bg-pink-500"   },
+  messenger: { labelKey: "source.messenger_full", color: "text-blue-700",   bg: "bg-blue-50",    border: "border-blue-200",  dot: "bg-blue-500"   },
+  widget:    { labelKey: "source.widget",         color: "text-violet-700", bg: "bg-violet-50",  border: "border-violet-200",dot: "bg-violet-500" },
 };
 
 function ChannelIcon({ channel, size = "sm" }: { channel: string; size?: "sm" | "md" }) {
@@ -84,22 +84,24 @@ function ChannelIcon({ channel, size = "sm" }: { channel: string; size?: "sm" | 
 }
 
 function ChannelBadge({ channel }: { channel: string }) {
+  const { t } = useI18n();
   const cfg = CHANNEL_CONFIG[channel] ?? CHANNEL_CONFIG.widget;
   return (
     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
       <ChannelIcon channel={channel} size="sm" />
-      {cfg.label}
+      {t(cfg.labelKey)}
     </span>
   );
 }
 
 function ChannelHeaderBadge({ channel }: { channel: string }) {
+  const { t } = useI18n();
   const cfg = CHANNEL_CONFIG[channel] ?? CHANNEL_CONFIG.widget;
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
       <ChannelIcon channel={channel} size="sm" />
-      {cfg.label}
+      {t(cfg.labelKey)}
     </span>
   );
 }
@@ -393,9 +395,9 @@ export default function Inbox() {
     });
     if (activeConvId === id) setActiveConvId(null);
     await fetch(`${API_BASE}/api/conversations/${id}/archive`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
-    setArchiveToast("Conversation archived");
+    setArchiveToast(t("inbox.archive_conversation_toast"));
     setTimeout(() => setArchiveToast(null), 3000);
-  }, [API_BASE, activeConvId, queryClient]);
+  }, [API_BASE, activeConvId, queryClient, t]);
 
   const unarchiveConv = useCallback(async (id: string) => {
     const token = localStorage.getItem("flychat_token");
@@ -404,9 +406,9 @@ export default function Inbox() {
     if (activeConvId === id) setActiveConvId(null);
     await fetch(`${API_BASE}/api/conversations/${id}/unarchive`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
     queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
-    setArchiveToast("Conversation restored");
+    setArchiveToast(t("inbox.restore_conversation_toast"));
     setTimeout(() => setArchiveToast(null), 3000);
-  }, [API_BASE, activeConvId, queryClient]);
+  }, [API_BASE, activeConvId, queryClient, t]);
 
   useEffect(() => {
     const token = localStorage.getItem("flychat_token");
@@ -674,11 +676,11 @@ export default function Inbox() {
     if ((!msgInput.trim() && !selectedFile) || !activeConvId) return;
     let attachment: FileAttachment | null = null;
     if (selectedFile) {
-      if (selectedFile.size > 10 * 1024 * 1024) { alert("File too large. Maximum size is 10MB."); return; }
+      if (selectedFile.size > 10 * 1024 * 1024) { alert(t("inbox.err.file_too_large")); return; }
       try {
         setIsUploading(true);
         attachment = await uploadFileToStorage(selectedFile);
-      } catch { alert("Failed to upload file. Please try again."); setIsUploading(false); return; }
+      } catch { alert(t("inbox.err.upload_failed")); setIsUploading(false); return; }
       setIsUploading(false);
     }
     const content = msgInput.trim() || (attachment ? `📎 ${attachment.name}` : "");
@@ -769,7 +771,7 @@ export default function Inbox() {
             </div>
             <div className="flex gap-1 flex-wrap">
               {[
-                { key: "all", label: "All" },
+                { key: "all", label: t("orders.tab.all") },
                 { key: "whatsapp", label: "WA" },
                 { key: "instagram", label: "IG" },
                 { key: "messenger", label: "MSG" },
@@ -796,7 +798,7 @@ export default function Inbox() {
                   showArchived ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-transparent text-muted-foreground border-transparent hover:bg-secondary"
                 }`}>
                 <Archive className="w-3 h-3" />
-                Archived
+                {t("inbox.archived")}
                 {archivedConvs.length > 0 && <span className={`px-1 rounded-full ${showArchived ? "bg-amber-200/60" : "bg-secondary"}`}>{archivedConvs.length}</span>}
               </button>
             </div>
@@ -805,7 +807,7 @@ export default function Inbox() {
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {showArchived ? (
               archivedConvs.length === 0 ? (
-                <div className="p-4 text-center text-sm text-muted-foreground">No archived conversations</div>
+                <div className="p-4 text-center text-sm text-muted-foreground">{t("inbox.no_archived_conversations")}</div>
               ) : archivedConvs.map((conv) => (
                 <div key={conv.id} className={`group w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
                   <button className="w-full text-left flex gap-2.5" onClick={() => setActiveConvId(conv.id)}>
@@ -818,20 +820,20 @@ export default function Inbox() {
                       <div className="flex items-center gap-1.5 mb-1">
                         <ChannelBadge channel={conv.channel} />
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">{conv.lastMessage || "No messages"}</p>
+                      <p className="text-xs text-muted-foreground truncate">{conv.lastMessage || t("inbox.no_messages")}</p>
                     </div>
                   </button>
                   <button onClick={e => { e.stopPropagation(); unarchiveConv(conv.id); }}
-                    title="Unarchive"
+                    title={t("inbox.unarchive_title")}
                     className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-600 hover:text-amber-800 font-bold transition-colors">
-                    <ArchiveRestore className="w-3 h-3" /> Restore
+                    <ArchiveRestore className="w-3 h-3" /> {t("inbox.restore")}
                   </button>
                 </div>
               ))
             ) : isLoadingConvs ? (
               <div className="p-4 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
             ) : filteredConvs.length === 0 ? (
-              <div className="p-4 text-center text-sm text-muted-foreground">No conversations</div>
+              <div className="p-4 text-center text-sm text-muted-foreground">{t("inbox.no_conversations")}</div>
             ) : filteredConvs.map((conv) => (
               <div key={conv.id} className={`group relative w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>
                 <button className="w-full text-left flex gap-2.5" onClick={() => setActiveConvId(conv.id)}>
@@ -845,17 +847,17 @@ export default function Inbox() {
                       <ChannelBadge channel={conv.channel} />
                       {conv.aiMode === "ai_autopilot" && (
                         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200">
-                          <Bot className="w-2.5 h-2.5" /> AI
+                          <Bot className="w-2.5 h-2.5" /> {t("ai.generated")}
                         </span>
                       )}
                       {(conv as any).leadStage && LEAD_STAGE_BADGE[(conv as any).leadStage] && (
                         <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-bold ${LEAD_STAGE_BADGE[(conv as any).leadStage].color}`}>
-                          {LEAD_STAGE_BADGE[(conv as any).leadStage].label}
+                          {t(LEAD_STAGE_BADGE[(conv as any).leadStage].labelKey)}
                         </span>
                       )}
                     </div>
                     <div className="flex justify-between items-center">
-                      <p className="text-xs text-muted-foreground truncate flex-1 pr-2">{conv.lastMessage || "No messages"}</p>
+                      <p className="text-xs text-muted-foreground truncate flex-1 pr-2">{conv.lastMessage || t("inbox.no_messages")}</p>
                       {conv.unreadCount > 0 && (
                         <span className="bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-5 text-center">
                           {conv.unreadCount}
@@ -865,7 +867,7 @@ export default function Inbox() {
                   </div>
                 </button>
                 <button onClick={e => { e.stopPropagation(); archiveConv(conv.id); }}
-                  title="Archive"
+                  title={t("inbox.archive_title")}
                   className="absolute top-2 right-2 p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-secondary transition-all text-muted-foreground hover:text-foreground">
                   <Archive className="w-3.5 h-3.5" />
                 </button>
@@ -1046,8 +1048,8 @@ export default function Inbox() {
                             }}
                           />
                           <div style={{ display: "none" }} className="items-center gap-1.5 text-xs text-muted-foreground italic px-1 py-0.5">
-                            🖼 Image expired —
-                            <a href={metadata.imageUrl as string} target="_blank" rel="noopener noreferrer" className="underline">try link</a>
+                            {t("inbox.image_expired")}
+                            <a href={metadata.imageUrl as string} target="_blank" rel="noopener noreferrer" className="underline">{t("inbox.try_link")}</a>
                           </div>
                           {!isGenericImageCaption(metadata.description as string) && (
                             <p className="text-xs mt-1 opacity-80">{metadata.description as string}</p>
@@ -1065,7 +1067,7 @@ export default function Inbox() {
                       ) : isVoicePlaceholder(msg.content) ? (
                         <div className="flex items-center gap-2 text-sm">
                           <span className="text-base">🎤</span>
-                          <span className={isCustomer ? "text-muted-foreground italic" : "italic opacity-80"}>Voice message</span>
+                          <span className={isCustomer ? "text-muted-foreground italic" : "italic opacity-80"}>{t("inbox.voice_message")}</span>
                         </div>
                       ) : (
                         <>
@@ -1090,7 +1092,7 @@ export default function Inbox() {
               {activeConv.aiMode === "ai_autopilot" && (
                 <div className="mb-2 px-3 py-2 bg-violet-50 border border-violet-200 rounded-xl text-xs text-violet-700 font-medium flex items-center gap-2">
                   <Bot className="w-3.5 h-3.5 shrink-0" />
-                  AI is handling this conversation. Click <strong>Take Over</strong> to reply manually.
+                  {t("inbox.ai_handling_pre")}<strong>{t("ai.take_over")}</strong>{t("inbox.ai_handling_post")}
                 </div>
               )}
               {selectedFile && (
@@ -1113,7 +1115,7 @@ export default function Inbox() {
                 <textarea value={msgInput} onChange={e => setMsgInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                   className="flex-1 bg-transparent border-none outline-none resize-none p-1.5 text-sm max-h-32 min-h-9"
-                  placeholder={activeConv.aiMode === "ai_autopilot" ? "AI is active — take over to type..." : "Type a message..."}
+                  placeholder={activeConv.aiMode === "ai_autopilot" ? t("inbox.placeholder_ai_active") : t("inbox.placeholder_type_message")}
                   rows={1} />
                 <button onClick={handleSend}
                   disabled={(!msgInput.trim() && !selectedFile) || sendMutation.isPending || isUploading}
@@ -1140,7 +1142,7 @@ export default function Inbox() {
               <div className="flex border-b border-border shrink-0">
                 <button onClick={() => setDraftTab("crm")}
                   className={`flex-1 py-3 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-colors ${draftTab === "crm" ? "text-primary border-primary bg-primary/5" : "text-muted-foreground border-transparent hover:text-foreground hover:bg-secondary/50"}`}>
-                  <User className="w-3.5 h-3.5" /> CRM
+                  <User className="w-3.5 h-3.5" /> {t("inbox.crm_tab")}
                 </button>
                 <button onClick={() => setDraftTab("draft")}
                   className={`flex-1 py-3 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-colors ${draftTab === "draft" ? "text-primary border-primary bg-primary/5" : "text-muted-foreground border-transparent hover:text-foreground hover:bg-secondary/50"}`}>
@@ -1157,7 +1159,7 @@ export default function Inbox() {
                   </div>
                   <h3 className="font-bold text-base">{activeConv.customerName}</h3>
                   <p className="text-sm text-muted-foreground flex items-center justify-center gap-1 mt-1">
-                    <Phone className="w-3 h-3" /> {activeConv.customerPhone || "No phone"}
+                    <Phone className="w-3 h-3" /> {activeConv.customerPhone || t("inbox.no_phone")}
                   </p>
                   <div className="mt-2 flex justify-center">
                     <ChannelBadge channel={activeConv.channel} />
@@ -1165,21 +1167,21 @@ export default function Inbox() {
                 </div>
                 <div className="p-4 space-y-5 flex-1">
                   <div>
-                    <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3">CRM Context</h4>
+                    <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3">{t("inbox.crm_context")}</h4>
                     <div className="bg-secondary/50 rounded-xl p-3 space-y-2.5">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Total Orders</span>
+                        <span className="text-muted-foreground">{t("inbox.total_orders")}</span>
                         <span className="font-bold">{customerData?.totalOrders ?? 0}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Status</span>
+                        <span className="text-muted-foreground">{t("orders.table.status")}</span>
                         <span className={`font-medium px-2 py-0.5 rounded text-xs ${customerData?.isRepeat ? "text-green-700 bg-green-50" : "text-blue-600 bg-blue-50"}`}>
-                          {customerData?.isRepeat ? "Repeat" : "New Lead"}
+                          {customerData?.isRepeat ? t("inbox.repeat") : t("inbox.new_lead")}
                         </span>
                       </div>
                       {customerData?.wilaya && (
                         <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Wilaya</span>
+                          <span className="text-muted-foreground">{t("order.wilaya")}</span>
                           <span className="font-medium text-xs">{customerData.wilaya}</span>
                         </div>
                       )}
@@ -1187,7 +1189,7 @@ export default function Inbox() {
                   </div>
                   {lastCreatedOrder && (
                     <div>
-                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3">Latest Order</h4>
+                      <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3">{t("inbox.latest_order")}</h4>
                       <div className="bg-green-50 border border-green-200 rounded-xl p-3 space-y-2">
                         <div className="flex items-center gap-2">
                           <Package className="w-3.5 h-3.5 text-green-600 shrink-0" />
@@ -1195,7 +1197,7 @@ export default function Inbox() {
                           <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 uppercase">{lastCreatedOrder.status}</span>
                         </div>
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Total</span>
+                          <span className="text-muted-foreground">{t("orders.table.total")}</span>
                           <span className="font-bold text-green-700">{lastCreatedOrder.total.toLocaleString()} DZD</span>
                         </div>
                       </div>
@@ -1245,28 +1247,28 @@ export default function Inbox() {
                           <DraftField label={t("order.email")} value={orderDraft.customerEmail} onChange={v => updateDraftField("customerEmail", v)} placeholder="email@..." />
                           <DraftField label={t("order.wilaya")} value={orderDraft.wilaya} onChange={v => updateDraftField("wilaya", v)} error={draftErrors.wilaya} as="select-wilaya" />
                           <div>
-                            <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Delivery Type</label>
+                            <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("orderDetail.delivery_type")}</label>
                             <div className="flex rounded-lg overflow-hidden border border-border text-xs font-bold">
                               {(["home_delivery", "stopdesk"] as const).map(opt => (
                                 <button key={opt}
                                   onClick={() => setOrderDraft(prev => prev ? { ...prev, shippingOption: opt } : prev)}
                                   className={`flex-1 py-1.5 transition-colors ${orderDraft.shippingOption === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
                                 >
-                                  {opt === "home_delivery" ? "🏠 Home" : "🏪 Stop Desk"}
+                                  {opt === "home_delivery" ? t("orderDetail.home") : t("inbox.stopdesk_option")}
                                 </button>
                               ))}
                             </div>
                           </div>
                           {orderDraft.wilaya && (
                             <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground">Shipping fee</span>
+                              <span className="text-muted-foreground">{t("orderDetail.shipping_fee")}</span>
                               <span className="font-bold text-foreground">
                                 {fetchingShippingFee ? <Loader2 className="w-3 h-3 animate-spin" /> : `DZD ${orderDraft.shippingFee.toLocaleString()}`}
                               </span>
                             </div>
                           )}
-                          <DraftField label={t("order.address")} value={orderDraft.address} onChange={v => updateDraftField("address", v)} placeholder="Rue, commune..." />
-                          <DraftField label={t("order.note")} value={orderDraft.sellerNote} onChange={v => updateDraftField("sellerNote", v)} placeholder="Internal note..." as="textarea" />
+                          <DraftField label={t("order.address")} value={orderDraft.address} onChange={v => updateDraftField("address", v)} placeholder={t("inbox.placeholder_address")} />
+                          <DraftField label={t("order.note")} value={orderDraft.sellerNote} onChange={v => updateDraftField("sellerNote", v)} placeholder={t("inbox.placeholder_internal_note")} as="textarea" />
                         </div>
                       </div>
                       <div className="border-t border-border/50" />
@@ -1283,7 +1285,7 @@ export default function Inbox() {
                           {productSearch && productDropOpen && (
                             <div className="absolute top-full left-0 right-0 z-30 mt-1 bg-white border border-border rounded-xl shadow-lg max-h-48 overflow-y-auto">
                               {!productsData?.products?.length ? (
-                                <div className="px-3 py-3 text-xs text-muted-foreground text-center">No products found</div>
+                                <div className="px-3 py-3 text-xs text-muted-foreground text-center">{t("inbox.no_products_found")}</div>
                               ) : productsData.products.map(p => (
                                 <button key={p.id} onClick={() => selectProductFromSearch(p)}
                                   className="w-full text-left px-3 py-2 text-xs hover:bg-primary/5 flex items-center gap-2 transition-colors">
@@ -1305,7 +1307,7 @@ export default function Inbox() {
                                 <>
                                   {parsed.colors.length > 0 && (
                                     <div>
-                                      <p className="text-[10px] text-muted-foreground mb-1">Color</p>
+                                      <p className="text-[10px] text-muted-foreground mb-1">{t("products.modal.type_color")}</p>
                                       <div className="flex flex-wrap gap-1">
                                         {parsed.colors.map(c => (
                                           <button key={c} onClick={() => setVariantColor(prev => prev === c ? "" : c)}
@@ -1318,7 +1320,7 @@ export default function Inbox() {
                                   )}
                                   {parsed.sizes.length > 0 && (
                                     <div>
-                                      <p className="text-[10px] text-muted-foreground mb-1">Size</p>
+                                      <p className="text-[10px] text-muted-foreground mb-1">{t("inbox.size_label")}</p>
                                       <div className="flex flex-wrap gap-1">
                                         {parsed.sizes.map(s => (
                                           <button key={s} onClick={() => setVariantSize(prev => prev === s ? "" : s)}
@@ -1332,7 +1334,7 @@ export default function Inbox() {
                                 </>
                               ) : (
                                 <div>
-                                  <p className="text-[10px] text-muted-foreground mb-1">Variant</p>
+                                  <p className="text-[10px] text-muted-foreground mb-1">{t("inbox.variant_label")}</p>
                                   <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
                                     {parsed.options.map(o => (
                                       <button key={o} onClick={() => setVariantRawOption(prev => prev === o ? "" : o)}
@@ -1346,11 +1348,11 @@ export default function Inbox() {
                               <div className="flex gap-1.5 pt-1">
                                 <button onClick={() => { setVariantProduct(null); setVariantSize(""); setVariantColor(""); setVariantRawOption(""); }}
                                   className="flex-1 py-1.5 border border-border rounded-lg text-[11px] font-medium hover:bg-secondary transition-colors">
-                                  Cancel
+                                  {t("common.cancel")}
                                 </button>
                                 <button onClick={addVariantProduct}
                                   className="flex-1 py-1.5 bg-primary text-white rounded-lg text-[11px] font-bold hover:bg-primary/90 transition-colors">
-                                  + Add to Order
+                                  {t("inbox.add_to_order")}
                                 </button>
                               </div>
                             </div>
@@ -1368,7 +1370,7 @@ export default function Inbox() {
                                 <div className="flex items-center gap-1.5">
                                   <input value={item.productName} onChange={e => updateItem(idx, "productName", e.target.value)}
                                     className={`flex-1 px-2 py-1 text-xs rounded-lg border outline-none focus:ring-1 focus:ring-primary/20 min-w-0 ${draftErrors[`item_${idx}`] ? "border-red-400" : "border-border"}`}
-                                    placeholder="Product name *" />
+                                    placeholder={t("orders.modal.product_placeholder")} />
                                   <button onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors shrink-0">
                                     <Trash2 className="w-3 h-3" />
                                   </button>
@@ -1384,7 +1386,7 @@ export default function Inbox() {
                                     <input type="number" min={0} value={item.price || ""}
                                       onChange={e => updateItem(idx, "price", Number(e.target.value))}
                                       className={`w-full px-2 py-1 text-xs rounded-lg border outline-none focus:ring-1 focus:ring-primary/20 ${draftErrors[`item_${idx}_price`] ? "border-red-400" : "border-border"}`}
-                                      placeholder="Price DZD" />
+                                      placeholder={t("orders.modal.price_placeholder")} />
                                   </div>
                                 </div>
                                 <div className="text-right text-[10px] text-muted-foreground">
@@ -1403,7 +1405,7 @@ export default function Inbox() {
                   <div className="p-4 border-t border-border shrink-0 space-y-3">
                     {orderDraft.shippingFee > 0 && (
                       <div className="flex justify-between items-center text-[11px] text-muted-foreground">
-                        <span>Products: DZD {draftSubtotal.toLocaleString()} + Shipping: DZD {orderDraft.shippingFee.toLocaleString()}</span>
+                        <span>{t("inbox.subtotal_line").replace("{subtotal}", draftSubtotal.toLocaleString()).replace("{shipping}", orderDraft.shippingFee.toLocaleString())}</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center">
@@ -1435,7 +1437,7 @@ export default function Inbox() {
                   {notif.type === "order_created" ? t("inbox.toast_new_order") : t("inbox.toast_automation")}
                 </p>
                 <p className="text-sm font-medium text-foreground leading-snug">{notif.message}</p>
-                {notif.orderNumber && <p className="text-xs text-muted-foreground mt-0.5">Order #{notif.orderNumber}</p>}
+                {notif.orderNumber && <p className="text-xs text-muted-foreground mt-0.5">{t("inbox.order_hash").replace("{n}", notif.orderNumber)}</p>}
               </div>
               <button onClick={() => setTeamNotifications(prev => prev.filter(n => n.id !== notif.id))} className="p-1 hover:bg-secondary rounded-lg shrink-0">
                 <X className="w-3.5 h-3.5 text-muted-foreground" />
