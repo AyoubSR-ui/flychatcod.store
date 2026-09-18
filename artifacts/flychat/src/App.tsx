@@ -2,9 +2,10 @@ import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useEffect } from "react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { StoreProvider } from "@/hooks/use-store";
-import { I18nProvider } from "@/hooks/use-i18n";
+import { I18nProvider, useI18n } from "@/hooks/use-i18n";
 
 // Public pages
 import Home from "@/pages/public/Home";
@@ -127,11 +128,27 @@ function Router() {
   );
 }
 
+// I18nProvider wraps AuthProvider (not the other way around), so it can't
+// read useAuth() itself — this bridges the two once auth resolves. Runs
+// inside AuthProvider's subtree (still inside I18nProvider, since that's an
+// ancestor), so both hooks are available here. user.language then takes
+// priority over whatever the initial localStorage/browser guess was, and
+// keeps following the user across devices/browsers going forward.
+function LanguageSync() {
+  const { user } = useAuth();
+  const { language, setLanguage } = useI18n();
+  useEffect(() => {
+    if (user?.language && user.language !== language) setLanguage(user.language);
+  }, [user?.language]);
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
         <AuthProvider>
+          <LanguageSync />
           <StoreProvider>
             <TooltipProvider>
               <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>

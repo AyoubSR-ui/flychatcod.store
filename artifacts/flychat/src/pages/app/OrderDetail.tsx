@@ -42,14 +42,14 @@ const STATUS_COLORS: Record<string, string> = {
   suspicious: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
-const SOURCE_META: Record<string, { label: string; emoji: string; dot: string }> = {
-  shopify: { label: "Shopify", emoji: "🛍️", dot: "bg-green-500" },
-  whatsapp: { label: "WhatsApp", emoji: "💬", dot: "bg-green-500" },
-  instagram: { label: "Instagram", emoji: "📷", dot: "bg-pink-500" },
-  messenger: { label: "Messenger", emoji: "💠", dot: "bg-blue-500" },
-  widget: { label: "Widget", emoji: "🌐", dot: "bg-blue-400" },
-  manual: { label: "Manuel", emoji: "✍️", dot: "bg-gray-400" },
-};
+const getSourceMeta = (t: (key: string) => string): Record<string, { label: string; emoji: string; dot: string }> => ({
+  shopify: { label: t("source.shopify"), emoji: "🛍️", dot: "bg-green-500" },
+  whatsapp: { label: t("source.whatsapp"), emoji: "💬", dot: "bg-green-500" },
+  instagram: { label: t("source.instagram"), emoji: "📷", dot: "bg-pink-500" },
+  messenger: { label: t("source.messenger_full"), emoji: "💠", dot: "bg-blue-500" },
+  widget: { label: t("source.widget"), emoji: "🌐", dot: "bg-blue-400" },
+  manual: { label: t("source.manual"), emoji: "✍️", dot: "bg-gray-400" },
+});
 
 function EditableField({ icon, label, value, href, onSave }: {
   icon: React.ReactNode;
@@ -58,6 +58,7 @@ function EditableField({ icon, label, value, href, onSave }: {
   href?: string;
   onSave: (val: string) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value);
   const [saving, setSaving] = useState(false);
@@ -78,10 +79,10 @@ function EditableField({ icon, label, value, href, onSave }: {
             disabled={saving}
             className="px-4 py-1.5 bg-primary text-white rounded-lg text-xs font-bold hover:bg-primary/90 disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save"}
+            {saving ? t("common.saving") : t("common.save_short")}
           </button>
           <button onClick={() => { setVal(value); setEditing(false); }} className="px-4 py-1.5 border border-border rounded-lg text-xs hover:bg-secondary">
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       </div>
@@ -101,7 +102,7 @@ function EditableField({ icon, label, value, href, onSave }: {
         onClick={() => setEditing(true)}
         className="shrink-0 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity text-xs text-muted-foreground hover:text-primary px-2 py-1 rounded border border-border hover:border-primary"
       >
-        Edit
+        {t("common.edit")}
       </button>
     </div>
   );
@@ -152,6 +153,7 @@ export default function OrderDetail() {
   const [scheduling, setScheduling] = useState(false);
   const [cancellingSchedule, setCancellingSchedule] = useState(false);
   const { t } = useI18n();
+  const SOURCE_META = getSourceMeta(t);
 
   const { data: carriersData } = useQuery({
     queryKey: ["carriers"],
@@ -191,10 +193,10 @@ export default function OrderDetail() {
     try {
       const res = await fetch(`${API_BASE}/api/orders/${id}/refresh-tracking`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to refresh");
+      if (!res.ok) throw new Error(data.message || t("orderDetail.err.refresh_failed"));
       refetch();
     } catch (err: any) {
-      alert(err.message || "Failed to refresh tracking status");
+      alert(err.message || t("orderDetail.err.refresh_failed"));
     } finally { setRefreshing(false); }
   };
 
@@ -205,8 +207,8 @@ export default function OrderDetail() {
   const handlePrint = () => window.print();
 
   const handleSchedule = async () => {
-    if (!selectedCarrierId) { setDispatchError("Choisissez un transporteur."); return; }
-    if (!scheduleDate) { setDispatchError("Choisissez une date d'expédition."); return; }
+    if (!selectedCarrierId) { setDispatchError(t("orderDetail.err.choose_carrier")); return; }
+    if (!scheduleDate) { setDispatchError(t("orderDetail.err.choose_ship_date")); return; }
     setScheduling(true); setDispatchError("");
     try {
       const res = await fetch(`${API_BASE}/api/orders/${id}/schedule`, {
@@ -215,11 +217,11 @@ export default function OrderDetail() {
         body: JSON.stringify({ carrierConnectionId: selectedCarrierId, scheduledDate: new Date(scheduleDate).toISOString(), note: scheduleNote || undefined }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Échec de la programmation");
+      if (!res.ok) throw new Error(data.message || t("orderDetail.err.schedule_failed"));
       setScheduleMode(false); setScheduleDate(""); setScheduleNote("");
       refetch(); refetchEvents();
     } catch (err: any) {
-      setDispatchError(err.message || "Échec de la programmation");
+      setDispatchError(err.message || t("orderDetail.err.schedule_failed"));
     } finally { setScheduling(false); }
   };
 
@@ -228,10 +230,10 @@ export default function OrderDetail() {
     try {
       const res = await fetch(`${API_BASE}/api/orders/${id}/schedule`, { method: "DELETE", headers: authHeaders() });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Échec de l'annulation");
+      if (!res.ok) throw new Error(data.message || t("orderDetail.err.cancel_schedule_failed"));
       refetch(); refetchEvents();
     } catch (err: any) {
-      alert(err.message || "Échec de l'annulation");
+      alert(err.message || t("orderDetail.err.cancel_schedule_failed"));
     } finally { setCancellingSchedule(false); }
   };
 
@@ -240,16 +242,16 @@ export default function OrderDetail() {
     try {
       const res = await fetch(`${API_BASE}/api/orders/${id}/sync-shopify`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Sync failed");
-      setSyncMessage({ ok: true, text: "Synced to Shopify" });
+      if (!res.ok) throw new Error(data.message || t("orderDetail.sync_failed"));
+      setSyncMessage({ ok: true, text: t("orderDetail.sync_success") });
       refetchEvents();
     } catch (err: any) {
-      setSyncMessage({ ok: false, text: err.message || "Sync failed" });
+      setSyncMessage({ ok: false, text: err.message || t("orderDetail.sync_failed") });
     } finally { setSyncingShopify(false); }
   };
 
   const handleCreateParcel = async () => {
-    if (!selectedCarrierId) { setDispatchError("Choisissez un transporteur."); return; }
+    if (!selectedCarrierId) { setDispatchError(t("orderDetail.err.choose_carrier")); return; }
     setDispatching(true); setDispatchError("");
     try {
       const res = await fetch(`${API_BASE}/api/orders/${id}/dispatch`, {
@@ -258,10 +260,10 @@ export default function OrderDetail() {
         body: JSON.stringify({ carrierConnectionId: selectedCarrierId }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Échec de la création du colis");
+      if (!res.ok) throw new Error(data.message || t("orderDetail.err.dispatch_failed"));
       refetch(); refetchEvents();
     } catch (err: any) {
-      setDispatchError(err.message || "Échec de la création du colis");
+      setDispatchError(err.message || t("orderDetail.err.dispatch_failed"));
     } finally { setDispatching(false); }
   };
 
@@ -277,7 +279,7 @@ export default function OrderDetail() {
 
   const handleSaveItems = async () => {
     const valid = itemsDraft.filter(i => i.productName.trim());
-    if (valid.length === 0) { alert("At least one item with a product name is required."); return; }
+    if (valid.length === 0) { alert(t("orderDetail.err.save_items_min")); return; }
     setSavingItems(true);
     try {
       const res = await fetch(`${API_BASE}/api/orders/${id}/items`, {
@@ -286,12 +288,12 @@ export default function OrderDetail() {
         body: JSON.stringify({ items: valid }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to save items");
+      if (!res.ok) throw new Error(data.message || t("orderDetail.err.save_items_failed"));
       setEditingItems(false);
       refetch();
       queryClient.invalidateQueries({ queryKey: ["orders-list"] });
     } catch (err: any) {
-      alert(err.message || "Failed to save items");
+      alert(err.message || t("orderDetail.err.save_items_failed"));
     } finally { setSavingItems(false); }
   };
 
@@ -301,7 +303,7 @@ export default function OrderDetail() {
     </AppLayout>
   );
   if (!order) return (
-    <AppLayout><div className="p-10 text-center text-muted-foreground">Order not found.</div></AppLayout>
+    <AppLayout><div className="p-10 text-center text-muted-foreground">{t("orderDetail.not_found")}</div></AppLayout>
   );
 
   const o = order as any;
@@ -351,7 +353,7 @@ export default function OrderDetail() {
               <p className="text-xs lg:text-sm text-muted-foreground flex items-center gap-1.5">
                 {format(new Date(order.createdAt), "MMM dd, yyyy · HH:mm")}
                 <span className="inline-flex items-center gap-1">
-                  · via {source.label} <span className={`w-1.5 h-1.5 rounded-full ${source.dot}`} />
+                  · {t("orderDetail.via")} {source.label} <span className={`w-1.5 h-1.5 rounded-full ${source.dot}`} />
                 </span>
               </p>
             </div>
@@ -368,15 +370,15 @@ export default function OrderDetail() {
               <button
                 onClick={handleSyncShopify}
                 disabled={syncingShopify}
-                title="FlyChat edits never auto-sync to Shopify — this pushes the current status/tracking note manually."
+                title={t("orderDetail.sync_tooltip")}
                 className="shrink-0 px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-1.5 transition-colors disabled:opacity-50"
               >
-                {syncingShopify ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Sync to Shopify
+                {syncingShopify ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {t("orderDetail.sync_shopify")}
               </button>
             )}
 
             <button onClick={handlePrint} className="shrink-0 px-3 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center gap-1.5 transition-colors">
-              <Printer className="w-4 h-4" /> Print
+              <Printer className="w-4 h-4" /> {t("orderDetail.print")}
             </button>
           </div>
           {syncMessage && (
@@ -395,7 +397,7 @@ export default function OrderDetail() {
 
               {/* Customer Info */}
               <div className="bg-card border border-border rounded-2xl p-5 shadow-sm space-y-4">
-                <h3 className="font-bold text-foreground border-b border-border pb-3">Customer Info</h3>
+                <h3 className="font-bold text-foreground border-b border-border pb-3">{t("order.customer_info")}</h3>
                 <EditableField
                   icon={null}
                   value={order.customerName}
@@ -410,21 +412,21 @@ export default function OrderDetail() {
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <div className="flex items-center gap-2 min-w-0">
                     <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground uppercase tracking-wide">Wilaya</span>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">{t("order.wilaya")}</span>
                   </div>
                   <select
                     value={order.wilaya}
                     onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, commune: "" } as any }); refetch(); }}
                     className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                   >
-                    <option value="">Select wilaya...</option>
+                    <option value="">{t("orders.modal.select_wilaya")}</option>
                     {wilayas.map(w => <option key={w.code} value={w.name}>{String(w.code).padStart(2, "0")}. {w.name}</option>)}
                   </select>
                 </div>
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <div className="flex items-center gap-2 min-w-0">
                     <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground uppercase tracking-wide">Commune</span>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">{t("orderDetail.commune")}</span>
                   </div>
                   {communesForWilaya.length > 0 ? (
                     <select
@@ -432,7 +434,7 @@ export default function OrderDetail() {
                       onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { commune: e.target.value } as any }); refetch(); }}
                       className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                     >
-                      <option value="">Select commune...</option>
+                      <option value="">{t("orders.modal.select_commune")}</option>
                       {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   ) : (
@@ -442,31 +444,31 @@ export default function OrderDetail() {
                 {!hasValidCommune && (
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                     {order.commune
-                      ? `"${order.commune}" isn't a valid commune for ${order.wilaya || "this wilaya"} — select one from the dropdown above before creating a parcel.`
-                      : "No commune set — select one above before creating a parcel."}
+                      ? t("orderDetail.invalid_commune").replace("{commune}", order.commune).replace("{wilaya}", order.wilaya || t("orderDetail.this_wilaya"))
+                      : t("orderDetail.no_commune_set")}
                   </p>
                 )}
                 <EditableField
                   icon={<MapPin className="w-4 h-4 text-muted-foreground shrink-0" />}
-                  label="Street Address"
+                  label={t("orderDetail.street_address")}
                   value={order.address || "—"}
                   onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { address: val } as any }); refetch(); }}
                 />
                 {order.conversationId && (
                   <Link href="/inbox" className="flex items-center gap-2 text-sm text-primary hover:underline pt-2 border-t border-border font-medium">
-                    <MessageSquare className="w-4 h-4" /> Open Conversation
+                    <MessageSquare className="w-4 h-4" /> {t("orderDetail.open_conversation")}
                   </Link>
                 )}
               </div>
 
               {/* Delivery Info */}
               <div className="bg-card border border-border rounded-2xl p-5 shadow-sm space-y-4">
-                <h3 className="font-bold text-foreground border-b border-border pb-3">Delivery Info</h3>
+                <h3 className="font-bold text-foreground border-b border-border pb-3">{t("orderDetail.delivery_info")}</h3>
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Delivery Type</span>
+                    <span className="text-muted-foreground">{t("orderDetail.delivery_type")}</span>
                     <div className="flex flex-col items-end gap-1">
-                      <span className="text-[11px] text-muted-foreground">via {source.label}</span>
+                      <span className="text-[11px] text-muted-foreground">{t("orderDetail.via")} {source.label}</span>
                       <div className="flex rounded-lg border border-border overflow-hidden text-xs font-bold">
                         {(["home", "stopdesk"] as const).map(opt => (
                           <button
@@ -474,23 +476,23 @@ export default function OrderDetail() {
                             onClick={async () => { await updateOrder.mutateAsync({ id: id!, data: { shippingOption: opt === "home" ? "home_delivery" : "stopdesk" } as any }); refetch(); }}
                             className={`px-3 py-1.5 transition-colors ${classifyDeliveryType(o.shippingOption) === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
                           >
-                            {opt === "home" ? "🏠 Home" : "🏢 Stop Desk"}
+                            {opt === "home" ? t("orderDetail.home") : t("orderDetail.stopdesk")}
                           </button>
                         ))}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground shrink-0">Wilaya</span>
+                    <span className="text-muted-foreground shrink-0">{t("order.wilaya")}</span>
                     <span className="font-medium text-foreground">{order.wilaya || "—"}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground shrink-0">Commune</span>
+                    <span className="text-muted-foreground shrink-0">{t("orderDetail.commune")}</span>
                     <span className="font-medium text-foreground">{order.commune || "—"}</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground -mt-1.5">Edit wilaya/commune in Customer Info above.</p>
+                  <p className="text-[11px] text-muted-foreground -mt-1.5">{t("orderDetail.edit_hint")}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Shipping Fee</span>
+                    <span className="text-muted-foreground">{t("orderDetail.shipping_fee")}</span>
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-muted-foreground">DZD</span>
                       <input
@@ -506,7 +508,7 @@ export default function OrderDetail() {
                   </div>
                   {shipment && (
                     <div className="flex items-center justify-between pt-3 border-t border-border">
-                      <span className="text-muted-foreground">Current Parcel</span>
+                      <span className="text-muted-foreground">{t("orderDetail.current_parcel")}</span>
                       <span className="font-bold text-foreground">{String(shipment.carrier).toUpperCase()} · {shipment.trackingNumber || "—"}</span>
                     </div>
                   )}
@@ -517,14 +519,14 @@ export default function OrderDetail() {
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-1.5">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-bold text-blue-800 flex items-center gap-1.5">
-                          <CalendarClock className="w-4 h-4" /> Expédition programmée
+                          <CalendarClock className="w-4 h-4" /> {t("orderDetail.scheduled_shipping")}
                         </p>
                         <button
                           onClick={handleCancelSchedule}
                           disabled={cancellingSchedule}
                           className="text-xs text-red-500 hover:text-red-700 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50 disabled:opacity-50"
                         >
-                          {cancellingSchedule ? "..." : "Annuler"}
+                          {cancellingSchedule ? "..." : t("common.cancel")}
                         </button>
                       </div>
                       <p className="text-xs text-blue-600">
@@ -538,7 +540,7 @@ export default function OrderDetail() {
                 {canCreateParcel && !isScheduled && !isPreExistingOrder && !hasValidCommune && (
                   <div className="pt-3 border-t border-border">
                     <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                      Fix this order's commune above before creating a parcel — couriers reject an invalid or missing commune.
+                      {t("orderDetail.fix_commune_first")}
                     </div>
                   </div>
                 )}
@@ -550,22 +552,22 @@ export default function OrderDetail() {
                         onClick={() => setScheduleMode(false)}
                         className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${!scheduleMode ? "bg-purple-600 text-white" : "border border-border text-muted-foreground hover:bg-secondary"}`}
                       >
-                        📦 Expédier maintenant
+                        {t("orderDetail.ship_now")}
                       </button>
                       <button
                         onClick={() => setScheduleMode(true)}
                         className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors ${scheduleMode ? "bg-blue-600 text-white" : "border border-border text-muted-foreground hover:bg-secondary"}`}
                       >
-                        📅 Programmer
+                        {t("orderDetail.schedule")}
                       </button>
                     </div>
 
                     <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block">
-                      {scheduleMode ? "Programmer un colis" : shipment ? "Créer un colis de remplacement" : "Créer un colis"}
+                      {scheduleMode ? t("orderDetail.schedule_parcel_label") : shipment ? t("orderDetail.replacement_parcel_label") : t("orderDetail.create_parcel_label")}
                     </label>
                     {connectedCarriers.length === 0 ? (
                       <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        No courier connected. <Link href="/delivery" className="underline font-medium">Connect one in Delivery</Link>.
+                        {t("orderDetail.no_courier")} <Link href="/delivery" className="underline font-medium">{t("orderDetail.connect_one")}</Link>.
                       </div>
                     ) : (
                       <select
@@ -573,7 +575,7 @@ export default function OrderDetail() {
                         onChange={e => setSelectedCarrierId(e.target.value)}
                         className="w-full border border-border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-background"
                       >
-                        <option value="">Select delivery company...</option>
+                        <option value="">{t("orderDetail.select_carrier")}</option>
                         {connectedCarriers.map(c => <option key={c.id} value={c.id}>{c.label} ({c.carrier})</option>)}
                       </select>
                     )}
@@ -581,7 +583,7 @@ export default function OrderDetail() {
                     {scheduleMode && (
                       <div className="space-y-2.5 p-3 bg-blue-50 rounded-xl border border-blue-100">
                         <div>
-                          <label className="text-xs font-medium text-blue-700 mb-1 block">📅 Date d'expédition</label>
+                          <label className="text-xs font-medium text-blue-700 mb-1 block">{t("orderDetail.ship_date")}</label>
                           <input
                             type="datetime-local"
                             value={scheduleDate}
@@ -591,16 +593,16 @@ export default function OrderDetail() {
                           />
                         </div>
                         <div>
-                          <label className="text-xs font-medium text-blue-700 mb-1 block">📝 Note (optionnel)</label>
+                          <label className="text-xs font-medium text-blue-700 mb-1 block">{t("orderDetail.note_optional")}</label>
                           <input
                             type="text"
                             value={scheduleNote}
                             onChange={e => setScheduleNote(e.target.value)}
-                            placeholder="ex. Client a demandé jeudi..."
+                            placeholder={t("orderDetail.note_placeholder")}
                             className="w-full border border-blue-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                           />
                         </div>
-                        <p className="text-xs text-blue-500">⚡ Le colis sera créé automatiquement à la date programmée.</p>
+                        <p className="text-xs text-blue-500">{t("orderDetail.schedule_hint")}</p>
                       </div>
                     )}
 
@@ -611,12 +613,12 @@ export default function OrderDetail() {
                       className={`w-full py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-1.5 transition-colors text-white ${scheduleMode ? "bg-blue-600 hover:bg-blue-700" : "bg-purple-600 hover:bg-purple-700"}`}
                     >
                       {(dispatching || scheduling) ? <Loader2 className="w-4 h-4 animate-spin" /> : scheduleMode ? <CalendarClock className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
-                      {dispatching ? "Creating parcel..." : scheduling ? "Programmation..." : scheduleMode ? "📅 Programmer le colis" : shipment ? "📦 Créer colis de remplacement" : "📦 Créer le colis"}
+                      {dispatching ? t("orderDetail.creating_parcel") : scheduling ? t("orderDetail.scheduling") : scheduleMode ? t("orderDetail.schedule_parcel_btn") : shipment ? t("orderDetail.replacement_parcel_btn") : t("orderDetail.create_parcel_btn")}
                     </button>
                   </div>
                 )}
                 {!canCreateParcel && !isScheduled && (
-                  <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">Parcel creation isn't available for this order's current status.</p>
+                  <p className="text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">{t("orderDetail.not_shippable")}</p>
                 )}
               </div>
 
@@ -624,19 +626,19 @@ export default function OrderDetail() {
               {shipment && (
                 <div className="bg-card border border-border rounded-2xl p-5 shadow-sm space-y-4">
                   <h3 className="font-bold text-foreground border-b border-border pb-3 flex items-center gap-2">
-                    <Truck className="w-4 h-4 text-primary" /> Tracking
+                    <Truck className="w-4 h-4 text-primary" /> {t("orderDetail.tracking")}
                   </h3>
                   <div>
                     <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{String(shipment.carrier).replace(/_/g, " ")}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="font-mono font-bold text-foreground">{shipment.trackingNumber}</span>
-                      <button onClick={() => handleCopyTracking(shipment.trackingNumber)} className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors" title="Copy">
+                      <button onClick={() => handleCopyTracking(shipment.trackingNumber)} className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors" title={t("orderDetail.copy")}>
                         {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                     {shipment.manualTrackingUrl ? (
                       <a href={shipment.manualTrackingUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 text-xs text-primary hover:underline font-medium">
-                        Suivre sur le site du transporteur ↗
+                        {t("orderDetail.track_on_carrier")}
                       </a>
                     ) : (
                       <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">{String(shipment.status || "not_shipped").replace(/_/g, " ")}</span>
@@ -650,7 +652,7 @@ export default function OrderDetail() {
                     </div>
                   )}
                   <button onClick={handleRefreshTracking} disabled={refreshing} className="w-full py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50">
-                    {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh
+                    {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} {t("orderDetail.refresh")}
                   </button>
                 </div>
               )}
@@ -663,10 +665,10 @@ export default function OrderDetail() {
               <div className="bg-card border border-border rounded-2xl shadow-sm">
                 <div className="px-5 py-4 border-b border-border flex items-center gap-2">
                   <Package className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold text-foreground flex-1">Order Items</h3>
+                  <h3 className="font-bold text-foreground flex-1">{t("orderDetail.order_items")}</h3>
                   {!editingItems && items.length > 0 && (
                     <button onClick={() => startEditingItems(items)} className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-                      <Pencil className="w-3 h-3" /> Edit
+                      <Pencil className="w-3 h-3" /> {t("common.edit")}
                     </button>
                   )}
                 </div>
@@ -676,7 +678,7 @@ export default function OrderDetail() {
                     {itemsDraft.map((item, idx) => (
                       <div key={idx} className="bg-secondary/30 rounded-xl p-3 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-muted-foreground">Item {idx + 1}</span>
+                          <span className="text-[10px] font-bold text-muted-foreground">{t("orders.modal.item_n").replace("{n}", String(idx + 1))}</span>
                           {itemsDraft.length > 1 && (
                             <button onClick={() => setItemsDraft(prev => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50">
                               <Trash2 className="w-3.5 h-3.5" />
@@ -686,26 +688,26 @@ export default function OrderDetail() {
                         <input
                           value={item.productName}
                           onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, productName: e.target.value } : it))}
-                          placeholder="Product name"
+                          placeholder={t("orderDetail.product_placeholder")}
                           className="w-full px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
                         />
                         <input
                           value={item.variant}
                           onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, variant: e.target.value } : it))}
-                          placeholder="Variant (color, size...)"
+                          placeholder={t("orders.modal.variant_placeholder")}
                           className="w-full px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
                         />
                         <div className="grid grid-cols-2 gap-2">
                           <input
                             type="number" min={1} value={item.quantity}
                             onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Number(e.target.value) } : it))}
-                            placeholder="Qty"
+                            placeholder={t("order.qty")}
                             className="px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
                           />
                           <input
                             type="number" min={0} value={item.price}
                             onChange={e => setItemsDraft(prev => prev.map((it, i) => i === idx ? { ...it, price: Number(e.target.value) } : it))}
-                            placeholder="Price DZD"
+                            placeholder={t("orders.modal.price_placeholder")}
                             className="px-2.5 py-1.5 rounded-lg border border-border text-sm bg-background outline-none focus:ring-2 focus:ring-primary/20"
                           />
                         </div>
@@ -715,12 +717,12 @@ export default function OrderDetail() {
                       onClick={() => setItemsDraft(prev => [...prev, { productName: "", variant: "", quantity: 1, price: 0 }])}
                       className="w-full py-2 border border-dashed border-border rounded-xl text-xs font-bold text-muted-foreground hover:text-primary hover:border-primary flex items-center justify-center gap-1.5"
                     >
-                      <Plus className="w-3.5 h-3.5" /> Add Item
+                      <Plus className="w-3.5 h-3.5" /> {t("orders.modal.add_item")}
                     </button>
                     <div className="flex gap-2 pt-1">
-                      <button onClick={() => setEditingItems(false)} className="flex-1 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">Cancel</button>
+                      <button onClick={() => setEditingItems(false)} className="flex-1 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
                       <button onClick={handleSaveItems} disabled={savingItems} className="flex-1 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-1.5">
-                        {savingItems && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save
+                        {savingItems && <Loader2 className="w-3.5 h-3.5 animate-spin" />} {t("common.save_short")}
                       </button>
                     </div>
                   </div>
@@ -737,29 +739,29 @@ export default function OrderDetail() {
                           <div className="min-w-0">
                             <p className="font-semibold text-foreground">{item.productName || item.title}</p>
                             {(item.variant || item.variant_title) && <p className="text-xs text-muted-foreground mt-0.5">{item.variant || item.variant_title}</p>}
-                            <p className="text-xs text-muted-foreground">Qty: {item.quantity}</p>
+                            <p className="text-xs text-muted-foreground">{t("orderDetail.qty_label").replace("{n}", String(item.quantity))}</p>
                           </div>
                           <p className="font-bold text-foreground shrink-0">DZD {(Number(item.price) * item.quantity).toLocaleString()}</p>
                         </div>
                       ))}
                     </div>
                     <div className="px-5 py-3 border-t border-border flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className="text-muted-foreground">{t("orderDetail.subtotal")}</span>
                       <span className="font-medium text-foreground">DZD {subtotal.toLocaleString()}</span>
                     </div>
                     {shippingFee > 0 && (
                       <div className="px-5 py-3 border-t border-border flex justify-between items-center text-sm">
                         <span className="text-muted-foreground flex items-center gap-2">
-                          Shipping
+                          {t("orderDetail.shipping")}
                           <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded text-xs font-medium">
-                            {classifyDeliveryType(o.shippingOption) === "stopdesk" ? "Stop Desk" : "Home"}
+                            {classifyDeliveryType(o.shippingOption) === "stopdesk" ? t("orderDetail.stop_desk_badge") : t("orderDetail.home_badge")}
                           </span>
                         </span>
                         <span className="font-medium text-foreground">DZD {shippingFee.toLocaleString()}</span>
                       </div>
                     )}
                     <div className="px-5 py-4 border-t border-border flex justify-between items-center bg-secondary/20 rounded-b-2xl">
-                      <span className="font-bold text-foreground">Total</span>
+                      <span className="font-bold text-foreground">{t("orderDetail.total")}</span>
                       <span className="font-bold text-xl text-foreground">DZD {Number(order.total).toLocaleString()}</span>
                     </div>
                   </>
@@ -768,9 +770,9 @@ export default function OrderDetail() {
 
               {/* Confirmation Status */}
               <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
-                <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">Confirmation Status</h3>
+                <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">{t("orderDetail.confirmation_status")}</h3>
                 {statusEvents.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No status changes recorded yet.</p>
+                  <p className="text-sm text-muted-foreground">{t("orderDetail.no_status_changes")}</p>
                 ) : (
                   <div>
                     {statusEvents.map((e, idx) => (
@@ -789,14 +791,14 @@ export default function OrderDetail() {
               {/* Delivery History */}
               {deliveryEvents.length > 0 && (
                 <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
-                  <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">Delivery Status</h3>
+                  <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">{t("orderDetail.delivery_status")}</h3>
                   <div>
                     {deliveryEvents.map((e, idx) => {
                       const meta: Record<string, { dot: string; title: string }> = {
-                        parcel_created: { dot: "bg-purple-500", title: "Colis créé" },
-                        label_created: { dot: "bg-green-500", title: "Label Created" },
-                        parcel_scheduled: { dot: "bg-blue-500", title: "Colis programmé" },
-                        schedule_cancelled: { dot: "bg-gray-400", title: "Programmation annulée" },
+                        parcel_created: { dot: "bg-purple-500", title: t("orderDetail.event.parcel_created") },
+                        label_created: { dot: "bg-green-500", title: t("delivery.label_created") },
+                        parcel_scheduled: { dot: "bg-blue-500", title: t("orderDetail.event.parcel_scheduled") },
+                        schedule_cancelled: { dot: "bg-gray-400", title: t("orderDetail.event.schedule_cancelled") },
                       };
                       const m = meta[e.eventType] || { dot: "bg-gray-400", title: e.eventType };
                       return (
@@ -818,7 +820,7 @@ export default function OrderDetail() {
               <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
                 <button className="w-full flex items-center gap-2 px-5 py-4 text-left lg:cursor-default" onClick={() => setNotesOpen(o => !o)}>
                   <StickyNote className="w-5 h-5 text-primary shrink-0" />
-                  <h3 className="font-bold text-foreground flex-1">Seller Notes</h3>
+                  <h3 className="font-bold text-foreground flex-1">{t("orderDetail.seller_notes")}</h3>
                   <span className="lg:hidden text-muted-foreground text-xs">{notesOpen ? "▲" : "▼"}</span>
                 </button>
                 <div className={`px-5 pb-5 ${notesOpen ? "block" : "hidden"} lg:block`}>
@@ -826,11 +828,11 @@ export default function OrderDetail() {
                     defaultValue={order.sellerNote || ""}
                     onChange={e => setNote(e.target.value)}
                     rows={4}
-                    placeholder="Add internal notes about this order..."
+                    placeholder={t("orderDetail.note_placeholder_internal")}
                     className="w-full border border-border rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-primary/20 outline-none bg-background"
                   />
                   <button onClick={handleSaveNote} disabled={savingNote} className="mt-3 w-full lg:w-auto px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
-                    {savingNote ? "Saving..." : t("common.save")}
+                    {savingNote ? t("common.saving") : t("common.save")}
                   </button>
                 </div>
               </div>
@@ -846,7 +848,7 @@ export default function OrderDetail() {
           <p>{order.customerPhone}</p>
           <p>{[order.address, order.commune, order.wilaya].filter(Boolean).join(", ")}</p>
           <table className="w-full mt-4 border-collapse">
-            <thead><tr className="border-b border-black"><th className="text-left py-1">Product</th><th className="text-right py-1">Qty</th><th className="text-right py-1">Total</th></tr></thead>
+            <thead><tr className="border-b border-black"><th className="text-left py-1">{t("orderDetail.print_product")}</th><th className="text-right py-1">{t("order.qty")}</th><th className="text-right py-1">{t("orderDetail.total")}</th></tr></thead>
             <tbody>
               {items.map((item: any, idx: number) => (
                 <tr key={idx} className="border-b border-gray-300">
@@ -857,8 +859,8 @@ export default function OrderDetail() {
               ))}
             </tbody>
           </table>
-          <p className="text-right font-bold mt-3">Total: DZD {Number(order.total).toLocaleString()}</p>
-          {shipment && <p className="mt-3">Tracking: {shipment.trackingNumber} ({shipment.carrier})</p>}
+          <p className="text-right font-bold mt-3">{t("orderDetail.print_total_line")} DZD {Number(order.total).toLocaleString()}</p>
+          {shipment && <p className="mt-3">{t("orderDetail.print_tracking")} {shipment.trackingNumber} ({shipment.carrier})</p>}
         </div>
       </div>
 
