@@ -3,17 +3,17 @@
 // place for both billing-facing pages (Billing.tsx, Organization.tsx) so a
 // failed card or a cancellation reads the same way everywhere instead of
 // falling into a generic gray "trialing"-looking badge.
-export function getSubscriptionStatusBadge(status: string | undefined): { label: string; className: string } {
+export function getSubscriptionStatusBadge(status: string | undefined): { labelKey: string; className: string } {
   switch (status) {
     case "active":
-      return { label: "Active", className: "bg-green-100 text-green-800" };
+      return { labelKey: "billing.status.active", className: "bg-green-100 text-green-800" };
     case "trialing":
-      return { label: "Trial", className: "bg-blue-100 text-blue-800" };
+      return { labelKey: "billing.status.trial", className: "bg-blue-100 text-blue-800" };
     case "past_due":
-      return { label: "Payment Failed", className: "bg-red-100 text-red-800" };
+      return { labelKey: "billing.status.payment_failed", className: "bg-red-100 text-red-800" };
     case "cancelled":
-      return { label: "Cancelled", className: "bg-gray-100 text-gray-600" };
+      return { labelKey: "billing.status.cancelled", className: "bg-gray-100 text-gray-600" };
     default:
-      return { label: "Free", className: "bg-gray-100 text-gray-600" };
+      return { labelKey: "billing.status.free", className: "bg-gray-100 text-gray-600" };
   }
 }

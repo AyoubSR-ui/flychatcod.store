@@ -8,19 +8,19 @@ import { useI18n } from "@/hooks/use-i18n";
 import { Pagination } from "@/components/Pagination";
 
 // Real values, matching conversations.lead_stage / lib/lead-intent.ts exactly.
-const LEAD_STAGES = [
-  { key: "real", label: "Real Leads" },
-  { key: "engaged", label: "Engaged" },
-  { key: "qualified_lead", label: "Qualified" },
-  { key: "order_confirmed", label: "Confirmed" },
-  { key: "all", label: "All" },
+const LEAD_STAGE_KEYS = [
+  { key: "real", labelKey: "customers.stage.real" },
+  { key: "engaged", labelKey: "customers.stage.engaged" },
+  { key: "qualified_lead", labelKey: "customers.stage.qualified" },
+  { key: "order_confirmed", labelKey: "customers.stage.confirmed" },
+  { key: "all", labelKey: "customers.stage.all" },
 ] as const;
 
-const LEAD_BADGE: Record<string, { label: string; color: string }> = {
-  interested: { label: "Interested", color: "bg-gray-100 text-gray-500" },
-  engaged: { label: "Engaged", color: "bg-blue-100 text-blue-700" },
-  qualified_lead: { label: "Qualified", color: "bg-green-100 text-green-700" },
-  order_confirmed: { label: "Confirmed", color: "bg-purple-100 text-purple-700" },
+const LEAD_BADGE_META: Record<string, { labelKey: string; color: string }> = {
+  interested: { labelKey: "customers.badge.interested", color: "bg-gray-100 text-gray-500" },
+  engaged: { labelKey: "customers.badge.engaged", color: "bg-blue-100 text-blue-700" },
+  qualified_lead: { labelKey: "customers.badge.qualified", color: "bg-green-100 text-green-700" },
+  order_confirmed: { labelKey: "customers.badge.confirmed", color: "bg-purple-100 text-purple-700" },
 };
 
 const CHANNEL_DOT: Record<string, string> = {
@@ -47,15 +47,15 @@ export default function Customers() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.customers")}</h1>
-              <p className="text-muted-foreground mt-1">Manage your customer relationships and order history.</p>
+              <p className="text-muted-foreground mt-1">{t("customers.subtitle")}</p>
             </div>
             <button className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">
-              <UserPlus className="w-4 h-4" /> Add Customer
+              <UserPlus className="w-4 h-4" /> {t("customers.add_customer")}
             </button>
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            {LEAD_STAGES.map(s => (
+            {LEAD_STAGE_KEYS.map(s => (
               <button
                 key={s.key}
                 onClick={() => setStage(s.key)}
@@ -63,7 +63,7 @@ export default function Customers() {
                   stage === s.key ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"
                 }`}
               >
-                {s.label}
+                {t(s.labelKey)}
               </button>
             ))}
           </div>
@@ -86,21 +86,21 @@ export default function Customers() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
-                    <th className="px-6 py-4 font-medium">Customer</th>
-                    <th className="px-6 py-4 font-medium">Meta ID</th>
-                    <th className="px-6 py-4 font-medium">Phone</th>
-                    <th className="px-6 py-4 font-medium">Wilaya</th>
-                    <th className="px-6 py-4 font-medium">Orders</th>
-                    <th className="px-6 py-4 font-medium">Lead</th>
-                    <th className="px-6 py-4 font-medium">Since</th>
-                    <th className="px-6 py-4 font-medium text-right">Action</th>
+                    <th className="px-6 py-4 font-medium">{t("orders.table.customer")}</th>
+                    <th className="px-6 py-4 font-medium">{t("customers.table.meta_id")}</th>
+                    <th className="px-6 py-4 font-medium">{t("customers.table.phone")}</th>
+                    <th className="px-6 py-4 font-medium">{t("order.wilaya")}</th>
+                    <th className="px-6 py-4 font-medium">{t("customers.table.orders")}</th>
+                    <th className="px-6 py-4 font-medium">{t("customers.table.lead")}</th>
+                    <th className="px-6 py-4 font-medium">{t("customers.table.since")}</th>
+                    <th className="px-6 py-4 font-medium text-right">{t("customers.table.action")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
                     <tr><td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
                   ) : data?.customers.length === 0 ? (
-                    <tr><td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">No customers yet. They will appear here when they start chatting.</td></tr>
+                    <tr><td colSpan={8} className="px-6 py-12 text-center text-muted-foreground">{t("customers.no_customers")}</td></tr>
                   ) : data?.customers.map((c: any) => (
                     <tr key={c.id} className="hover:bg-secondary/30 transition-colors">
                       <td className="px-6 py-4">
@@ -118,7 +118,7 @@ export default function Customers() {
                         {c.metaId ? (
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-mono text-muted-foreground truncate max-w-[100px]" title={c.metaId}>{c.metaId}</span>
-                            <button onClick={() => navigator.clipboard.writeText(c.metaId)} className="text-muted-foreground hover:text-foreground" title="Copy Meta ID">
+                            <button onClick={() => navigator.clipboard.writeText(c.metaId)} className="text-muted-foreground hover:text-foreground" title={t("customers.copy_meta_id")}>
                               <Copy className="w-3 h-3" />
                             </button>
                           </div>
@@ -128,8 +128,8 @@ export default function Customers() {
                       <td className="px-6 py-4 text-muted-foreground">{c.wilaya || "—"}</td>
                       <td className="px-6 py-4 font-semibold text-foreground">{c.totalOrders}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${LEAD_BADGE[c.leadStage]?.color || "bg-gray-100 text-gray-500"}`}>
-                          {LEAD_BADGE[c.leadStage]?.label || c.leadStage || "Interested"}
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${LEAD_BADGE_META[c.leadStage]?.color || "bg-gray-100 text-gray-500"}`}>
+                          {LEAD_BADGE_META[c.leadStage] ? t(LEAD_BADGE_META[c.leadStage].labelKey) : (c.leadStage || t("customers.badge.interested"))}
                         </span>
                         {c.isRepeat && (
                           <span className="ml-1.5 inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-800">
@@ -155,7 +155,7 @@ export default function Customers() {
               limit={data?.limit || limit}
               onPageChange={setPage}
               onLimitChange={setLimit}
-              itemLabel="customers"
+              itemLabel={t("customers.item_label")}
             />
           </div>
         </div>

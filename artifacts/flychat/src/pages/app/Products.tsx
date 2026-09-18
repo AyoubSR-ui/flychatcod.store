@@ -141,7 +141,7 @@ export default function Products() {
    };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this product?")) return;
+    if (!confirm(t("products.confirm_delete"))) return;
     await deleteProduct.mutateAsync({ id }); refetch();
   };
 
@@ -187,10 +187,10 @@ export default function Products() {
                 <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.products")}</h1>
                 <DocButton docId="products" />
               </div>
-              <p className="text-muted-foreground mt-1">Manage your product catalog for chat-to-order flows.</p>
+              <p className="text-muted-foreground mt-1">{t("products.subtitle")}</p>
             </div>
             <button onClick={openCreate} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2">
-              <Plus className="w-4 h-4" /> Add Product
+              <Plus className="w-4 h-4" /> {t("products.add_product")}
             </button>
           </div>
 
@@ -207,19 +207,19 @@ export default function Products() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
-                    <th className="px-6 py-4 font-medium">Product</th>
-                    <th className="px-6 py-4 font-medium">Price</th>
-                    <th className="px-6 py-4 font-medium">Stock</th>
-                    <th className="px-6 py-4 font-medium">Variants</th>
-                    <th className="px-6 py-4 font-medium">Active</th>
-                    <th className="px-6 py-4 font-medium text-right">Actions</th>
+                    <th className="px-6 py-4 font-medium">{t("products.table.product")}</th>
+                    <th className="px-6 py-4 font-medium">{t("products.table.price")}</th>
+                    <th className="px-6 py-4 font-medium">{t("products.table.stock")}</th>
+                    <th className="px-6 py-4 font-medium">{t("products.table.variants")}</th>
+                    <th className="px-6 py-4 font-medium">{t("products.table.active")}</th>
+                    <th className="px-6 py-4 font-medium text-right">{t("products.table.actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
                     <tr><td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
                   ) : data?.products.length === 0 ? (
-                    <tr><td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">No products yet. Add your first product.</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">{t("products.no_products")}</td></tr>
                   ) : data?.products.map((p) => {
                     const colorVariants = (p.variants || []).filter((v: string) => v.startsWith("Color:")).map((v: string) => v.replace("Color:", "").trim());
                     const sizeVariants = (p.variants || []).filter((v: string) => v.startsWith("Size:")).map((v: string) => v.replace("Size:", "").trim());
@@ -238,7 +238,7 @@ export default function Products() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-foreground">{p.name}</span>
-                                {!p.isActive && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded font-medium">AI Off</span>}
+                                {!p.isActive && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded font-medium">{t("products.ai_off_badge")}</span>}
                               </div>
                               {p.description && <div className="text-xs text-muted-foreground truncate max-w-[200px] mt-0.5">{p.description}</div>}
                             </div>
@@ -283,7 +283,7 @@ export default function Products() {
                             <button onClick={() => handleToggle(p)} className="text-muted-foreground hover:text-primary transition-colors">
                               {p.isActive ? <ToggleRight className="w-6 h-6 text-green-500" /> : <ToggleLeft className="w-6 h-6" />}
                             </button>
-                            <span className="text-xs text-muted-foreground">{p.isActive ? "AI uses" : "AI skips"}</span>
+                            <span className="text-xs text-muted-foreground">{p.isActive ? t("products.ai_uses") : t("products.ai_skips")}</span>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -311,14 +311,14 @@ export default function Products() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-border flex items-center justify-between shrink-0">
-              <h3 className="text-lg font-bold">{editId ? "Edit Product" : "Add New Product"}</h3>
+              <h3 className="text-lg font-bold">{editId ? t("products.modal.edit_title") : t("products.modal.add_title")}</h3>
               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-secondary rounded-lg"><X className="w-4 h-4" /></button>
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
               {/* Name */}
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Product Name *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("products.modal.name_label")}</label>
                 <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                   placeholder="e.g. جلابية السلطانة"
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
@@ -326,7 +326,7 @@ export default function Products() {
 
               {/* Description */}
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Description</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("products.modal.description_label")}</label>
                 <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
                   rows={2} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background resize-none" />
               </div>
@@ -334,31 +334,31 @@ export default function Products() {
               {/* Price & Stock */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Price (DZD) *</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("products.modal.price_label")}</label>
                   <input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })}
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Stock</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("products.modal.stock_label")}</label>
                   <input type="number" value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })}
-                    placeholder="Empty = unlimited"
+                    placeholder={t("products.modal.stock_placeholder")}
                     className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                 </div>
               </div>
 
               {/* Media */}
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Product Images</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">{t("products.modal.images_label")}</label>
 
                {/* Tab switch */}
                     <div className="flex gap-1 bg-secondary/50 p-1 rounded-lg border border-border w-fit mb-3">
                       <button onClick={() => setImageTab("url")}
                         className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "url" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
-                        <Link className="w-3 h-3" /> URL
+                        <Link className="w-3 h-3" /> {t("products.modal.tab_url")}
                       </button>
                       <button onClick={() => setImageTab("upload")}
                         className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${imageTab === "upload" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}>
-                        <Upload className="w-3 h-3" /> Upload
+                        <Upload className="w-3 h-3" /> {t("products.modal.tab_upload")}
                       </button>
                     </div>
 
@@ -366,9 +366,9 @@ export default function Products() {
                   <div className="space-y-2">
                     <div className="flex gap-2 items-center">
                       <input value={form.imageUrl} onChange={e => setForm({ ...form, imageUrl: e.target.value })}
-                        placeholder="Direct image URL ending in .jpg, .png, .webp..."
+                        placeholder={t("products.modal.image_url_placeholder")}
                         className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
-                      <p className="text-xs text-muted-foreground mt-1">⚠️ Must be a direct image URL (ending in .jpg, .png, .webp). Product page URLs won't work.</p>
+                      <p className="text-xs text-muted-foreground mt-1">{t("products.modal.image_url_hint")}</p>
                       {form.imageUrl && <img src={form.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border shrink-0" onError={e => (e.currentTarget.style.display = "none")} />}
                     </div>
                     {form.extraImages.map((url, i) => (
@@ -383,12 +383,12 @@ export default function Products() {
                     <div className="flex gap-2">
                       <input value={newImageUrl} onChange={e => setNewImageUrl(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" && newImageUrl.trim()) { setForm(f => ({ ...f, extraImages: [...f.extraImages, newImageUrl.trim()] })); setNewImageUrl(""); }}}
-                        placeholder="Add another image URL..."
+                        placeholder={t("products.modal.add_image_url_placeholder")}
                         className="flex-1 border border-border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                       <button onClick={() => { if (newImageUrl.trim()) { setForm(f => ({ ...f, extraImages: [...f.extraImages, newImageUrl.trim()] })); setNewImageUrl(""); }}}
                         disabled={!newImageUrl.trim()}
                         className="px-3 py-2 bg-secondary border border-border rounded-xl text-xs font-bold hover:bg-secondary/80 disabled:opacity-40">
-                        + Add
+                        {t("products.modal.add_btn")}
                       </button>
                     </div>
                   </div>
@@ -408,8 +408,8 @@ export default function Products() {
                         <Upload className="w-8 h-8 text-muted-foreground" />
                       )}
                       <div className="text-center">
-                        <p className="text-sm font-medium text-foreground">{uploading ? "Uploading..." : "Click to upload images"}</p>
-                        <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WEBP — multiple files supported</p>
+                        <p className="text-sm font-medium text-foreground">{uploading ? t("products.modal.uploading") : t("products.modal.click_upload")}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{t("products.modal.upload_hint")}</p>
                       </div>
                     </button>
 
@@ -419,7 +419,7 @@ export default function Products() {
                         {[form.imageUrl, ...form.extraImages].filter(Boolean).map((url, i) => (
                           <div key={i} className="relative group">
                             <img src={url} alt="" className="w-16 h-16 rounded-xl object-cover border border-border" />
-                            {i === 0 && <span className="absolute -top-1 -left-1 bg-primary text-white text-[9px] px-1 rounded font-bold">Main</span>}
+                            {i === 0 && <span className="absolute -top-1 -left-1 bg-primary text-white text-[9px] px-1 rounded font-bold">{t("products.modal.main_badge")}</span>}
                             <button onClick={() => {
                               if (i === 0) setForm(f => ({ ...f, imageUrl: f.extraImages[0] || "", extraImages: f.extraImages.slice(1) }));
                               else setForm(f => ({ ...f, extraImages: f.extraImages.filter((_, idx) => idx !== i - 1) }));
@@ -435,20 +435,20 @@ export default function Products() {
               {/* Variants */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Variants</label>
-                  <button onClick={addVariantGroup} className="text-xs text-primary font-bold hover:bg-primary/10 px-2 py-1 rounded-lg">+ Add Group</button>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">{t("products.modal.variants_label")}</label>
+                  <button onClick={addVariantGroup} className="text-xs text-primary font-bold hover:bg-primary/10 px-2 py-1 rounded-lg">{t("products.modal.add_group")}</button>
                 </div>
                 <div className="space-y-3">
                   {form.variantGroups.map((g, i) => (
                     <div key={i} className="border border-border rounded-xl p-4 space-y-3">
                       <div className="flex gap-2 items-center">
                         <input value={g.label} onChange={e => updateVariantGroup(i, "label", e.target.value)}
-                          placeholder="Group name (Color, Size...)"
+                          placeholder={t("products.modal.group_name_placeholder")}
                           className="w-28 shrink-0 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background font-medium" />
                         <select value={g.type} onChange={e => updateVariantGroup(i, "type", e.target.value as "text" | "color")}
                           className="border border-border rounded-xl px-3 py-2 text-xs outline-none bg-background">
-                          <option value="text">Text</option>
-                          <option value="color">Color</option>
+                          <option value="text">{t("products.modal.type_text")}</option>
+                          <option value="color">{t("products.modal.type_color")}</option>
                         </select>
                         <button onClick={() => removeVariantGroup(i)} className="p-1.5 hover:bg-red-50 rounded-lg ml-auto shrink-0">
                           <X className="w-3.5 h-3.5 text-red-400" />
@@ -475,10 +475,10 @@ export default function Products() {
                               value={groupColorHex[i] ?? "#000000"}
                               onChange={e => setGroupColorHex(prev => ({ ...prev, [i]: e.target.value }))}
                               className="w-8 h-8 rounded-full cursor-pointer border border-border p-0.5"
-                              title="Pick custom color"
+                              title={t("products.modal.custom_hex_pick_title")}
                             />
                             <div className="w-6 h-6 rounded-full border border-border shrink-0" style={{ backgroundColor: groupColorHex[i] ?? "#000000" }} />
-                            <span className="text-xs text-muted-foreground">Custom hex:</span>
+                            <span className="text-xs text-muted-foreground">{t("products.modal.custom_hex_label")}</span>
                             <button
                               onClick={() => {
                                 const hex = groupColorHex[i] ?? "#000000";
@@ -489,11 +489,11 @@ export default function Products() {
                               }}
                               className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-lg font-medium hover:bg-primary/20"
                             >
-                              + Add
+                              {t("products.modal.add_btn")}
                             </button>
                           </div>
                           <input value={g.values} onChange={e => updateVariantGroup(i, "values", e.target.value)}
-                            placeholder="Or type: Rouge, Bleu, #FF0000"
+                            placeholder={t("products.modal.color_values_placeholder")}
                             className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                           {g.values && (
                             <div className="flex flex-wrap gap-1">
@@ -512,7 +512,7 @@ export default function Products() {
                         </div>
                       ) : (
                         <input value={g.values} onChange={e => updateVariantGroup(i, "values", e.target.value)}
-                          placeholder="Values separated by commas (L, XL, XXL)"
+                          placeholder={t("products.modal.size_values_placeholder")}
                           className="w-full border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
                       )}
                     </div>
@@ -522,7 +522,7 @@ export default function Products() {
                 {/* Variant preview */}
                 {flattenVariants(form.variantGroups).length > 0 && (
                   <div className="mt-2 p-3 bg-secondary/30 rounded-xl">
-                    <p className="text-xs text-muted-foreground mb-1.5 font-medium">Preview:</p>
+                    <p className="text-xs text-muted-foreground mb-1.5 font-medium">{t("products.modal.preview_label")}</p>
                     <div className="flex flex-wrap gap-1">
                       {flattenVariants(form.variantGroups).slice(0, 12).map((v, i) => (
                         <span key={i} className="px-2 py-0.5 bg-background border border-border rounded text-xs font-medium">{v}</span>
@@ -540,25 +540,25 @@ export default function Products() {
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <Bot className="w-3.5 h-3.5 text-violet-500" /> AI Suggested Images
+                      <Bot className="w-3.5 h-3.5 text-violet-500" /> {t("products.modal.ai_images_label")}
                     </label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      These images will be sent by AI when customers ask to see the product or a specific color.
+                      {t("products.modal.ai_images_desc")}
                     </p>
                   </div>
                   <button onClick={addAiImage}
                     className="text-xs text-primary font-bold hover:bg-primary/10 px-2 py-1 rounded-lg whitespace-nowrap ml-3">
-                    + Add Image
+                    {t("products.modal.add_image_btn")}
                   </button>
                 </div>
                 {form.aiImages.length === 0 && (
-                  <p className="text-xs text-muted-foreground italic py-2">No AI images yet. Click "+ Add Image" to add one.</p>
+                  <p className="text-xs text-muted-foreground italic py-2">{t("products.modal.no_ai_images")}</p>
                 )}
                 <div className="space-y-2">
                   {form.aiImages.map((img, i) => (
                     <div key={i} className="flex items-center gap-2 p-2.5 border border-border rounded-xl bg-secondary/20">
                       {/* Thumbnail / upload trigger */}
-                      <label htmlFor={`ai-img-file-${i}`} className="shrink-0 cursor-pointer" title="Click to upload">
+                      <label htmlFor={`ai-img-file-${i}`} className="shrink-0 cursor-pointer" title={t("products.modal.thumbnail_upload_title")}>
                         {img.url ? (
                           <img src={img.url} alt="" className="w-10 h-10 rounded-lg object-cover border border-border hover:opacity-80 transition-opacity"
                             onError={e => (e.currentTarget.style.display = "none")} />
@@ -580,13 +580,13 @@ export default function Products() {
                       {/* URL + description */}
                       <div className="flex-1 space-y-1.5 min-w-0">
                         <input
-                          placeholder="Image URL (or click thumbnail to upload)"
+                          placeholder={t("products.modal.ai_image_url_placeholder")}
                           value={img.url}
                           onChange={e => updateAiImage(i, "url", e.target.value)}
                           className="w-full border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
                         />
                         <input
-                          placeholder="Describe what colors/views are in this image…"
+                          placeholder={t("products.modal.ai_image_desc_placeholder")}
                           value={img.description}
                           onChange={e => updateAiImage(i, "description", e.target.value)}
                           className="w-full border border-border rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary/20 outline-none bg-background"
@@ -605,8 +605,8 @@ export default function Products() {
               <div className="flex items-start gap-3 p-4 bg-secondary/30 rounded-xl border border-border">
                 <input type="checkbox" id="isActive" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} className="w-4 h-4 accent-primary mt-0.5" />
                 <div>
-                  <label htmlFor="isActive" className="text-sm font-semibold cursor-pointer">Active — AI will suggest this product</label>
-                  <p className="text-xs text-muted-foreground mt-0.5">When unchecked, AI will not mention or offer this product to customers.</p>
+                  <label htmlFor="isActive" className="text-sm font-semibold cursor-pointer">{t("products.modal.active_label")}</label>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t("products.modal.active_hint")}</p>
                 </div>
               </div>
             </div>
@@ -615,7 +615,7 @@ export default function Products() {
               <button onClick={() => setShowModal(false)} className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
               <button onClick={handleSubmit} disabled={!form.name || !form.price}
                 className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
-                {editId ? "Save Changes" : "Add Product"}
+                {editId ? t("common.save") : t("products.add_product")}
               </button>
             </div>
           </div>

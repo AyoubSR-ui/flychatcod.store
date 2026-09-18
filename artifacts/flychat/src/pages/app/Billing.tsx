@@ -14,6 +14,13 @@ const PLAN_COLORS: Record<string, string> = {
 };
 
 const PLAN_ORDER = ["free", "starter", "pro", "agency"];
+const INVOICE_STATUS_KEYS: Record<string, string> = {
+  paid: "billing.invoice_status.paid",
+  open: "billing.invoice_status.open",
+  void: "billing.invoice_status.void",
+  draft: "billing.invoice_status.draft",
+  uncollectible: "billing.invoice_status.uncollectible",
+};
 const DISCOUNT = 0.19;
 function getPrice(price: number, annual: boolean) {
   if (price === 0) return 0;
@@ -85,7 +92,7 @@ export default function Billing() {
         <div className="max-w-5xl mx-auto space-y-8">
           <div>
             <h1 className="text-3xl font-display font-bold text-foreground">{t("nav.billing")}</h1>
-            <p className="text-muted-foreground mt-1">Manage your subscription and usage.</p>
+            <p className="text-muted-foreground mt-1">{t("billing.subtitle")}</p>
           </div>
 
           {/* Current plan */}
@@ -103,16 +110,16 @@ export default function Billing() {
                     </h3>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${getSubscriptionStatusBadge(sub.status).className}`}>
-                        {getSubscriptionStatusBadge(sub.status).label}
+                        {t(getSubscriptionStatusBadge(sub.status).labelKey)}
                       </span>
                       {sub.cancelAtPeriodEnd && sub.status !== "cancelled" && (
                         <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                          Cancels at period end
+                          {t("billing.cancels_at_period_end")}
                         </span>
                       )}
                       {sub.currentPeriodEnd && (
                         <span className="text-xs text-muted-foreground">
-                          {sub.cancelAtPeriodEnd ? "Access ends" : sub.status === "trialing" ? "Trial ends" : "Renews"} {format(new Date(sub.currentPeriodEnd), 'MMM dd, yyyy')}
+                          {sub.cancelAtPeriodEnd ? t("billing.access_ends") : sub.status === "trialing" ? t("billing.trial_ends") : t("billing.renews")} {format(new Date(sub.currentPeriodEnd), 'MMM dd, yyyy')}
                         </span>
                       )}
                     </div>
@@ -139,11 +146,11 @@ export default function Billing() {
                   <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{t("billing.ai_status")}</p>
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${aiStatusColor}`}>
                     {aiStatusIcon}
-                    {aiStatus.statusLabel === "active" ? "Active"
-                     : aiStatus.statusLabel === "low_credits" ? "Low credits"
-                     : aiStatus.statusLabel === "paused" ? "Paused"
-                     : aiStatus.statusLabel === "disabled" ? "Disabled"
-                     : "Not included"}
+                    {aiStatus.statusLabel === "active" ? t("billing.ai_active")
+                     : aiStatus.statusLabel === "low_credits" ? t("billing.ai_low")
+                     : aiStatus.statusLabel === "paused" ? t("billing.ai_paused")
+                     : aiStatus.statusLabel === "disabled" ? t("billing.ai_disabled")
+                     : t("billing.ai_not_included")}
                   </span>
                 </div>
                 <div className="bg-secondary/50 rounded-xl p-4">
@@ -163,7 +170,7 @@ export default function Billing() {
               {(aiStatus.creditsIncluded + aiStatus.creditsExtra) > 0 && (
                 <div className="mb-6">
                   <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-                    <span>Usage this period</span>
+                    <span>{t("billing.ai_usage")}</span>
                     <span>{usagePercent.toFixed(0)}%</span>
                   </div>
                   <div className="w-full bg-secondary rounded-full h-2.5">
@@ -173,7 +180,7 @@ export default function Billing() {
                     />
                   </div>
                   {aiStatus.resetAt && (
-                    <p className="text-xs text-muted-foreground mt-1">Resets on {format(new Date(aiStatus.resetAt), 'MMM dd, yyyy')}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t("billing.ai_resets")} {format(new Date(aiStatus.resetAt), 'MMM dd, yyyy')}</p>
                   )}
                 </div>
               )}
@@ -182,21 +189,21 @@ export default function Billing() {
               <div>
                 <p className="text-sm font-bold text-foreground mb-3">
                   <Zap className="w-4 h-4 inline mr-1 text-violet-600" />
-                  Top Up Credits
+                  {t("billing.ai_topup_title")}
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {topUps.map((opt: any) => (
                     <div key={opt.id} className="bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-200 rounded-xl p-4 text-center">
                       <p className="text-2xl font-display font-black text-violet-700">{opt.label}</p>
-                      <p className="text-xs text-muted-foreground mb-1">credits</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t("billing.ai_credits")}</p>
                       <p className="text-sm font-bold text-violet-600 mb-3">${opt.price} USD</p>
                       <button onClick={() => handleCheckout(opt.id)} className="w-full py-2 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-colors">
-                      Buy Now
+                      {t("billing.buy_now")}
                       </button>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2 text-center">Contact support for custom credit packages.</p>
+                <p className="text-xs text-muted-foreground mt-2 text-center">{t("billing.contact_support_credits")}</p>
               </div>
             </div>
           )}
@@ -206,13 +213,13 @@ export default function Billing() {
             <div className="flex items-center justify-between mb-5">
           <h2 className="text-xl font-display font-bold text-foreground">{t("billing.available_plans")}</h2>
          <div className="flex items-center gap-3">
-         <span className={`text-sm font-medium ${!annual ? "text-foreground" : "text-muted-foreground"}`}>Monthly</span>
+         <span className={`text-sm font-medium ${!annual ? "text-foreground" : "text-muted-foreground"}`}>{t("billing.monthly")}</span>
          <button onClick={() => setAnnual(a => !a)}
         className={`relative w-12 h-6 rounded-full transition-colors ${annual ? "bg-primary" : "bg-border"}`}>
            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${annual ? "translate-x-6" : "translate-x-0"}`} />
          </button>
          <div className="flex items-center gap-1.5">
-        <span className={`text-sm font-medium ${annual ? "text-foreground" : "text-muted-foreground"}`}>Annually</span>
+        <span className={`text-sm font-medium ${annual ? "text-foreground" : "text-muted-foreground"}`}>{t("billing.annually")}</span>
         <span className="text-[10px] font-bold px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full">-19%</span>
          </div>
        </div>
@@ -234,7 +241,7 @@ export default function Billing() {
                       <div className="flex items-center justify-between mb-1">
                         <h3 className="font-bold text-foreground">{plan.name}</h3>
                         {isCurrent && (
-                          <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">Current</span>
+                          <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">{t("billing.current_badge")}</span>
                         )}
                         {plan.badge && !isCurrent && (
                           <span className="px-2 py-0.5 bg-accent text-accent-foreground text-[10px] font-bold rounded-full">{plan.badge}</span>
@@ -243,23 +250,23 @@ export default function Billing() {
 
                       <div className="mb-4">
                         {plan.price === 0 ? (
-                          <p className="text-2xl font-extrabold text-foreground">Free</p>
+                          <p className="text-2xl font-extrabold text-foreground">{t("billing.price_free")}</p>
                             ) : (
                              <div>
                               <div className="flex items-baseline gap-0.5">
                                  {annual && <span className="text-sm line-through text-muted-foreground/50 mr-1">${plan.price}</span>}
                                   <span className="text-2xl font-extrabold text-foreground">${getPrice(plan.price, annual)}</span>
-                                   <span className="text-xs text-muted-foreground">/mo</span>
+                                   <span className="text-xs text-muted-foreground">{t("billing.per_month")}</span>
                                  </div>
                                       {annual && plan.price > 0 && (
                                   <p className="text-[10px] text-green-600 font-medium">
-                               ${Math.round(getPrice(plan.price, annual) * 12)}/year
+                               ${Math.round(getPrice(plan.price, annual) * 12)}{t("billing.per_year")}
                                     </p>
                                       )}
                                         </div>
                                        )}
                                          {plan.trial && (
-                                          <p className="text-[10px] text-muted-foreground">{plan.trial}-day free trial</p>
+                                          <p className="text-[10px] text-muted-foreground">{t("billing.trial_days").replace("{n}", String(plan.trial))}</p>
                                               )}
                                            </div>
 
@@ -285,9 +292,9 @@ export default function Billing() {
                               : "bg-primary text-white hover:bg-primary/90"
                         }`}
                       >
-                        {isCurrent ? "Current Plan"
-                          : isUpgrade ? <><ArrowUpRight className="w-4 h-4" /> Upgrade</>
-                          : "Downgrade"}
+                        {isCurrent ? t("billing.current_plan_btn")
+                          : isUpgrade ? <><ArrowUpRight className="w-4 h-4" /> {t("billing.upgrade")}</>
+                          : t("billing.downgrade")}
                       </button>
                     </div>
                   </div>
@@ -303,7 +310,7 @@ export default function Billing() {
               <h2 className="text-xl font-display font-bold text-foreground">{t("billing.invoice_history")}</h2>
             </div>
             {loadingInvoices ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">Loading invoices...</div>
+              <div className="text-center py-8 text-muted-foreground text-sm">{t("billing.loading_invoices")}</div>
             ) : invoices.length === 0 ? (
               <div className="text-center py-8 border border-dashed border-border rounded-xl">
                 <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
@@ -324,7 +331,7 @@ export default function Billing() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${inv.status === "paid" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>{inv.status}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${inv.status === "paid" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>{INVOICE_STATUS_KEYS[inv.status] ? t(INVOICE_STATUS_KEYS[inv.status]) : inv.status}</span>
                       <p className="text-sm font-bold text-foreground">${(inv.amount / 100).toFixed(2)} {inv.currency?.toUpperCase()}</p>
                       {inv.pdfUrl && (<a href={inv.pdfUrl} target="_blank" rel="noreferrer" className="p-2 hover:bg-secondary rounded-lg transition-colors"><ArrowUpRight className="w-4 h-4 text-muted-foreground" /></a>)}
                     </div>

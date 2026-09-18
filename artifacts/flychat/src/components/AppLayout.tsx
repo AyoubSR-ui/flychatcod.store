@@ -30,24 +30,24 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const OWNER_ONLY: readonly string[] = ["owner"];
   const OWNER_OR_ADMIN: readonly string[] = ["owner", "admin"];
 
-  const navItems: { href: string; label: string; icon: typeof LayoutDashboard; raw?: boolean; roles?: readonly string[] }[] = [
+  const navItems: { href: string; label: string; icon: typeof LayoutDashboard; roles?: readonly string[] }[] = [
     { href: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
-    { href: "/lead-intelligence", label: "Lead Intelligence", icon: TrendingUp, raw: true },
+    { href: "/lead-intelligence", label: "nav.lead_intelligence", icon: TrendingUp },
     { href: "/inbox", label: "nav.inbox", icon: MessageSquare },
     { href: "/orders", label: "nav.orders", icon: ShoppingBag },
     { href: "/customers", label: "nav.customers", icon: Users },
     { href: "/products", label: "nav.products", icon: Package },
-    { href: "/ad-links", label: "Ad Links", icon: Link2, roles: OWNER_OR_ADMIN },
+    { href: "/ad-links", label: "nav.ad_links", icon: Link2, roles: OWNER_OR_ADMIN },
     { href: "/widget", label: "nav.widget", icon: MessageSquare, roles: OWNER_OR_ADMIN },
     { href: "/automation", label: "nav.automation", icon: Zap, roles: OWNER_OR_ADMIN },
     { href: "/channels", label: "nav.channels", icon: Plug, roles: OWNER_OR_ADMIN },
-    { href: "/delivery", label: "Delivery", icon: Truck, raw: true, roles: OWNER_OR_ADMIN },
+    { href: "/delivery", label: "nav.delivery", icon: Truck, roles: OWNER_OR_ADMIN },
     { href: "/team", label: "nav.team", icon: Users2, roles: OWNER_ONLY },
     { href: "/billing", label: "nav.billing", icon: CreditCard, roles: OWNER_ONLY },
-    { href: "/organization", label: "Organization", icon: Building2, raw: true, roles: OWNER_OR_ADMIN },
-    { href: "/ai-settings", label: "AI Settings", icon: Bot, raw: true, roles: OWNER_OR_ADMIN },
+    { href: "/organization", label: "nav.organization", icon: Building2, roles: OWNER_OR_ADMIN },
+    { href: "/ai-settings", label: "nav.ai_settings", icon: Bot, roles: OWNER_OR_ADMIN },
     { href: "/settings", label: "nav.settings", icon: Settings, roles: OWNER_OR_ADMIN },
-    { href: "/docs", label: "Documentation", icon: BookOpen, raw: true },
+    { href: "/docs", label: "nav.documentation", icon: BookOpen },
   ].filter((item) => !item.roles || user?.role === "superadmin" || item.roles.includes(user?.role ?? ""));
 
   if (user?.role === "superadmin") {

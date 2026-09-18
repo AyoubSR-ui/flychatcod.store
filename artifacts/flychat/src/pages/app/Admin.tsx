@@ -5,8 +5,10 @@ import { format } from "date-fns";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
+import { useI18n } from "@/hooks/use-i18n";
 
 export default function Admin() {
+  const { t } = useI18n();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { data: stats, isLoading } = useGetAdminStats();
@@ -24,10 +26,10 @@ export default function Admin() {
               <ShieldAlert className="w-6 h-6 text-red-600" />
             </div>
             <div>
-              <h1 className="text-3xl font-display font-bold text-foreground">Super Admin</h1>
-              <p className="text-muted-foreground mt-0.5">Platform-wide management — restricted access</p>
+              <h1 className="text-3xl font-display font-bold text-foreground">{t("admin.title")}</h1>
+              <p className="text-muted-foreground mt-0.5">{t("admin.subtitle")}</p>
             </div>
-            <span className="ml-auto px-3 py-1 bg-red-100 text-red-800 text-xs font-bold rounded-full border border-red-200">ADMIN ONLY</span>
+            <span className="ml-auto px-3 py-1 bg-red-100 text-red-800 text-xs font-bold rounded-full border border-red-200">{t("admin.admin_only_badge")}</span>
           </div>
 
           {isLoading ? (
@@ -37,10 +39,10 @@ export default function Admin() {
               {/* Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
                 {[
-                  { label: "Total Stores", value: stats?.totalStores || 0, icon: Store, color: "text-blue-500", bg: "bg-blue-100" },
-                  { label: "Total Users", value: stats?.totalUsers || 0, icon: Users, color: "text-violet-500", bg: "bg-violet-100" },
-                  { label: "Total Conversations", value: stats?.totalConversations || 0, icon: MessageSquare, color: "text-teal-500", bg: "bg-teal-100" },
-                  { label: "Total Orders", value: stats?.totalOrders || 0, icon: ShoppingBag, color: "text-orange-500", bg: "bg-orange-100" },
+                  { label: t("admin.stat.total_stores"), value: stats?.totalStores || 0, icon: Store, color: "text-blue-500", bg: "bg-blue-100" },
+                  { label: t("admin.stat.total_users"), value: stats?.totalUsers || 0, icon: Users, color: "text-violet-500", bg: "bg-violet-100" },
+                  { label: t("admin.stat.total_conversations"), value: stats?.totalConversations || 0, icon: MessageSquare, color: "text-teal-500", bg: "bg-teal-100" },
+                  { label: t("admin.stat.total_orders"), value: stats?.totalOrders || 0, icon: ShoppingBag, color: "text-orange-500", bg: "bg-orange-100" },
                 ].map(s => (
                   <div key={s.label} className="bg-card border border-border rounded-2xl p-5 shadow-sm">
                     <div className={`w-10 h-10 ${s.bg} rounded-xl flex items-center justify-center mb-4`}>
@@ -54,15 +56,15 @@ export default function Admin() {
 
               {/* Plan Distribution */}
               <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-                <h2 className="font-bold text-foreground mb-4">Plan Distribution</h2>
+                <h2 className="font-bold text-foreground mb-4">{t("admin.plan_distribution")}</h2>
                 <div className="flex flex-wrap gap-3">
                   {Object.entries(stats?.planDistribution || {}).map(([plan, count]) => (
                     <div key={plan} className="flex items-center gap-3 bg-secondary/50 border border-border rounded-xl px-4 py-3">
-                      <span className="font-semibold text-foreground capitalize">{plan === "ai_addon" ? "AI Add-on" : plan}</span>
+                      <span className="font-semibold text-foreground capitalize">{plan === "ai_addon" ? t("admin.plan.ai_addon") : plan}</span>
                       <span className="text-2xl font-display font-bold text-primary">{count as number}</span>
                     </div>
                   ))}
-                  {!Object.keys(stats?.planDistribution || {}).length && <p className="text-muted-foreground text-sm">No subscriptions yet</p>}
+                  {!Object.keys(stats?.planDistribution || {}).length && <p className="text-muted-foreground text-sm">{t("admin.no_subscriptions")}</p>}
                 </div>
               </div>
 
@@ -70,11 +72,11 @@ export default function Admin() {
                 {/* Recent signups */}
                 <div className="bg-card border border-border rounded-2xl shadow-sm">
                   <div className="px-6 py-4 border-b border-border">
-                    <h2 className="font-bold text-foreground">Recent Signups</h2>
+                    <h2 className="font-bold text-foreground">{t("admin.recent_signups")}</h2>
                   </div>
                   <div className="divide-y divide-border/50">
                     {!stats?.recentSignups?.length ? (
-                      <p className="px-6 py-8 text-center text-muted-foreground text-sm">No recent signups</p>
+                      <p className="px-6 py-8 text-center text-muted-foreground text-sm">{t("admin.no_recent_signups")}</p>
                     ) : stats.recentSignups.map(u => (
                       <div key={u.id} className="px-6 py-4 flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary text-sm">
@@ -93,11 +95,11 @@ export default function Admin() {
                 {/* Recent activity */}
                 <div className="bg-card border border-border rounded-2xl shadow-sm">
                   <div className="px-6 py-4 border-b border-border">
-                    <h2 className="font-bold text-foreground">Recent Activity</h2>
+                    <h2 className="font-bold text-foreground">{t("admin.recent_activity")}</h2>
                   </div>
                   <div className="divide-y divide-border/50">
                     {!stats?.recentActivity?.length ? (
-                      <p className="px-6 py-8 text-center text-muted-foreground text-sm">No recent activity</p>
+                      <p className="px-6 py-8 text-center text-muted-foreground text-sm">{t("admin.no_recent_activity")}</p>
                     ) : stats.recentActivity.map((a, i) => (
                       <div key={i} className="px-6 py-4">
                         <div className="flex items-center gap-2 mb-0.5">

@@ -4,20 +4,19 @@ import { MessageSquare, ShoppingBag, CheckCircle2, TrendingUp, AlertCircle } fro
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useI18n } from "@/hooks/use-i18n";
 
-// Mock data for chart
-const chartData = [
-  { name: 'Mon', chats: 40, orders: 24 },
-  { name: 'Tue', chats: 30, orders: 13 },
-  { name: 'Wed', chats: 20, orders: 48 },
-  { name: 'Thu', chats: 27, orders: 39 },
-  { name: 'Fri', chats: 18, orders: 48 },
-  { name: 'Sat', chats: 23, orders: 38 },
-  { name: 'Sun', chats: 34, orders: 43 },
-];
-
 export default function Dashboard() {
   const { data: stats, isLoading } = useGetDashboardStats();
   const { t } = useI18n();
+
+  const chartData = [
+    { name: t("dashboard.day.mon"), chats: 40, orders: 24 },
+    { name: t("dashboard.day.tue"), chats: 30, orders: 13 },
+    { name: t("dashboard.day.wed"), chats: 20, orders: 48 },
+    { name: t("dashboard.day.thu"), chats: 27, orders: 39 },
+    { name: t("dashboard.day.fri"), chats: 18, orders: 48 },
+    { name: t("dashboard.day.sat"), chats: 23, orders: 38 },
+    { name: t("dashboard.day.sun"), chats: 34, orders: 43 },
+  ];
 
   if (isLoading) return <AppLayout><div className="p-8 flex justify-center"><div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" /></div></AppLayout>;
 
@@ -25,29 +24,29 @@ export default function Dashboard() {
     <AppLayout>
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-6xl mx-auto space-y-8">
-          
+
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-display font-bold text-foreground">Overview</h1>
-              <p className="text-muted-foreground mt-1">Here's what's happening with your store today.</p>
+              <h1 className="text-3xl font-display font-bold text-foreground">{t("dashboard.title")}</h1>
+              <p className="text-muted-foreground mt-1">{t("dashboard.subtitle")}</p>
             </div>
             <div className="bg-white px-4 py-2 rounded-lg border border-border shadow-sm text-sm font-medium">
-              Today: {new Date().toLocaleDateString()}
+              {t("dashboard.today").replace("{date}", new Date().toLocaleDateString())}
             </div>
           </div>
 
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard title="Active Chats" value={stats?.chatsToday || 0} icon={MessageSquare} color="text-blue-500" bg="bg-blue-500/10" />
-            <StatCard title="New Orders" value={stats?.newOrders || 0} icon={ShoppingBag} color="text-purple-500" bg="bg-purple-500/10" />
-            <StatCard title="Confirmed COD" value={stats?.confirmedOrders || 0} icon={CheckCircle2} color="text-green-500" bg="bg-green-500/10" />
-            <StatCard title="Conversion Rate" value={`${stats?.conversionRate || 0}%`} icon={TrendingUp} color="text-orange-500" bg="bg-orange-500/10" />
+            <StatCard title={t("dashboard.stat.active_chats")} value={stats?.chatsToday || 0} icon={MessageSquare} color="text-blue-500" bg="bg-blue-500/10" />
+            <StatCard title={t("dashboard.stat.new_orders")} value={stats?.newOrders || 0} icon={ShoppingBag} color="text-purple-500" bg="bg-purple-500/10" />
+            <StatCard title={t("dashboard.stat.confirmed_cod")} value={stats?.confirmedOrders || 0} icon={CheckCircle2} color="text-green-500" bg="bg-green-500/10" />
+            <StatCard title={t("dashboard.stat.conversion_rate")} value={`${stats?.conversionRate || 0}%`} icon={TrendingUp} color="text-orange-500" bg="bg-orange-500/10" />
           </div>
 
           {/* Charts & Lists Area */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 bg-card border border-border rounded-2xl p-6 shadow-sm">
-              <h3 className="text-lg font-bold mb-6">Performance over last 7 days</h3>
+              <h3 className="text-lg font-bold mb-6">{t("dashboard.chart_title")}</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -74,14 +73,14 @@ export default function Dashboard() {
 
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm flex flex-col">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold">Needs Attention</h3>
+                <h3 className="text-lg font-bold">{t("dashboard.needs_attention")}</h3>
                 <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold">{stats?.pendingConfirmations || 0}</span>
               </div>
               <div className="flex-1">
                 {stats?.pendingConfirmations === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-70">
                     <CheckCircle2 className="w-12 h-12 mb-2 text-green-500" />
-                    <p>All caught up!</p>
+                    <p>{t("dashboard.all_caught_up")}</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -90,8 +89,8 @@ export default function Dashboard() {
                       <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-secondary/30">
                         <AlertCircle className="w-5 h-5 text-orange-500 shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">Unconfirmed Order #{1024 + i}</p>
-                          <p className="text-xs text-muted-foreground truncate">Awaiting phone verification</p>
+                          <p className="text-sm font-semibold truncate">{t("dashboard.unconfirmed_order").replace("{n}", String(1024 + i))}</p>
+                          <p className="text-xs text-muted-foreground truncate">{t("dashboard.awaiting_verification")}</p>
                         </div>
                       </div>
                     ))}
@@ -103,16 +102,16 @@ export default function Dashboard() {
 
           <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
             <div className="px-6 py-5 border-b border-border">
-              <h3 className="text-lg font-bold">Recent Orders</h3>
+              <h3 className="text-lg font-bold">{t("dashboard.recent_orders")}</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
-                    <th className="px-6 py-4 font-medium">Order</th>
-                    <th className="px-6 py-4 font-medium">Customer</th>
-                    <th className="px-6 py-4 font-medium">Status</th>
-                    <th className="px-6 py-4 font-medium">Total</th>
+                    <th className="px-6 py-4 font-medium">{t("orders.table.order")}</th>
+                    <th className="px-6 py-4 font-medium">{t("orders.table.customer")}</th>
+                    <th className="px-6 py-4 font-medium">{t("orders.table.status")}</th>
+                    <th className="px-6 py-4 font-medium">{t("orders.table.total")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
@@ -132,7 +131,7 @@ export default function Dashboard() {
                       <td className="px-6 py-4 font-medium">DZD {order.total}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">No recent orders</td></tr>
+                    <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">{t("dashboard.no_recent_orders")}</td></tr>
                   )}
                 </tbody>
               </table>

@@ -6,6 +6,7 @@ import {
   MessageSquare, MapPin, Phone, Package, Download,
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
+import { useI18n } from "@/hooks/use-i18n";
 
 const API = import.meta.env.VITE_API_URL ?? "";
 
@@ -62,17 +63,17 @@ interface LeadStatsResponse {
 
 const STAGE_ORDER = ["interested", "engaged", "qualified_lead", "order_confirmed"] as const;
 
-const STAGE_CONFIG: Record<string, { label: string; color: string; bar: string; icon: React.ComponentType<any> }> = {
-  interested:      { label: "Interested",  color: "text-gray-600",   bar: "bg-gray-400",    icon: Users },
-  engaged:         { label: "Engaged",     color: "text-blue-600",   bar: "bg-blue-500",    icon: MessageSquare },
-  qualified_lead:  { label: "Qualified",   color: "text-green-600",  bar: "bg-green-500",   icon: TrendingUp },
-  order_confirmed: { label: "Confirmed",   color: "text-emerald-600",bar: "bg-emerald-500", icon: ShoppingBag },
+const STAGE_CONFIG: Record<string, { labelKey: string; color: string; bar: string; icon: React.ComponentType<any> }> = {
+  interested:      { labelKey: "leadIntel.stage.interested", color: "text-gray-600",   bar: "bg-gray-400",    icon: Users },
+  engaged:         { labelKey: "leadIntel.stage.engaged",    color: "text-blue-600",   bar: "bg-blue-500",    icon: MessageSquare },
+  qualified_lead:  { labelKey: "leadIntel.stage.qualified",  color: "text-green-600",  bar: "bg-green-500",   icon: TrendingUp },
+  order_confirmed: { labelKey: "leadIntel.stage.confirmed",  color: "text-emerald-600",bar: "bg-emerald-500", icon: ShoppingBag },
 };
 
-const INTENT_CONFIG: Record<string, { label: string; color: string }> = {
-  low:    { label: "Low",    color: "text-gray-500"  },
-  medium: { label: "Medium", color: "text-blue-600"  },
-  high:   { label: "High",   color: "text-orange-600"},
+const INTENT_CONFIG: Record<string, { labelKey: string; color: string }> = {
+  low:    { labelKey: "leadIntel.intent.low",    color: "text-gray-500"  },
+  medium: { labelKey: "leadIntel.intent.medium", color: "text-blue-600"  },
+  high:   { labelKey: "leadIntel.intent.high",   color: "text-orange-600"},
 };
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -80,6 +81,13 @@ const CHANNEL_COLORS: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700",
   messenger: "bg-blue-100 text-blue-700",
   widget:    "bg-violet-100 text-violet-700",
+};
+
+const CHANNEL_LABEL_KEYS: Record<string, string> = {
+  whatsapp: "source.whatsapp",
+  instagram: "source.instagram",
+  messenger: "source.messenger_full",
+  widget: "source.widget",
 };
 
 function StatCard({
@@ -103,6 +111,7 @@ function StatCard({
 }
 
 export default function LeadIntelligence() {
+  const { t } = useI18n();
   const [data, setData] = useState<LeadStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +120,7 @@ export default function LeadIntelligence() {
   useEffect(() => {
     apiFetch<LeadStatsResponse>("/api/analytics/lead-stats")
       .then((d) => { setData(d); setLoading(false); })
-      .catch(() => { setError("Failed to load lead stats"); setLoading(false); });
+      .catch(() => { setError(t("leadIntel.err.load_failed")); setLoading(false); });
   }, []);
 
   const stats = data?.stats;
@@ -138,7 +147,7 @@ export default function LeadIntelligence() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Failed to export engaged leads");
+      alert(t("leadIntel.err.export_failed"));
     } finally {
       setExporting(false);
     }
@@ -161,14 +170,14 @@ export default function LeadIntelligence() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <TrendingUp className="w-6 h-6 text-primary" />
-              Lead Intelligence
+              {t("leadIntel.title")}
             </h1>
             <DocButton docId="lead-intelligence" />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             {total > 0
-              ? `${total.toLocaleString()} people messaged you. ${engaged.toLocaleString()} shared contact info. Focus on these — they're your real warm audience.`
-              : "Not all messages are equal. This shows you who is a real buyer."}
+              ? t("leadIntel.subtitle_with_data").replace("{total}", total.toLocaleString()).replace("{engaged}", engaged.toLocaleString())
+              : t("leadIntel.subtitle_empty")}
           </p>
         </div>
 
@@ -187,30 +196,30 @@ export default function LeadIntelligence() {
             {/* ── Stat Cards ── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard
-                title="Total Conversations"
+                title={t("leadIntel.stat.total_conversations")}
                 value={total}
-                sub="last 30 days"
+                sub={t("leadIntel.stat.last_30_days")}
                 icon={MessageSquare}
                 iconColor="bg-violet-100 text-violet-600"
               />
               <StatCard
-                title="Qualified Leads"
+                title={t("leadIntel.stat.qualified_leads")}
                 value={qualified}
-                sub={stats.qualification_rate ? `${stats.qualification_rate}% of total` : undefined}
+                sub={stats.qualification_rate ? t("leadIntel.stat.pct_of_total").replace("{pct}", stats.qualification_rate) : undefined}
                 icon={TrendingUp}
                 iconColor="bg-green-100 text-green-600"
               />
               <StatCard
-                title="Confirmed Orders"
+                title={t("leadIntel.stat.confirmed_orders")}
                 value={confirmed}
-                sub={stats.conversion_rate ? `${stats.conversion_rate}% conversion` : undefined}
+                sub={stats.conversion_rate ? t("leadIntel.stat.pct_conversion").replace("{pct}", stats.conversion_rate) : undefined}
                 icon={ShoppingBag}
                 iconColor="bg-emerald-100 text-emerald-600"
               />
               <StatCard
-                title="High Intent"
+                title={t("leadIntel.stat.high_intent")}
                 value={Number(stats.high_intent)}
-                sub="serious buyers"
+                sub={t("leadIntel.stat.serious_buyers")}
                 icon={Zap}
                 iconColor="bg-orange-100 text-orange-600"
               />
@@ -218,7 +227,7 @@ export default function LeadIntelligence() {
 
             {/* ── Lead Funnel ── */}
             <div className="bg-card rounded-2xl border border-border p-6">
-              <h2 className="text-base font-semibold text-foreground mb-4">Lead Funnel</h2>
+              <h2 className="text-base font-semibold text-foreground mb-4">{t("leadIntel.funnel_title")}</h2>
               <div className="space-y-3">
                 {funnelData.map(({ stage, count, pct, avgMessages }) => {
                   const cfg = STAGE_CONFIG[stage];
@@ -228,11 +237,11 @@ export default function LeadIntelligence() {
                       <div className="flex items-center justify-between text-sm">
                         <span className={`flex items-center gap-1.5 font-medium ${cfg.color}`}>
                           <Icon className="w-4 h-4" />
-                          {cfg.label}
+                          {t(cfg.labelKey)}
                         </span>
                         <span className="text-muted-foreground">
                           {count} <span className="text-xs">({pct}%)</span>
-                          <span className="ml-3 text-xs">avg {avgMessages} msgs</span>
+                          <span className="ml-3 text-xs">{t("leadIntel.avg_msgs").replace("{n}", String(avgMessages))}</span>
                         </span>
                       </div>
                       <div className="h-2 bg-secondary rounded-full overflow-hidden">
@@ -251,9 +260,9 @@ export default function LeadIntelligence() {
             <div className="bg-card rounded-2xl border border-border p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-base font-semibold text-foreground">Export Engaged Leads</h2>
+                  <h2 className="text-base font-semibold text-foreground">{t("leadIntel.export_title")}</h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {engaged.toLocaleString()} {engaged === 1 ? "person has" : "people have"} shared contact info — a phone list ready for Meta.
+                    {engaged.toLocaleString()} {engaged === 1 ? t("leadIntel.export_desc_singular") : t("leadIntel.export_desc_plural")} {t("leadIntel.export_desc_suffix")}
                   </p>
                 </div>
                 <button
@@ -261,27 +270,27 @@ export default function LeadIntelligence() {
                   disabled={exporting || engaged === 0}
                   className="shrink-0 flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 disabled:opacity-50 transition-colors"
                 >
-                  <Download className="w-4 h-4" /> {exporting ? "Exporting..." : "Export Engaged as CSV"}
+                  <Download className="w-4 h-4" /> {exporting ? t("leadIntel.exporting") : t("leadIntel.export_btn")}
                 </button>
               </div>
               <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-800">
-                💡 Export "Engaged" leads as a phone list → upload to Meta as a Custom Audience → create a Lookalike Audience from your real warm contacts.
+                {t("leadIntel.export_tip")}
               </div>
             </div>
 
             {/* ── Drop-off Analysis ── */}
             <div className="bg-card rounded-2xl border border-border p-6">
-              <h2 className="text-base font-semibold text-foreground mb-1">Drop-off Analysis</h2>
+              <h2 className="text-base font-semibold text-foreground mb-1">{t("leadIntel.dropoff_title")}</h2>
               <p className="text-xs text-muted-foreground mb-4">
-                Where do customers stop? Low avg messages at "Interested" = AI needs to qualify faster.
+                {t("leadIntel.dropoff_desc")}
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Stage</th>
-                      <th className="text-right py-2 pr-4 font-medium text-muted-foreground">Count</th>
-                      <th className="text-right py-2 font-medium text-muted-foreground">Avg messages</th>
+                      <th className="text-left py-2 pr-4 font-medium text-muted-foreground">{t("leadIntel.table.stage")}</th>
+                      <th className="text-right py-2 pr-4 font-medium text-muted-foreground">{t("leadIntel.table.count")}</th>
+                      <th className="text-right py-2 font-medium text-muted-foreground">{t("leadIntel.table.avg_messages")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -290,7 +299,7 @@ export default function LeadIntelligence() {
                       return (
                         <tr key={row.lead_stage} className="border-b border-border/50 last:border-0">
                           <td className={`py-2.5 pr-4 font-medium ${cfg?.color ?? "text-foreground"}`}>
-                            {cfg?.label ?? row.lead_stage}
+                            {cfg ? t(cfg.labelKey) : row.lead_stage}
                           </td>
                           <td className="py-2.5 pr-4 text-right text-foreground">{row.count}</td>
                           <td className="py-2.5 text-right text-muted-foreground">{row.avg_messages}</td>
@@ -305,15 +314,15 @@ export default function LeadIntelligence() {
             {/* ── Top Performing Ads ── */}
             {data && data.topRefs.length > 0 && (
               <div className="bg-card rounded-2xl border border-border p-6">
-                <h2 className="text-base font-semibold text-foreground mb-4">Top Performing Ads</h2>
+                <h2 className="text-base font-semibold text-foreground mb-4">{t("leadIntel.top_ads_title")}</h2>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 pr-4 font-medium text-muted-foreground">Ad Ref</th>
-                        <th className="text-right py-2 pr-4 font-medium text-muted-foreground">Total convs</th>
-                        <th className="text-right py-2 pr-4 font-medium text-muted-foreground">Qualified</th>
-                        <th className="text-right py-2 font-medium text-muted-foreground">Conversion %</th>
+                        <th className="text-left py-2 pr-4 font-medium text-muted-foreground">{t("leadIntel.table.ad_ref")}</th>
+                        <th className="text-right py-2 pr-4 font-medium text-muted-foreground">{t("leadIntel.table.total_convs")}</th>
+                        <th className="text-right py-2 pr-4 font-medium text-muted-foreground">{t("leadIntel.table.qualified")}</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">{t("leadIntel.table.conversion_pct")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -342,10 +351,10 @@ export default function LeadIntelligence() {
 
             {/* ── Recent Qualified Leads ── */}
             <div className="bg-card rounded-2xl border border-border p-6">
-              <h2 className="text-base font-semibold text-foreground mb-4">Recent Qualified Leads</h2>
+              <h2 className="text-base font-semibold text-foreground mb-4">{t("leadIntel.recent_qualified_title")}</h2>
               {data?.recentQualified.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  No qualified leads yet. The AI will qualify leads automatically as conversations progress.
+                  {t("leadIntel.no_qualified_leads")}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -365,7 +374,7 @@ export default function LeadIntelligence() {
                           <div className="flex items-center gap-2 mb-0.5">
                             <span className="font-semibold text-sm text-foreground truncate">{conv.customer_name}</span>
                             <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-bold ${channelCls}`}>
-                              {conv.channel}
+                              {CHANNEL_LABEL_KEYS[conv.channel] ? t(CHANNEL_LABEL_KEYS[conv.channel]) : conv.channel}
                             </span>
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -388,7 +397,7 @@ export default function LeadIntelligence() {
                         </div>
                         <div className="shrink-0 text-right">
                           <span className={`text-xs font-semibold ${intentCfg.color}`}>
-                            {intentCfg.label} intent
+                            {t(intentCfg.labelKey)} {t("leadIntel.intent_suffix")}
                           </span>
                           <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto mt-1" />
                         </div>
