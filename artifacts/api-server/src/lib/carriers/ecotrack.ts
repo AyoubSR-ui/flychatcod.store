@@ -1,4 +1,4 @@
-import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult } from "./types.js";
+import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult, CarrierGeoData, CarrierCommune, CarrierDesk, CarrierFee } from "./types.js";
 import { getWilayaCode, resolveCommuneName } from "./wilaya-codes.js";
 import { normalizeAlgerianPhone } from "./phone-format.js";
 
@@ -123,5 +123,77 @@ export class EcotrackAdapter implements CarrierAdapter {
 
   async cancelShipment(_trackingNumber: string): Promise<CancelShipmentResult> {
     throw new Error(`[Ecotrack:${this.carrier}] No verified cancel endpoint exists for the Ecotrack API yet.`);
+  }
+
+  // ─── Geo data: communes (+ stop-desk flag), desks, fees ──────────────────────
+  // All three endpoints verified live against the Anderson tenant (2026-09)
+  // with a real merchant token — not guessed, not from dzship's docs (which
+  // have no such endpoints at all, see the earlier investigation). Since
+  // Ecotrack tenants share one platform on their own subdomain, this is
+  // expected to work unchanged for every tenant in ECOTRACK_TENANTS; only
+  // Anderson has actually been probed live so far.
+  //
+  // GET api/v1/get/communes -> [{ nom, wilaya_id, code_postal, has_stop_desk }]
+  // GET api/v1/get/desks    -> { my_desk, other_desks } — per-desk field names
+  //   beyond name/wilaya/commune/address/phone/map-link are unconfirmed (the
+  //   live response wasn't inspected key-by-key), so parsing below checks the
+  //   common French/English candidates and keeps `raw` so nothing is lost.
+  // GET api/v1/get/fees     -> [{ wilaya_id, tarif, tarif_stopdesk }]
+  async getGeoData(): Promise<CarrierGeoData> {
+    const headers = this.buildHeaders();
+
+    const [communesRes, desksRes, feesRes] = await Promise.all([
+      fetch(`${this.domain}api/v1/get/communes`, { headers }),
+      fetch(`${this.domain}api/v1/get/desks`, { headers }),
+      fetch(`${this.domain}api/v1/get/fees`, { headers }),
+    ]);
+
+    for (const [label, res] of [["communes", communesRes], ["desks", desksRes], ["fees", feesRes]] as const) {
+      if (!res.ok) {
+        throw new Error(`Ecotrack (${this.carrier}) get/${label} failed: ${res.status} ${await res.text()}`);
+      }
+    }
+
+    const communesRaw = (await communesRes.json()) as any[];
+    const desksRaw = (await desksRes.json()) as any;
+    const feesRaw = (await feesRes.json()) as any[];
+
+    const communes: CarrierCommune[] = (Array.isArray(communesRaw) ? communesRaw : [])
+      .map((c): CarrierCommune => ({
+        name: String(c.nom ?? c.name ?? ""),
+        wilayaCode: Number(c.wilaya_id ?? c.wilayaId ?? 0),
+        postalCode: c.code_postal != null ? String(c.code_postal) : undefined,
+        hasStopDesk: c.has_stop_desk === true || c.has_stop_desk === 1 || c.has_stop_desk === "1",
+      }))
+      .filter((c) => c.name && c.wilayaCode > 0);
+
+    const parseDesk = (d: any, isOwn: boolean): CarrierDesk => ({
+      name: String(d.name ?? d.nom ?? ""),
+      wilaya: d.wilaya != null ? String(d.wilaya) : undefined,
+      commune: d.commune != null ? String(d.commune) : undefined,
+      address: d.address ?? d.adresse ?? undefined,
+      phone: d.phone ?? d.telephone ?? undefined,
+      mapLink: d.map_link ?? d.mapLink ?? d.lien ?? d.google_map ?? d.maps_link ?? undefined,
+      isOwn,
+      raw: d,
+    });
+    const myDeskList: any[] = Array.isArray(desksRaw?.my_desk)
+      ? desksRaw.my_desk
+      : desksRaw?.my_desk ? [desksRaw.my_desk] : [];
+    const otherDeskList: any[] = Array.isArray(desksRaw?.other_desks) ? desksRaw.other_desks : [];
+    const desks: CarrierDesk[] = [
+      ...myDeskList.map((d) => parseDesk(d, true)),
+      ...otherDeskList.map((d) => parseDesk(d, false)),
+    ];
+
+    const fees: CarrierFee[] = (Array.isArray(feesRaw) ? feesRaw : [])
+      .map((f): CarrierFee => ({
+        wilayaCode: Number(f.wilaya_id ?? f.wilayaId ?? 0),
+        tarif: Number(f.tarif ?? 0),
+        tarifStopdesk: f.tarif_stopdesk != null ? Number(f.tarif_stopdesk) : undefined,
+      }))
+      .filter((f) => f.wilayaCode > 0);
+
+    return { communes, desks, fees };
   }
 }

@@ -7,6 +7,7 @@ import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/c
 import { getWilayaCode, isValidCommuneForWilaya } from "../lib/carriers/wilaya-codes.js";
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 import { logOrderEvent } from "../lib/order-events.js";
+import { refreshCarrierGeoCache } from "../lib/carrier-geo-cache.js";
 
 const router = Router();
 
@@ -70,6 +71,13 @@ router.post("/connect", requireOwnerOrAdmin, async (req, res) => {
     );
 
     res.status(201).json({ id, carrier, label, status: "connected" });
+
+    // Fire-and-forget: populate the geo cache (communes/desks/fees) right
+    // away rather than waiting for tomorrow's cron. Never awaited — must not
+    // delay the connect response — and any failure here is just logged; a
+    // fresh connection with no cache yet is indistinguishable from a carrier
+    // that doesn't support this at all (both fall back to the static dataset).
+    refreshCarrierGeoCache(id).catch((err) => console.error("[Carriers] Initial geo cache fetch failed:", err));
   } catch (err) {
     console.error("[Carriers] Connect error:", err);
     res.status(500).json({ error: "internal_error" });
