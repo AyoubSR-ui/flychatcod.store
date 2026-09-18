@@ -687,6 +687,15 @@ const translations: Record<Language, Record<string, string>> = {
     "dispatchModal.select_placeholder": "Select...",
     "dispatchModal.err.choose_carrier_account": "Choose a carrier account.",
     "dispatchModal.submit_btn": "Create Parcel",
+    // ── CustomerDetail.tsx ──
+    "customerDetail.not_found": "Customer not found.",
+    "customerDetail.subtitle": "Customer profile",
+    "customerDetail.repeat_customer": "Repeat Customer",
+    "customerDetail.orders_total": "{n} orders total",
+    "customerDetail.orders_title": "Orders ({n})",
+    "customerDetail.no_orders": "No orders yet",
+    "customerDetail.conversations_title": "Conversations ({n})",
+    "customerDetail.no_conversations": "No conversations yet",
   },
   fr: {
     "nav.home": "Accueil",
@@ -1366,6 +1375,15 @@ const translations: Record<Language, Record<string, string>> = {
     "dispatchModal.select_placeholder": "Sélectionner...",
     "dispatchModal.err.choose_carrier_account": "Choisissez un compte transporteur.",
     "dispatchModal.submit_btn": "Créer le colis",
+    // ── CustomerDetail.tsx ──
+    "customerDetail.not_found": "Client introuvable.",
+    "customerDetail.subtitle": "Profil client",
+    "customerDetail.repeat_customer": "Client récurrent",
+    "customerDetail.orders_total": "{n} commandes au total",
+    "customerDetail.orders_title": "Commandes ({n})",
+    "customerDetail.no_orders": "Aucune commande pour l'instant",
+    "customerDetail.conversations_title": "Conversations ({n})",
+    "customerDetail.no_conversations": "Aucune conversation pour l'instant",
   }
 };
 

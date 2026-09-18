@@ -3,13 +3,15 @@ import { Link, useParams } from "wouter";
 import { ArrowLeft, Phone, Mail, MapPin, MessageSquare, ShoppingBag, StickyNote } from "lucide-react";
 import { useGetCustomer } from "@workspace/api-client-react";
 import { format } from "date-fns";
+import { useI18n } from "@/hooks/use-i18n";
 
 export default function CustomerDetail() {
+  const { t } = useI18n();
   const { id } = useParams<{ id: string }>();
   const { data: customer, isLoading } = useGetCustomer(id!);
 
   if (isLoading) return <AppLayout><div className="p-10 flex justify-center"><div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" /></div></AppLayout>;
-  if (!customer) return <AppLayout><div className="p-10 text-center text-muted-foreground">Customer not found.</div></AppLayout>;
+  if (!customer) return <AppLayout><div className="p-10 text-center text-muted-foreground">{t("customerDetail.not_found")}</div></AppLayout>;
 
   const statusColors: Record<string, string> = {
     confirmed: "bg-green-100 text-green-800", new: "bg-blue-100 text-blue-800",
@@ -27,10 +29,10 @@ export default function CustomerDetail() {
             </Link>
             <div>
               <h1 className="text-2xl font-display font-bold text-foreground">{customer.name}</h1>
-              <p className="text-muted-foreground text-sm">Customer profile</p>
+              <p className="text-muted-foreground text-sm">{t("customerDetail.subtitle")}</p>
             </div>
             {customer.isRepeat && (
-              <span className="ml-auto px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-200">Repeat Customer</span>
+              <span className="ml-auto px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-200">{t("customerDetail.repeat_customer")}</span>
             )}
           </div>
 
@@ -43,7 +45,7 @@ export default function CustomerDetail() {
                 </div>
                 <div>
                   <h2 className="font-bold text-foreground text-lg">{customer.name}</h2>
-                  <p className="text-sm text-muted-foreground">{customer.totalOrders} orders total</p>
+                  <p className="text-sm text-muted-foreground">{t("customerDetail.orders_total").replace("{n}", String(customer.totalOrders))}</p>
                 </div>
               </div>
               {customer.phone && (
@@ -77,11 +79,11 @@ export default function CustomerDetail() {
               <div className="bg-card border border-border rounded-2xl shadow-sm">
                 <div className="px-6 py-4 border-b border-border flex items-center gap-2">
                   <ShoppingBag className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Orders ({(customer as any).orders?.length || 0})</h3>
+                  <h3 className="font-bold text-foreground">{t("customerDetail.orders_title").replace("{n}", String((customer as any).orders?.length || 0))}</h3>
                 </div>
                 <div className="divide-y divide-border/50">
                   {!(customer as any).orders?.length ? (
-                    <p className="px-6 py-8 text-center text-muted-foreground text-sm">No orders yet</p>
+                    <p className="px-6 py-8 text-center text-muted-foreground text-sm">{t("customerDetail.no_orders")}</p>
                   ) : (customer as any).orders.map((order: any) => (
                     <div key={order.id} className="px-6 py-4 flex items-center justify-between">
                       <div>
@@ -89,7 +91,7 @@ export default function CustomerDetail() {
                         <p className="text-xs text-muted-foreground mt-0.5">DZD {order.total} · {format(new Date(order.createdAt), 'MMM dd, yyyy')}</p>
                       </div>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${statusColors[order.status] || "bg-gray-100 text-gray-800"}`}>
-                        {order.status}
+                        {t(`status.${order.status}`)}
                       </span>
                     </div>
                   ))}
@@ -99,22 +101,22 @@ export default function CustomerDetail() {
               <div className="bg-card border border-border rounded-2xl shadow-sm">
                 <div className="px-6 py-4 border-b border-border flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-primary" />
-                  <h3 className="font-bold text-foreground">Conversations ({(customer as any).conversations?.length || 0})</h3>
+                  <h3 className="font-bold text-foreground">{t("customerDetail.conversations_title").replace("{n}", String((customer as any).conversations?.length || 0))}</h3>
                 </div>
                 <div className="divide-y divide-border/50">
                   {!(customer as any).conversations?.length ? (
-                    <p className="px-6 py-8 text-center text-muted-foreground text-sm">No conversations yet</p>
+                    <p className="px-6 py-8 text-center text-muted-foreground text-sm">{t("customerDetail.no_conversations")}</p>
                   ) : (customer as any).conversations.map((conv: any) => (
                     <div key={conv.id} className="px-6 py-4 flex items-center justify-between">
                       <div>
                         <Link href={`/inbox`} className="font-semibold text-foreground hover:text-primary text-sm">
-                          {conv.lastMessage || "No messages"}
+                          {conv.lastMessage || t("inbox.no_messages")}
                         </Link>
                         <p className="text-xs text-muted-foreground mt-0.5">{format(new Date(conv.updatedAt), 'MMM dd, yyyy')}</p>
                       </div>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
                         conv.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>{conv.status}</span>
+                      }`}>{t(`status.${conv.status}`)}</span>
                     </div>
                   ))}
                 </div>
