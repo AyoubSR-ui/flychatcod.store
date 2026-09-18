@@ -1,15 +1,45 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Truck, CheckCircle2, XCircle, AlertCircle, Loader2, Plus, Trash2, Pencil, Check, X } from "lucide-react";
+import { Truck, CheckCircle2, XCircle, AlertCircle, Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw } from "lucide-react";
 import { useI18n } from "@/hooks/use-i18n";
+import { format } from "date-fns";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
 interface CredentialField { key: string; label: string; placeholder: string; secret?: boolean; }
 interface CarrierMeta { id: string; name: string; status: "live" | "not_available"; credentialFields: CredentialField[]; logo?: string; }
-interface CarrierConnection { id: string; carrier: string; label: string; status: string; created_at: string; }
+interface CarrierVerification {
+  status: "verified" | "failed" | "unverified";
+  checkedAt: string | null;
+  message: string | null;
+  failureReason: string | null;
+}
+interface CarrierConnection { id: string; carrier: string; label: string; status: string; created_at: string; verification: CarrierVerification | null; }
+
+function VerificationBadge({ verification }: { verification: CarrierVerification | null }) {
+  const { t } = useI18n();
+  if (!verification || verification.status === "unverified") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
+        <AlertCircle className="w-3 h-3" /> {t("deliveryPage.unverified_badge")}
+      </span>
+    );
+  }
+  if (verification.status === "failed") {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">
+        <XCircle className="w-3 h-3" /> {t("deliveryPage.failed_badge")}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200">
+      <CheckCircle2 className="w-3 h-3" /> {t("deliveryPage.verified_badge")}
+    </span>
+  );
+}
 
 function CarrierLogo({ logo, name, size = "w-9 h-9" }: { logo?: string; name: string; size?: string }) {
   const [failed, setFailed] = useState(false);
@@ -23,7 +53,7 @@ function CarrierLogo({ logo, name, size = "w-9 h-9" }: { logo?: string; name: st
   );
 }
 
-function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose: () => void; onSuccess: () => void }) {
+function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose: () => void; onSuccess: (verification: CarrierVerification | null) => void }) {
   const { t } = useI18n();
   const [label, setLabel] = useState("");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
@@ -41,7 +71,7 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Connection failed");
-      onSuccess(); onClose();
+      onSuccess(data.verification ?? null); onClose();
     } catch (err: any) {
       setError(err.message || t("deliveryPage.err.connect_failed"));
     } finally { setLoading(false); }
@@ -89,10 +119,11 @@ export default function Delivery() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [connectMeta, setConnectMeta] = useState<CarrierMeta | null>(null);
-  const [successMsg, setSuccessMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState<{ text: string; tone: "success" | "warning" | "error" } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["carriers"],
@@ -118,6 +149,16 @@ export default function Delivery() {
   const handleDisconnect = async (id: string) => {
     await fetch(`${API_BASE}/api/carriers/${id}`, { method: "DELETE", headers: authHeaders() });
     invalidate();
+  };
+
+  const handleVerify = async (id: string) => {
+    setVerifyingId(id);
+    try {
+      await fetch(`${API_BASE}/api/carriers/${id}/verify`, { method: "POST", headers: authHeaders() });
+      invalidate();
+    } finally {
+      setVerifyingId(null);
+    }
   };
 
   const startRename = (c: CarrierConnection) => { setRenamingId(c.id); setRenameValue(c.label); };
@@ -146,9 +187,14 @@ export default function Delivery() {
           </div>
 
           {successMsg && (
-            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl text-green-800 text-sm font-medium">
-              <CheckCircle2 className="w-4 h-4" /> {successMsg}
-              <button onClick={() => setSuccessMsg("")} className="ml-auto">✕</button>
+            <div className={`flex items-center gap-2 p-3 rounded-xl text-sm font-medium border ${
+              successMsg.tone === "error" ? "bg-red-50 border-red-200 text-red-800"
+              : successMsg.tone === "warning" ? "bg-amber-50 border-amber-200 text-amber-800"
+              : "bg-green-50 border-green-200 text-green-800"
+            }`}>
+              {successMsg.tone === "error" ? <XCircle className="w-4 h-4" /> : successMsg.tone === "warning" ? <AlertCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+              {successMsg.text}
+              <button onClick={() => setSuccessMsg(null)} className="ml-auto">✕</button>
             </div>
           )}
 
@@ -183,10 +229,21 @@ export default function Delivery() {
                           <div className="font-semibold text-foreground text-sm">{c.label}</div>
                         )}
                         {renamingId !== c.id && (
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700 border border-green-200"><CheckCircle2 className="w-3 h-3" /> {t("deliveryPage.connected_badge")}</span>
-                            <button onClick={() => startRename(c)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors" title={t("deliveryPage.rename")}><Pencil className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => handleDisconnect(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title={t("deliveryPage.disconnect")}><Trash2 className="w-4 h-4" /></button>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <div className="flex items-center gap-2">
+                              <VerificationBadge verification={c.verification} />
+                              <button onClick={() => handleVerify(c.id)} disabled={verifyingId === c.id} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors disabled:opacity-50" title={t("deliveryPage.reverify")}>
+                                {verifyingId === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                              </button>
+                              <button onClick={() => startRename(c)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors" title={t("deliveryPage.rename")}><Pencil className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => handleDisconnect(c.id)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title={t("deliveryPage.disconnect")}><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground max-w-[280px] text-right">
+                              {c.verification?.checkedAt
+                                ? t("deliveryPage.checked_at").replace("{date}", format(new Date(c.verification.checkedAt), "MMM dd, HH:mm"))
+                                : t("deliveryPage.never_checked")}
+                              {c.verification?.status !== "verified" && c.verification?.message ? ` — ${c.verification.message}` : ""}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -236,7 +293,17 @@ export default function Delivery() {
         <ConnectModal
           meta={connectMeta}
           onClose={() => setConnectMeta(null)}
-          onSuccess={() => { setSuccessMsg(t("deliveryPage.connected_success").replace("{name}", connectMeta.name)); invalidate(); }}
+          onSuccess={(verification) => {
+            const name = connectMeta.name;
+            if (verification?.status === "verified") {
+              setSuccessMsg({ text: t("deliveryPage.connected_verified_success").replace("{name}", name), tone: "success" });
+            } else if (verification?.status === "failed") {
+              setSuccessMsg({ text: t("deliveryPage.connected_failed_warning").replace("{name}", name), tone: "error" });
+            } else {
+              setSuccessMsg({ text: t("deliveryPage.connected_unverified_note").replace("{name}", name), tone: "warning" });
+            }
+            invalidate();
+          }}
         />
       )}
     </AppLayout>

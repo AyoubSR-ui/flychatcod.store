@@ -233,5 +233,36 @@ export async function ensureCarrierTables(): Promise<void> {
     )
   `);
 
+  // One read-only credential-verification probe result per connection (see
+  // lib/carrier-verification.ts) — latest attempt only, replaced wholesale on
+  // every (re-)run, same shape of decision as the geo cache above. Never
+  // holds the token or an auth header — see CarrierVerificationResult's own
+  // contract in carriers/types.ts. failure_reason is plain TEXT rather than
+  // an enum: the known reasons cover today's single live probe (Ecotrack),
+  // but a future adapter's probe may need a category this doesn't have yet,
+  // and that shouldn't require a migration to add.
+  await pool.query(`
+    DO $$ BEGIN
+      CREATE TYPE carrier_verification_status AS ENUM ('verified', 'failed', 'unverified');
+    EXCEPTION WHEN duplicate_object THEN null;
+    END $$;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS carrier_connection_verifications (
+      carrier_connection_id TEXT PRIMARY KEY,
+      carrier TEXT NOT NULL,
+      status carrier_verification_status NOT NULL,
+      checked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      probe_path TEXT,
+      http_status INTEGER,
+      carrier_error_code TEXT,
+      message TEXT,
+      failure_reason TEXT,
+      latency_ms INTEGER,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
   carrierTablesReady = true;
 }
