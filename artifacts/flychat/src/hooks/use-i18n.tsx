@@ -680,6 +680,13 @@ const translations: Record<Language, Record<string, string>> = {
     "inbox.order_hash": "Order #{n}",
     "inbox.placeholder_address": "Street, commune...",
     "inbox.placeholder_internal_note": "Internal note...",
+    // ── DispatchModal.tsx ──
+    "dispatchModal.subtitle": "Choose a connected carrier",
+    "dispatchModal.no_carrier_connected": "No carrier account connected. Go to the Delivery page to connect one.",
+    "dispatchModal.carrier_account_label": "Carrier Account",
+    "dispatchModal.select_placeholder": "Select...",
+    "dispatchModal.err.choose_carrier_account": "Choose a carrier account.",
+    "dispatchModal.submit_btn": "Create Parcel",
   },
   fr: {
     "nav.home": "Accueil",
@@ -1352,6 +1359,13 @@ const translations: Record<Language, Record<string, string>> = {
     "inbox.order_hash": "Commande #{n}",
     "inbox.placeholder_address": "Rue, commune...",
     "inbox.placeholder_internal_note": "Note interne...",
+    // ── DispatchModal.tsx ──
+    "dispatchModal.subtitle": "Choisir un transporteur connecté",
+    "dispatchModal.no_carrier_connected": "Aucun compte transporteur connecté. Rendez-vous sur la page Livraison pour en connecter un.",
+    "dispatchModal.carrier_account_label": "Compte transporteur",
+    "dispatchModal.select_placeholder": "Sélectionner...",
+    "dispatchModal.err.choose_carrier_account": "Choisissez un compte transporteur.",
+    "dispatchModal.submit_btn": "Créer le colis",
   }
 };
 
