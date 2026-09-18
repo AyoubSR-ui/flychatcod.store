@@ -88,39 +88,39 @@ export default function Organization() {
       <div className="flex-1 overflow-y-auto bg-background p-6 lg:p-10">
         <div className="max-w-4xl mx-auto space-y-6">
           <div>
-            <h1 className="text-3xl font-display font-bold text-foreground">Organization</h1>
-            <p className="text-muted-foreground mt-1">Manage your organization, stores and subscription.</p>
+            <h1 className="text-3xl font-display font-bold text-foreground">{t("organization.title")}</h1>
+            <p className="text-muted-foreground mt-1">{t("organization.subtitle")}</p>
           </div>
 
           {/* Organization info */}
           <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-5 pb-4 border-b border-border">
               <Building2 className="w-5 h-5 text-primary" />
-              <h2 className="text-lg font-bold text-foreground">Organization Details</h2>
+              <h2 className="text-lg font-bold text-foreground">{t("organization.details_title")}</h2>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Organization Name</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("organization.name_label")}</label>
                 <div className="flex gap-3">
                   <input
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
                     className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background"
-                    placeholder="Your Business Name"
+                    placeholder={t("organization.name_placeholder")}
                   />
                   <button onClick={handleSaveName} disabled={saving}
                     className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all ${saved ? "bg-green-500 text-white" : "bg-primary text-white hover:bg-primary/90"} disabled:opacity-50`}>
-                    {saved ? "✓ Saved" : saving ? "Saving..." : "Save"}
+                    {saved ? t("organization.saved_check") : saving ? t("common.saving") : t("common.save_short")}
                   </button>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-secondary/50 rounded-xl p-4">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Organization ID</p>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{t("organization.org_id_label")}</p>
                   <p className="text-sm font-mono text-foreground truncate">{org?.id || "—"}</p>
                 </div>
                 <div className="bg-secondary/50 rounded-xl p-4">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Owner</p>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{t("organization.owner_label")}</p>
                   <p className="text-sm text-foreground">{user?.name} ({user?.email})</p>
                 </div>
               </div>
@@ -132,10 +132,10 @@ export default function Organization() {
             <div className="flex items-center justify-between mb-5 pb-4 border-b border-border">
               <div className="flex items-center gap-3">
                 <CreditCard className="w-5 h-5 text-primary" />
-                <h2 className="text-lg font-bold text-foreground">Subscription</h2>
+                <h2 className="text-lg font-bold text-foreground">{t("organization.subscription_title")}</h2>
               </div>
               <a href="/billing" className="flex items-center gap-1.5 text-sm text-primary font-bold hover:underline">
-                Manage <ArrowUpRight className="w-4 h-4" />
+                {t("organization.manage_link")} <ArrowUpRight className="w-4 h-4" />
               </a>
             </div>
             <div className="flex items-center gap-4">
@@ -143,24 +143,24 @@ export default function Organization() {
                 <CreditCard className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="font-bold text-foreground capitalize text-lg">{plan} Plan</p>
+                <p className="font-bold text-foreground capitalize text-lg">{plan} {t("organization.plan_suffix")}</p>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${getSubscriptionStatusBadge(sub?.status).className}`}>
                     {t(getSubscriptionStatusBadge(sub?.status).labelKey)}
                   </span>
                   {sub?.cancelAtPeriodEnd && sub.status !== "cancelled" && (
                     <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                      Cancels at period end
+                      {t("billing.cancels_at_period_end")}
                     </span>
                   )}
                   <span className="text-xs text-muted-foreground">
-                    Up to {storeLimit === 5 ? "5 stores" : "1 store"} · {plan === "agency" ? "30,000" : plan === "pro" ? "10,000" : plan === "starter" ? "2,000" : "50"} AI messages/mo
+                    {t("organization.up_to_stores").replace("{n}", storeLimit === 5 ? "5" : "1")} · {t("organization.ai_messages_per_month").replace("{n}", plan === "agency" ? "30,000" : plan === "pro" ? "10,000" : plan === "starter" ? "2,000" : "50")}
                   </span>
                 </div>
               </div>
               {plan !== "agency" && (
                 <a href="/billing" className="ml-auto px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors">
-                  Upgrade
+                  {t("billing.upgrade")}
                 </a>
               )}
             </div>
@@ -171,20 +171,20 @@ export default function Organization() {
             <div className="flex items-center justify-between mb-5 pb-4 border-b border-border">
               <div className="flex items-center gap-3">
                 <Store className="w-5 h-5 text-primary" />
-                <h2 className="text-lg font-bold text-foreground">Stores</h2>
+                <h2 className="text-lg font-bold text-foreground">{t("organization.stores_title")}</h2>
                 <span className="text-sm text-muted-foreground">
                   <span className={`font-bold ${currentStores >= storeLimit ? "text-red-600" : "text-foreground"}`}>{currentStores}</span>/{storeLimit === 5 ? "5" : "1"}
                 </span>
               </div>
               {canAddStore && (
                 <button className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors">
-                  <Plus className="w-4 h-4" /> Add Store
+                  <Plus className="w-4 h-4" /> {t("organization.add_store")}
                 </button>
               )}
               {!canAddStore && plan !== "agency" && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>Multiple stores available on</span>
-                  <a href="/billing" className="text-primary font-bold hover:underline">Agency plan</a>
+                  <span>{t("organization.multiple_stores_available")}</span>
+                  <a href="/billing" className="text-primary font-bold hover:underline">{t("organization.agency_plan_link")}</a>
                 </div>
               )}
             </div>
@@ -203,22 +203,22 @@ export default function Organization() {
                     <div className="flex items-center gap-2">
                       <p className="font-bold text-foreground">{store.name}</p>
                       {store.id === user?.storeId && (
-                        <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">Current</span>
+                        <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold rounded-full">{t("billing.current_badge")}</span>
                       )}
                       {!store.isActive && (
-                        <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">Inactive</span>
+                        <span className="px-2 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">{t("organization.inactive_badge")}</span>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {store.description || "No description"} · Created {new Date(store.createdAt).toLocaleDateString()}
+                      {store.description || t("organization.no_description")} · {t("organization.created_prefix")} {new Date(store.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {store.isActive && <span className="w-2 h-2 rounded-full bg-green-500" />}
                     {store.id === user?.storeId ? (
-                      <a href="/settings" className="text-xs text-primary font-bold hover:underline">Settings</a>
+                      <a href="/settings" className="text-xs text-primary font-bold hover:underline">{t("nav.settings")}</a>
                     ) : (
-                      <button className="text-xs text-muted-foreground hover:text-primary font-medium">Switch</button>
+                      <button className="text-xs text-muted-foreground hover:text-primary font-medium">{t("organization.switch_btn")}</button>
                     )}
                   </div>
                 </div>
@@ -228,10 +228,10 @@ export default function Organization() {
             {plan !== "agency" && (
               <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                 <p className="text-sm text-amber-800">
-                  <span className="font-bold">Need multiple stores?</span> Upgrade to the Agency plan to manage up to 5 stores under one organization and subscription.
+                  <span className="font-bold">{t("organization.need_multiple_stores")}</span> {t("organization.upgrade_agency_desc")}
                 </p>
                 <a href="/billing" className="inline-flex items-center gap-1.5 mt-2 text-xs font-bold text-amber-700 hover:text-amber-900">
-                  View Agency Plan <ArrowUpRight className="w-3.5 h-3.5" />
+                  {t("organization.view_agency_plan")} <ArrowUpRight className="w-3.5 h-3.5" />
                 </a>
               </div>
             )}
