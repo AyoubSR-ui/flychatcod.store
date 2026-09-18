@@ -6,15 +6,15 @@ import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 
 const ROLE_CONFIG = {
-  owner: { label: "Owner", color: "bg-violet-100 text-violet-800 border-violet-200", icon: Crown },
-  admin: { label: "Admin", color: "bg-blue-100 text-blue-800 border-blue-200", icon: Shield },
-  agent: { label: "Agent", color: "bg-teal-100 text-teal-800 border-teal-200", icon: Headphones },
+  owner: { labelKey: "team.role.owner", color: "bg-violet-100 text-violet-800 border-violet-200", icon: Crown },
+  admin: { labelKey: "team.role.admin", color: "bg-blue-100 text-blue-800 border-blue-200", icon: Shield },
+  agent: { labelKey: "team.role.agent", color: "bg-teal-100 text-teal-800 border-teal-200", icon: Headphones },
 };
 
 const STATUS_CONFIG = {
-  active: { label: "Active", color: "bg-green-100 text-green-800" },
-  invited: { label: "Invited", color: "bg-yellow-100 text-yellow-800" },
-  inactive: { label: "Inactive", color: "bg-gray-100 text-gray-600" },
+  active: { labelKey: "team.status.active", color: "bg-green-100 text-green-800" },
+  invited: { labelKey: "team.status.invited", color: "bg-yellow-100 text-yellow-800" },
+  inactive: { labelKey: "team.status.inactive", color: "bg-gray-100 text-gray-600" },
 };
 
 export default function Team() {
@@ -101,13 +101,13 @@ export default function Team() {
   {memberLimit !== -1 && (
     <span className="text-sm text-muted-foreground">
       <span className={`font-bold ${atLimit ? "text-red-600" : "text-foreground"}`}>{memberCount}</span>
-      /{memberLimit} members
+      {t("team.members_slash_limit").replace("{limit}", String(memberLimit))}
     </span>
   )}
   <button
     onClick={() => atLimit ? null : setShowModal(true)}
      disabled={atLimit}
-      title={atLimit ? `Upgrade your plan to add more than ${memberLimit} members` : undefined}
+      title={atLimit ? t("team.upgrade_tooltip").replace("{limit}", String(memberLimit)) : undefined}
        className={`px-5 py-2.5 rounded-xl font-bold shadow-sm flex items-center gap-2 transition-all ${
         atLimit
         ? "bg-secondary text-muted-foreground cursor-not-allowed opacity-60"
@@ -129,13 +129,13 @@ export default function Team() {
           {atLimit && (
   <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
     <div>
-      <p className="text-sm font-bold text-amber-800">Team member limit reached</p>
+      <p className="text-sm font-bold text-amber-800">{t("team.limit_reached_title")}</p>
       <p className="text-xs text-amber-700 mt-0.5">
-        Your <span className="font-bold capitalize">{plan}</span> plan allows up to {memberLimit} member{memberLimit === 1 ? "" : "s"}.
+        {t("team.limit_reached_desc_pre")}<span className="font-bold capitalize">{plan}</span>{t("team.limit_reached_desc_post").replace("{limit}", String(memberLimit))}
       </p>
     </div>
     <a href="/billing" className="px-4 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold hover:bg-amber-700 transition-colors whitespace-nowrap">
-      Upgrade Plan
+      {t("team.upgrade_plan_btn")}
     </a>
       </div>
         )}
@@ -162,9 +162,9 @@ export default function Team() {
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-foreground">{member.name || "—"}</p>
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border ${roleConfig.color}`}>
-                          <RoleIcon className="w-3 h-3" /> {roleConfig.label}
+                          <RoleIcon className="w-3 h-3" /> {t(roleConfig.labelKey)}
                         </span>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${statusConfig.color}`}>{statusConfig.label}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${statusConfig.color}`}>{t(statusConfig.labelKey)}</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-0.5">{member.email}</p>
                     </div>
@@ -173,7 +173,7 @@ export default function Team() {
                       {member.status === "invited" && (
                         <button onClick={() => handleResendInvite(member.id)} disabled={resendingId === member.id}
                           className="p-2 hover:bg-blue-50 hover:text-blue-600 rounded-lg text-muted-foreground transition-colors disabled:opacity-50"
-                          title="Resend invitation">
+                          title={t("team.resend_invitation_title")}>
                           <RotateCw className={`w-4 h-4 ${resendingId === member.id ? "animate-spin" : ""}`} />
                         </button>
                       )}
@@ -195,20 +195,20 @@ export default function Team() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6 border-b border-border flex items-center justify-between">
-              <h3 className="text-lg font-bold">Invite Team Member</h3>
+              <h3 className="text-lg font-bold">{t("team.modal.title")}</h3>
               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-secondary rounded-lg">✕</button>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Email Address *</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("team.modal.email_label")}</label>
                 <input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="colleague@example.com"
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background" />
               </div>
               <div>
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">Role</label>
+                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">{t("team.modal.role_label")}</label>
                 <select value={form.role} onChange={e => setForm({...form, role: e.target.value as "agent" | "admin"})} className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 outline-none bg-background">
-                  <option value="agent">Agent — Can manage conversations and orders</option>
-                  <option value="admin">Admin — Can manage everything except billing</option>
+                  <option value="agent">{t("team.modal.role_agent")}</option>
+                  <option value="admin">{t("team.modal.role_admin")}</option>
                 </select>
               </div>
             </div>
