@@ -207,5 +207,31 @@ export async function ensureCarrierTables(): Promise<void> {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS shipments_order_id_idx ON shipments (order_id)`);
 
+  // Per-connection cache of communes (+ stop-desk flag), desks, and fees
+  // fetched straight from the carrier's own API — see lib/carrier-geo-cache.ts.
+  // One row per connection, replaced wholesale on every successful refresh.
+  // No FK to carrier_connections (this schema declares none anywhere — see
+  // wipe-store-orders.cjs) so a deleted connection just leaves an orphaned
+  // cache row rather than failing; harmless, and cleaned up incidentally the
+  // next time this table is queried for a connection that no longer exists.
+  // fetched_at is only set on a successful fetch; last_attempted_at/last_error
+  // track the most recent attempt (success or not) so a stale cache from a
+  // currently-failing carrier is still visible and still served — never wiped
+  // by a failed refresh.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS carrier_connection_geo_cache (
+      carrier_connection_id TEXT PRIMARY KEY,
+      carrier TEXT NOT NULL,
+      communes JSONB NOT NULL DEFAULT '[]',
+      desks JSONB NOT NULL DEFAULT '[]',
+      fees JSONB NOT NULL DEFAULT '[]',
+      fetched_at TIMESTAMP,
+      last_attempted_at TIMESTAMP,
+      last_error TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
   carrierTablesReady = true;
 }

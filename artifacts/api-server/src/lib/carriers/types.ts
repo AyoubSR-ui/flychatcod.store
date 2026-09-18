@@ -44,11 +44,58 @@ export interface CancelShipmentResult {
   raw: Record<string, unknown>;
 }
 
+// ─── Optional geo capability ────────────────────────────────────────────────────
+// Communes (with stop-desk availability), desk locations, and per-wilaya fees,
+// straight from the carrier's own API. Optional because most adapters don't
+// expose this yet — only Ecotrack does, verified live (see ecotrack.ts).
+// Callers must feature-detect (`if (adapter.getGeoData)`) rather than assume
+// every adapter has it; the other adapters simply omit the method.
+
+export interface CarrierCommune {
+  name: string;
+  wilayaCode: number;
+  postalCode?: string;
+  hasStopDesk: boolean;
+}
+
+export interface CarrierDesk {
+  id?: string;
+  name: string;
+  wilaya?: string;
+  commune?: string;
+  address?: string;
+  phone?: string;
+  phone2?: string;
+  email?: string;
+  mapLink?: string;
+  workingHours?: unknown[];
+  // true for the merchant's own desk (Ecotrack's `my_desk`), false for a
+  // network desk (`other_desks`) — origin vs. destination-side desks aren't
+  // interchangeable for stop-desk delivery.
+  isOwn: boolean;
+  // The original response object for this desk, kept alongside the typed
+  // fields above in case a consumer needs something not modeled here.
+  raw: Record<string, unknown>;
+}
+
+export interface CarrierFee {
+  wilayaCode: number;
+  tarif: number;
+  tarifStopdesk?: number;
+}
+
+export interface CarrierGeoData {
+  communes: CarrierCommune[];
+  desks: CarrierDesk[];
+  fees: CarrierFee[];
+}
+
 export interface CarrierAdapter {
   readonly carrier: string;
   createShipment(params: CreateShipmentParams): Promise<ShipmentResult>;
   getStatus(trackingNumber: string): Promise<ShipmentStatusResult>;
   cancelShipment(trackingNumber: string): Promise<CancelShipmentResult>;
+  getGeoData?(): Promise<CarrierGeoData>;
 }
 
 // Credential field describing what the generic Connect form should render for

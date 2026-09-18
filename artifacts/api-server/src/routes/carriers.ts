@@ -7,6 +7,9 @@ import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/c
 import { getWilayaCode, isValidCommuneForWilaya } from "../lib/carriers/wilaya-codes.js";
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 import { logOrderEvent } from "../lib/order-events.js";
+import { refreshCarrierGeoCache } from "../lib/carrier-geo-cache.js";
+import { ALGERIA_WILAYAS } from "../lib/carriers/algeria-communes-data.js";
+import { normalizeGeoKey } from "@workspace/db";
 
 const router = Router();
 
@@ -35,6 +38,95 @@ router.get("/", requireAuth, async (req, res) => {
     res.json({ registry: CARRIER_REGISTRY, connections: rows });
   } catch (err) {
     console.error("[Carriers] List error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// Static-dataset shape, wrapped to match the carrier-sourced response below —
+// hasStopDesk is always false and carriers always [] here since the static
+// list has never carried stop-desk information (see algeria-communes.json);
+// this is "the same dataset GET /geo/wilayas already serves," not a claim.
+function staticCommunesResponse() {
+  return ALGERIA_WILAYAS.map((w) => ({
+    code: w.code,
+    name: w.name,
+    communes: w.communes.map((name) => ({ name, hasStopDesk: false, carriers: [] as string[] })),
+  }));
+}
+
+// ─── GET /api/carriers/communes — union of connected carriers' communes ───────
+// Per-store: union of every connected carrier's cached commune list (see
+// carrier-geo-cache.ts), tagged with which carrier(s) reported each commune
+// and true if ANY of them reports stop-desk availability there. Falls back to
+// the static dataset, unchanged, whenever there's nothing carrier-sourced to
+// show yet (no connections, or connections that haven't synced successfully
+// even once) — this must never return an empty list.
+//
+// This does not replace dispatch-time validation: a commune appearing here as
+// desk-capable only means at least one connected carrier reports it that
+// way, not necessarily the specific carrier an agent goes on to pick at
+// dispatch. That check stays carrier-specific, at dispatch (unchanged by this
+// endpoint — see dispatchOrderToCarrier below).
+router.get("/communes", requireAuth, async (req, res) => {
+  try {
+    await ensureCarrierTables();
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.json({ source: "static", wilayas: staticCommunesResponse() }); return; }
+
+    const { rows: cacheRows } = await pool.query(
+      `SELECT cc.carrier, g.communes
+       FROM carrier_connections cc
+       JOIN carrier_connection_geo_cache g ON g.carrier_connection_id = cc.id
+       WHERE cc.store_id = $1 AND cc.status = 'connected' AND jsonb_array_length(g.communes) > 0`,
+      [storeId]
+    );
+
+    if (cacheRows.length === 0) {
+      res.json({ source: "static", wilayas: staticCommunesResponse() });
+      return;
+    }
+
+    // Merge key: wilaya code + accent/case/hyphen-insensitive commune name
+    // (normalizeGeoKey — same normalization used everywhere else this
+    // dataset is matched, see wilaya-codes.ts) so two carriers spelling the
+    // same commune slightly differently still merge into one entry rather
+    // than showing up twice.
+    const merged = new Map<string, { wilayaCode: number; name: string; hasStopDesk: boolean; carriers: Set<string> }>();
+    for (const row of cacheRows) {
+      const communes = Array.isArray(row.communes) ? row.communes : [];
+      for (const c of communes) {
+        if (!c?.name || !c?.wilayaCode) continue;
+        const key = `${c.wilayaCode}::${normalizeGeoKey(c.name)}`;
+        const existing = merged.get(key);
+        if (existing) {
+          existing.hasStopDesk = existing.hasStopDesk || !!c.hasStopDesk;
+          existing.carriers.add(row.carrier);
+        } else {
+          merged.set(key, { wilayaCode: c.wilayaCode, name: c.name, hasStopDesk: !!c.hasStopDesk, carriers: new Set([row.carrier]) });
+        }
+      }
+    }
+
+    const byWilaya = new Map<number, { name: string; hasStopDesk: boolean; carriers: string[] }[]>();
+    for (const entry of merged.values()) {
+      if (!byWilaya.has(entry.wilayaCode)) byWilaya.set(entry.wilayaCode, []);
+      byWilaya.get(entry.wilayaCode)!.push({ name: entry.name, hasStopDesk: entry.hasStopDesk, carriers: Array.from(entry.carriers) });
+    }
+
+    let wilayas = Array.from(byWilaya.entries())
+      .map(([code, communes]) => ({
+        code,
+        name: ALGERIA_WILAYAS.find((w) => w.code === code)?.name ?? String(code),
+        communes: communes.sort((a, b) => a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => a.code - b.code);
+
+    const wilayaFilter = req.query.wilaya != null ? Number(req.query.wilaya) : null;
+    if (wilayaFilter) wilayas = wilayas.filter((w) => w.code === wilayaFilter);
+
+    res.json({ source: "carriers", wilayas });
+  } catch (err) {
+    console.error("[Carriers] Communes error:", err);
     res.status(500).json({ error: "internal_error" });
   }
 });
@@ -70,6 +162,13 @@ router.post("/connect", requireOwnerOrAdmin, async (req, res) => {
     );
 
     res.status(201).json({ id, carrier, label, status: "connected" });
+
+    // Fire-and-forget: populate the geo cache (communes/desks/fees) right
+    // away rather than waiting for tomorrow's cron. Never awaited — must not
+    // delay the connect response — and any failure here is just logged; a
+    // fresh connection with no cache yet is indistinguishable from a carrier
+    // that doesn't support this at all (both fall back to the static dataset).
+    refreshCarrierGeoCache(id).catch((err) => console.error("[Carriers] Initial geo cache fetch failed:", err));
   } catch (err) {
     console.error("[Carriers] Connect error:", err);
     res.status(500).json({ error: "internal_error" });
