@@ -12,6 +12,7 @@ import { useCreateOrder, useGetProducts, useGetTeamMembers, useGetWilayas, getGe
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions } from "@/hooks/use-carrier-communes";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -90,11 +91,18 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
   const createMutation = useCreateOrder();
   const { data: wilayasData } = useGetWilayas();
   const wilayas = wilayasData?.wilayas || [];
+  const { data: communesData } = useCarrierCommunes();
   const [form, setForm] = useState({ customerName: "", customerPhone: "", customerEmail: "", wilaya: "", commune: "", address: "", sellerNote: "" });
   const [items, setItems] = useState<OrderItem[]>([defaultItem()]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const communesForWilaya = wilayas.find(w => w.name === form.wilaya)?.communes || [];
+  // No delivery-type choice exists in this modal (home vs. stop desk is set
+  // later, in OrderDetail) — show every commune, annotated, same as "home"
+  // would: an agent picking stop-desk afterward still sees which communes
+  // support it in advance instead of finding out only at dispatch time.
+  const allCommunesForWilaya = getCommunesForWilaya(communesData, form.wilaya);
+  const isStaticCommuneSource = communesData?.source === "static";
+  const communesForWilaya = getCommuneDropdownOptions(allCommunesForWilaya, "home", isStaticCommuneSource, t("common.stop_desk_suffix"));
 
   const updateItem = (idx: number, field: keyof OrderItem, value: string | number) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
@@ -166,7 +174,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
                   className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white disabled:opacity-50 disabled:cursor-not-allowed ${errors.commune ? "border-red-400" : "border-border"}`}
                 >
                   <option value="">{form.wilaya ? t("orders.modal.select_commune") : t("orders.modal.select_wilaya_first")}</option>
-                  {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
+                  {communesForWilaya.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
                 {errors.commune && <p className="text-red-500 text-xs mt-1">{errors.commune}</p>}
               </div>

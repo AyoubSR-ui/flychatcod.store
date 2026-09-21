@@ -17,6 +17,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
 import { io, Socket } from "socket.io-client";
 
 // Internal fallback strings the backend writes when Vision analysis produces
@@ -161,6 +162,7 @@ interface OrderDraft {
   customerPhone: string;
   customerEmail: string;
   wilaya: string;
+  commune: string;
   address: string;
   sellerNote: string;
   items: DraftLineItem[];
@@ -277,9 +279,13 @@ function FilePreview({ attachment, isAgent }: { attachment: FileAttachment; isAg
   );
 }
 
-function DraftField({ label, value, onChange, error, placeholder, as }: {
+function DraftField({ label, value, onChange, error, placeholder, as, options }: {
   label: string; value: string; onChange: (v: string) => void;
-  error?: string; placeholder?: string; as?: "textarea" | "select-wilaya";
+  error?: string; placeholder?: string; as?: "textarea" | "select-wilaya" | "select-commune";
+  // Only used for as="select-commune" — commune options are dynamic (depend
+  // on wilaya + delivery type + carrier data), unlike select-wilaya's static
+  // WILAYAS list, so they're passed in rather than hardcoded here.
+  options?: { value: string; label: string }[];
 }) {
   const base = `w-full px-2.5 py-1.5 rounded-lg border text-xs outline-none focus:ring-2 focus:ring-primary/20 ${error ? "border-red-400" : "border-border"}`;
   if (as === "textarea") return (
@@ -295,6 +301,16 @@ function DraftField({ label, value, onChange, error, placeholder, as }: {
       <select value={value} onChange={e => onChange(e.target.value)} className={`${base} bg-white`}>
         <option value="">{placeholder || "—"}</option>
         {WILAYAS.map(w => <option key={w} value={w}>{w}</option>)}
+      </select>
+      {error && <p className="text-red-500 text-[10px] mt-0.5">{error}</p>}
+    </div>
+  );
+  if (as === "select-commune") return (
+    <div>
+      <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} disabled={!options?.length} className={`${base} bg-white disabled:opacity-50 disabled:cursor-not-allowed`}>
+        <option value="">{placeholder || "—"}</option>
+        {(options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       {error && <p className="text-red-500 text-[10px] mt-0.5">{error}</p>}
     </div>
@@ -318,6 +334,7 @@ export default function Inbox() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
+  const { data: communesData } = useCarrierCommunes();
 
   const [rightPanel, setRightPanel] = useState<"customer" | "draft">("customer");
   const [orderDraft, setOrderDraft] = useState<OrderDraft | null>(null);
@@ -507,6 +524,7 @@ export default function Inbox() {
       customerPhone: activeConv?.customerPhone || "",
       customerEmail: customerData?.email || "",
       wilaya: customerData?.wilaya || "",
+      commune: "",
       address: "",
       sellerNote: customerData?.notes || "",
       items: [],
@@ -631,6 +649,7 @@ export default function Inbox() {
     if (!orderDraft.customerName.trim()) errs.customerName = t("order.required");
     if (!orderDraft.customerPhone.trim()) errs.customerPhone = t("order.required");
     if (!orderDraft.wilaya.trim()) errs.wilaya = t("order.required");
+    if (getCommunesForWilaya(communesData, orderDraft.wilaya).length > 0 && !orderDraft.commune.trim()) errs.commune = t("order.required");
     if (orderDraft.items.length === 0) errs.items = t("order.items_required");
     orderDraft.items.forEach((item, idx) => {
       if (!item.productName.trim()) errs[`item_${idx}`] = t("order.required");
@@ -644,6 +663,7 @@ export default function Inbox() {
         customerPhone: orderDraft.customerPhone,
         customerEmail: orderDraft.customerEmail || undefined,
         wilaya: orderDraft.wilaya,
+        commune: orderDraft.commune || undefined,
         address: orderDraft.address || undefined,
         sellerNote: orderDraft.sellerNote || undefined,
         conversationId: activeConvId,
@@ -670,7 +690,7 @@ export default function Inbox() {
         alert(msg);
       },
     });
-  }, [orderDraft, activeConvId, createOrderMutation, queryClient, t]);
+  }, [orderDraft, activeConvId, createOrderMutation, queryClient, t, communesData]);
 
   const handleSend = async () => {
     if ((!msgInput.trim() && !selectedFile) || !activeConvId) return;
@@ -692,6 +712,11 @@ export default function Inbox() {
     });
     setMsgInput(""); setSelectedFile(null);
   };
+
+  const isStaticCommuneSource = communesData?.source === "static";
+  const communesForDraftWilaya = orderDraft ? getCommunesForWilaya(communesData, orderDraft.wilaya) : [];
+  const draftDeliveryType = orderDraft?.shippingOption === "stopdesk" ? "stopdesk" : "home";
+  const draftCommuneOptions = getCommuneDropdownOptions(communesForDraftWilaya, draftDeliveryType, isStaticCommuneSource, t("common.stop_desk_suffix"));
 
   const fieldOptions: { field: TextDraftField; label: string }[] = [
     { field: "customerName", label: t("order.use_as_name") },
@@ -1245,13 +1270,23 @@ export default function Inbox() {
                           <DraftField label={t("order.name")} value={orderDraft.customerName} onChange={v => updateDraftField("customerName", v)} error={draftErrors.customerName} placeholder="Ahmed Benali" />
                           <DraftField label={t("order.phone")} value={orderDraft.customerPhone} onChange={v => updateDraftField("customerPhone", v)} error={draftErrors.customerPhone} placeholder="0550 123 456" />
                           <DraftField label={t("order.email")} value={orderDraft.customerEmail} onChange={v => updateDraftField("customerEmail", v)} placeholder="email@..." />
-                          <DraftField label={t("order.wilaya")} value={orderDraft.wilaya} onChange={v => updateDraftField("wilaya", v)} error={draftErrors.wilaya} as="select-wilaya" />
+                          <DraftField label={t("order.wilaya")} value={orderDraft.wilaya} onChange={v => setOrderDraft(prev => prev ? { ...prev, wilaya: v, commune: "" } : prev)} error={draftErrors.wilaya} as="select-wilaya" />
+                          <DraftField label={t("orderDetail.commune")} value={orderDraft.commune} onChange={v => updateDraftField("commune", v)} error={draftErrors.commune} as="select-commune" options={draftCommuneOptions} placeholder={t("orders.modal.select_commune")} />
                           <div>
                             <label className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t("orderDetail.delivery_type")}</label>
                             <div className="flex rounded-lg overflow-hidden border border-border text-xs font-bold">
                               {(["home_delivery", "stopdesk"] as const).map(opt => (
                                 <button key={opt}
-                                  onClick={() => setOrderDraft(prev => prev ? { ...prev, shippingOption: opt } : prev)}
+                                  onClick={() => setOrderDraft(prev => {
+                                    if (!prev) return prev;
+                                    // Switching Home → Stop Desk clears the commune if this
+                                    // wilaya's carrier data says it has no stop-desk service
+                                    // there — static-source data can't tell us either way, so
+                                    // it never clears (matches OrderDetail/Orders.tsx).
+                                    const shouldClear = opt === "stopdesk" && !isStaticCommuneSource
+                                      && !!prev.commune && !communeHasStopDesk(getCommunesForWilaya(communesData, prev.wilaya), prev.commune);
+                                    return { ...prev, shippingOption: opt, ...(shouldClear ? { commune: "" } : {}) };
+                                  })}
                                   className={`flex-1 py-1.5 transition-colors ${orderDraft.shippingOption === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
                                 >
                                   {opt === "home_delivery" ? t("orderDetail.home") : t("inbox.stopdesk_option")}

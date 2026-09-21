@@ -150,6 +150,7 @@ const translations: Record<Language, Record<string, string>> = {
     "common.edit": "Edit",
     "common.saving": "Saving...",
     "common.save_short": "Save",
+    "common.stop_desk_suffix": "(Stop Desk)",
     // ── Orders.tsx ──
     "orders.subtitle": "Manage and confirm your Cash on Delivery orders.",
     "orders.kpi.total": "Total Orders",
@@ -928,6 +929,7 @@ const translations: Record<Language, Record<string, string>> = {
     "common.edit": "Modifier",
     "common.saving": "Enregistrement...",
     "common.save_short": "Enregistrer",
+    "common.stop_desk_suffix": "(Stop Desk)",
     // ── Orders.tsx ──
     "orders.subtitle": "Gérez et confirmez vos commandes en paiement à la livraison.",
     "orders.kpi.total": "Total commandes",

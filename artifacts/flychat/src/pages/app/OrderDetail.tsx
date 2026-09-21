@@ -9,6 +9,7 @@ import { useGetOrder, useUpdateOrder, useGetWilayas } from "@workspace/api-clien
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -130,8 +131,9 @@ function TimelineEvent({ dotColor, title, subtitle, timestamp, by }: { dotColor:
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: order, isLoading, refetch } = useGetOrder(id!);
-  const { data: wilayasData, isLoading: wilayasLoading } = useGetWilayas();
+  const { data: wilayasData } = useGetWilayas();
   const wilayas = wilayasData?.wilayas || [];
+  const { data: communesData, isLoading: communesLoading } = useCarrierCommunes();
   const updateOrder = useUpdateOrder();
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
@@ -319,11 +321,17 @@ export default function OrderDetail() {
   const SHIPPABLE_STATUSES = ["new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed", "shipped"];
   const canCreateParcel = SHIPPABLE_STATUSES.includes(o.status);
   const isScheduled = o.status === "scheduled" && !!o.scheduledShipDate;
-  const wilayaMatch = wilayas.find(w => w.name.toLowerCase() === String(order.wilaya || "").toLowerCase());
-  const communesForWilaya: string[] = wilayaMatch?.communes || [];
-  // Same rule the backend enforces at dispatch (isValidCommuneForWilaya) —
-  // flagged here so a bad/missing commune gets fixed via this dropdown.
-  const hasValidCommune = wilayasLoading || (!!order.commune && communesForWilaya.includes(order.commune));
+  const deliveryType = classifyDeliveryType(o.shippingOption);
+  const isStaticCommuneSource = communesData?.source === "static";
+  const allCommunesForWilaya = getCommunesForWilaya(communesData, order.wilaya || "");
+  const communeOptions = getCommuneDropdownOptions(allCommunesForWilaya, deliveryType, isStaticCommuneSource, t("common.stop_desk_suffix"));
+  // Validity check always runs against the full (unfiltered-by-delivery-type)
+  // commune list — a commune can be a real commune for this wilaya without
+  // having stop-desk service; that distinction is dispatch's job, not this
+  // warning's. Same rule the backend enforces at dispatch
+  // (isValidCommuneForWilaya) — flagged here so a bad/missing commune gets
+  // fixed via this dropdown.
+  const hasValidCommune = communesLoading || (!!order.commune && allCommunesForWilaya.some(c => c.name === order.commune));
   // Mirrors COMMUNE_VALIDATION_CUTOFF in
   // artifacts/api-server/src/routes/carriers.ts — orders created before this
   // never get blocked from dispatch by the backend, however bad their
@@ -428,14 +436,14 @@ export default function OrderDetail() {
                     <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
                     <span className="text-xs text-muted-foreground uppercase tracking-wide">{t("orderDetail.commune")}</span>
                   </div>
-                  {communesForWilaya.length > 0 ? (
+                  {communeOptions.length > 0 ? (
                     <select
                       value={order.commune || ""}
                       onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { commune: e.target.value } as any }); refetch(); }}
                       className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                     >
                       <option value="">{t("orders.modal.select_commune")}</option>
-                      {communesForWilaya.map(c => <option key={c} value={c}>{c}</option>)}
+                      {communeOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
                   ) : (
                     <EditableField icon={null} value={order.commune || "—"} onSave={async (val) => { await updateOrder.mutateAsync({ id: id!, data: { commune: val } as any }); refetch(); }} />
@@ -473,8 +481,24 @@ export default function OrderDetail() {
                         {(["home", "stopdesk"] as const).map(opt => (
                           <button
                             key={opt}
-                            onClick={async () => { await updateOrder.mutateAsync({ id: id!, data: { shippingOption: opt === "home" ? "home_delivery" : "stopdesk" } as any }); refetch(); }}
-                            className={`px-3 py-1.5 transition-colors ${classifyDeliveryType(o.shippingOption) === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
+                            onClick={async () => {
+                              // Switching Home → Stop Desk clears the commune if this
+                              // connection's carrier data says it has no stop-desk
+                              // service there — never silently keep a commune/delivery-
+                              // type combination the carrier will reject. Static-source
+                              // data can't tell us either way, so it never clears.
+                              const shouldClearCommune = opt === "stopdesk" && !isStaticCommuneSource
+                                && !!order.commune && !communeHasStopDesk(allCommunesForWilaya, order.commune);
+                              await updateOrder.mutateAsync({
+                                id: id!,
+                                data: {
+                                  shippingOption: opt === "home" ? "home_delivery" : "stopdesk",
+                                  ...(shouldClearCommune ? { commune: "" } : {}),
+                                } as any,
+                              });
+                              refetch();
+                            }}
+                            className={`px-3 py-1.5 transition-colors ${deliveryType === opt ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-secondary"}`}
                           >
                             {opt === "home" ? t("orderDetail.home") : t("orderDetail.stopdesk")}
                           </button>
