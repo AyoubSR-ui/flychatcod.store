@@ -4,7 +4,7 @@ import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { ensureCarrierTables } from "../lib/schema-bootstrap.js";
 import { CARRIER_REGISTRY, getCarrierMeta, createCarrierAdapter } from "../lib/carriers/index.js";
-import { getWilayaCode, isValidCommuneForWilaya } from "../lib/carriers/wilaya-codes.js";
+import { getWilayaCode, isValidCommuneForWilaya, resolveCommuneName } from "../lib/carriers/wilaya-codes.js";
 import { encryptCredentials, decryptCredentials } from "../lib/credentials-crypto.js";
 import { logOrderEvent } from "../lib/order-events.js";
 import { refreshCarrierGeoCache, getCarrierGeoCache } from "../lib/carrier-geo-cache.js";
@@ -416,19 +416,57 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
       // step needed, this just picks it up.
       toCommune = order.commune || order.address || order.wilaya;
     } else {
-      // Block before spending an API call on a commune the courier will
-      // just reject as "commune mal écrite" — name the actual problem
-      // rather than surfacing whatever error text Ecotrack sends back for
-      // it. Only applies to orders created after the cutoff above.
       const wilayaCode = getWilayaCode(order.wilaya);
-      if (!isValidCommuneForWilaya(order.commune, wilayaCode)) {
-        throw new Error(
-          order.commune
-            ? `"${order.commune}" is not a valid commune for ${order.wilaya}. Fix the order's commune before creating a parcel.`
-            : `This order has no commune set for ${order.wilaya}. Set one before creating a parcel.`
+
+      // ─── Commune resolution against THIS connection's carrier data ──────────
+      // The static dataset (dzship) and a real carrier's own commune list
+      // don't always agree on spelling — e.g. the static list's
+      // "Beni-Douala" vs Ecotrack's own "Beni Douala". Sending the static
+      // dataset's canonical spelling to a carrier that doesn't recognize it
+      // gets rejected as "commune mal écrite" even though the commune is
+      // real. Once this connection has synced its own commune list
+      // (carrier_connection_geo_cache), that list is authoritative — match
+      // into it and send its exact `name`, never the static dataset's
+      // spelling. Only fall back to the static dataset when this specific
+      // connection's cache is empty (nothing carrier-sourced to check yet).
+      const { rows: geoRows } = await pool.query(
+        `SELECT communes FROM carrier_connection_geo_cache WHERE carrier_connection_id = $1 LIMIT 1`,
+        [carrierConnectionId]
+      );
+      const cachedCommunes: any[] = Array.isArray(geoRows[0]?.communes) ? geoRows[0].communes : [];
+
+      if (cachedCommunes.length > 0) {
+        const target = normalizeGeoKey(order.commune || "");
+        const match = cachedCommunes.find(
+          (c: any) => Number(c?.wilayaCode) === wilayaCode && normalizeGeoKey(String(c?.name || "")) === target
         );
+        if (!match) {
+          throw new Error(`Commune not recognised by ${connection.carrier}: "${order.commune || "(none set)"}"`);
+        }
+        // Block before spending an API call the carrier will just reject —
+        // stop-desk needs the matched commune to actually offer it with
+        // THIS carrier, not just be a valid commune in general.
+        if (order.shipping_option === "stopdesk" && !match.hasStopDesk) {
+          throw new Error(
+            `${match.name} doesn't have stop-desk service with ${connection.carrier} — switch to home delivery or pick a different commune.`
+          );
+        }
+        toCommune = match.name;
+      } else {
+        // No carrier-sourced data yet for this connection — fall back to the
+        // static dataset, unchanged from before this fix. Block before
+        // spending an API call on a commune the courier will just reject as
+        // "commune mal écrite" — name the actual problem rather than
+        // surfacing whatever error text the carrier sends back for it.
+        if (!isValidCommuneForWilaya(order.commune, wilayaCode)) {
+          throw new Error(
+            order.commune
+              ? `"${order.commune}" is not a valid commune for ${order.wilaya}. Fix the order's commune before creating a parcel.`
+              : `This order has no commune set for ${order.wilaya}. Set one before creating a parcel.`
+          );
+        }
+        toCommune = resolveCommuneName(order.commune, wilayaCode);
       }
-      toCommune = order.commune;
     }
 
     const result = await adapter.createShipment({

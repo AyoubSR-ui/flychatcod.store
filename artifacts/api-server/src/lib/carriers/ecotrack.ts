@@ -1,5 +1,5 @@
 import type { CarrierAdapter, CreateShipmentParams, ShipmentResult, ShipmentStatusResult, CancelShipmentResult, CarrierGeoData, CarrierCommune, CarrierDesk, CarrierFee, CarrierVerificationResult } from "./types.js";
-import { getWilayaCode, resolveCommuneName } from "./wilaya-codes.js";
+import { getWilayaCode } from "./wilaya-codes.js";
 import { normalizeAlgerianPhone } from "./phone-format.js";
 
 // ─── Ecotrack adapter (generic, per-tenant) ────────────────────────────────────
@@ -69,6 +69,32 @@ function toArray(raw: unknown): any[] {
   return [];
 }
 
+// Ecotrack's error responses are JSON, often with unicode-escaped accented
+// characters (é, etc.) and the human-readable text buried under
+// `message` or a Laravel-style `errors` validation bag — showing the raw
+// response body puts a literal "é" and a wall of JSON in front of a
+// merchant instead of one readable sentence. JSON.parse decodes the unicode
+// escapes for free (they're standard JSON string escapes); this just also
+// picks out the field worth showing.
+function extractEcotrackMessage(data: any): string | null {
+  if (typeof data?.message === "string" && data.message.trim()) return data.message.trim();
+  if (data?.errors && typeof data.errors === "object") {
+    const first = Object.values(data.errors)[0];
+    const firstMsg = Array.isArray(first) ? first[0] : first;
+    if (typeof firstMsg === "string" && firstMsg.trim()) return firstMsg.trim();
+  }
+  if (typeof data === "string" && data.trim()) return data.trim();
+  return null;
+}
+
+function describeEcotrackError(rawText: string): string {
+  try {
+    return extractEcotrackMessage(JSON.parse(rawText)) ?? rawText;
+  } catch {
+    return rawText; // not JSON (or malformed) — nothing to extract, show as-is
+  }
+}
+
 export class EcotrackAdapter implements CarrierAdapter {
   readonly carrier: string;
   private domain: string;
@@ -93,7 +119,15 @@ export class EcotrackAdapter implements CarrierAdapter {
       telephone: normalizeAlgerianPhone(params.customerPhone),
       telephone_2: params.customerPhone2 ? normalizeAlgerianPhone(params.customerPhone2) : "",
       adresse: params.address,
-      commune: resolveCommuneName(params.toCommune, getWilayaCode(params.toWilaya)),
+      // NOT re-resolved against the static dataset here — the caller
+      // (dispatchOrderToCarrier) has already resolved this to either this
+      // exact connection's own cached commune spelling or, lacking that, the
+      // static dataset's canonical spelling. Re-normalizing here used to
+      // silently rewrite a carrier-exact name (e.g. Ecotrack's own
+      // "Beni Douala") back into the static dataset's spelling
+      // ("Beni-Douala"), which Ecotrack then rejected — see the commune
+      // resolution fix in routes/carriers.ts.
+      commune: params.toCommune,
       code_wilaya: getWilayaCode(params.toWilaya),
       montant: params.price,
       remarque: params.note || "",
@@ -106,11 +140,11 @@ export class EcotrackAdapter implements CarrierAdapter {
     const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
     if (!res.ok) {
       const errorText = await res.text();
-      throw new Error(`Ecotrack (${this.carrier}) API error ${res.status}: ${errorText}`);
+      throw new Error(`Ecotrack (${this.carrier}) rejected the order (HTTP ${res.status}): ${describeEcotrackError(errorText)}`);
     }
     const data = await res.json() as any;
     if (data.success === false) {
-      throw new Error(`Ecotrack (${this.carrier}) createShipment failed: ${data.message || JSON.stringify(data)}`);
+      throw new Error(`Ecotrack (${this.carrier}) createShipment failed: ${extractEcotrackMessage(data) ?? JSON.stringify(data)}`);
     }
     // Exact response field name is unconfirmed (no live response seen yet) —
     // check the common candidates rather than assuming one.
