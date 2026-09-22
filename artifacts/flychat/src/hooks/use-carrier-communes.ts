@@ -25,6 +25,38 @@ export interface CarrierCommunesResponse {
   wilayas: CarrierCommunesWilaya[];
 }
 
+// ─── Geo-key normalization (browser-safe duplicate) ────────────────────────────
+// Mirrors @workspace/db's normalizeGeoKey exactly (lib/db/src/geo-normalize.ts,
+// used by the backend's dispatch-time commune matching) — that package is
+// server-only and not a flychat dependency, so this is duplicated rather than
+// imported. Keep both in sync if the algorithm ever changes. Arabic-stripped,
+// accent-folded, lowercased, hyphens/whitespace collapsed — two names
+// producing the same key are the same place for matching purposes; never use
+// this for display, only for comparison.
+const ARABIC_RANGE = /[؀-ۿݐ-ݿ]/g;
+function stripArabic(value: string): string {
+  return value.replace(ARABIC_RANGE, "").replace(/\s+/g, " ").trim();
+}
+function stripAccents(value: string): string {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+export function normalizeGeoKey(value: string): string {
+  return stripAccents(stripArabic(value)).toLowerCase().replace(/[-\s]+/g, "");
+}
+
+// Same semantics as the backend's isValidCommuneForWilaya (normalized match,
+// never exact-string) — a commune spelled slightly differently than the
+// carrier's own list (accents, hyphens, case — e.g. "Sidi Bel-Abbes" vs the
+// carrier's "Sidi Bel Abbes") still counts as valid, exactly like dispatch
+// already treats it. Use this for any "is this commune OK" check; exact
+// string comparison against carrier data will produce false warnings for
+// communes dispatch actually accepts.
+export function communeMatchesList(communes: CarrierCommune[], communeName: string): boolean {
+  if (!communeName) return false;
+  const target = normalizeGeoKey(communeName);
+  return communes.some(c => normalizeGeoKey(c.name) === target);
+}
+
 export function useCarrierCommunes() {
   return useQuery({
     queryKey: ["carrier-communes"],
@@ -66,5 +98,6 @@ export function getCommuneDropdownOptions(
 }
 
 export function communeHasStopDesk(communes: CarrierCommune[], communeName: string): boolean {
-  return !!communes.find(c => c.name === communeName)?.hasStopDesk;
+  const target = normalizeGeoKey(communeName);
+  return !!communes.find(c => normalizeGeoKey(c.name) === target)?.hasStopDesk;
 }

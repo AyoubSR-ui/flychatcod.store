@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import {
-  Search, Plus, Trash2, Loader2, Package, PhoneCall, AlertTriangle, Truck,
+  Search, Plus, Loader2, Package, PhoneCall, AlertTriangle, Truck,
   ShoppingBag, CheckCircle2, XCircle, TrendingUp, Send,
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
@@ -12,7 +12,9 @@ import { useCreateOrder, useGetProducts, useGetTeamMembers, useGetWilayas, getGe
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
-import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions } from "@/hooks/use-carrier-communes";
+import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
+import { useShippingFeeAutofill, type ShippingDeliveryType } from "@/hooks/use-shipping-fee";
+import { ProductPicker, ProductPickerItem } from "@/components/ProductPicker";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -82,9 +84,6 @@ function SourceIcon({ source, className = "w-3.5 h-3.5" }: { source?: string; cl
   return <span className={`${className} ${s.color} inline-flex items-center justify-center leading-none`} title={source}>{s.emoji}</span>;
 }
 
-interface OrderItem { productName: string; variant: string; quantity: number; price: number; }
-const defaultItem = (): OrderItem => ({ productName: "", variant: "", quantity: 1, price: 0 });
-
 function CreateOrderModal({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -92,21 +91,28 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
   const { data: wilayasData } = useGetWilayas();
   const wilayas = wilayasData?.wilayas || [];
   const { data: communesData } = useCarrierCommunes();
-  const [form, setForm] = useState({ customerName: "", customerPhone: "", customerEmail: "", wilaya: "", commune: "", address: "", sellerNote: "" });
-  const [items, setItems] = useState<OrderItem[]>([defaultItem()]);
+  const [form, setForm] = useState({
+    customerName: "", customerPhone: "", customerEmail: "",
+    wilaya: "", commune: "", address: "", sellerNote: "",
+    shippingOption: "home_delivery" as ShippingDeliveryType,
+    shippingFee: 0,
+  });
+  const [items, setItems] = useState<ProductPickerItem[]>([]);
+  const [shippingFeeManuallyEdited, setShippingFeeManuallyEdited] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  // No delivery-type choice exists in this modal (home vs. stop desk is set
-  // later, in OrderDetail) — show every commune, annotated, same as "home"
-  // would: an agent picking stop-desk afterward still sees which communes
-  // support it in advance instead of finding out only at dispatch time.
+  const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const total = subtotal + form.shippingFee;
+  const deliveryType: "home" | "stopdesk" = form.shippingOption === "stopdesk" ? "stopdesk" : "home";
   const allCommunesForWilaya = getCommunesForWilaya(communesData, form.wilaya);
   const isStaticCommuneSource = communesData?.source === "static";
-  const communesForWilaya = getCommuneDropdownOptions(allCommunesForWilaya, "home", isStaticCommuneSource, t("common.stop_desk_suffix"));
+  const communesForWilaya = getCommuneDropdownOptions(allCommunesForWilaya, deliveryType, isStaticCommuneSource, t("common.stop_desk_suffix"));
 
-  const updateItem = (idx: number, field: keyof OrderItem, value: string | number) => {
-    setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
-  };
+  // Same source and rules as OrderDetail/Inbox — see use-shipping-fee.ts.
+  // Stops entirely once the agent types into the fee field directly.
+  const fetchingShippingFee = useShippingFeeAutofill(
+    form.wilaya, form.shippingOption, shippingFeeManuallyEdited,
+    fee => setForm(f => ({ ...f, shippingFee: fee }))
+  );
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -116,9 +122,8 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
     if (communesForWilaya.length > 0 && !form.commune) errs.commune = t("orders.modal.err.commune_required");
     if (items.length === 0) errs.items = t("order.items_required");
     items.forEach((item, idx) => {
-      if (!item.productName.trim()) errs[`item_${idx}_name`] = t("orders.modal.err.product_name_required");
+      if (!item.productName.trim()) errs[`item_${idx}`] = t("orders.modal.err.product_name_required");
       if (item.price <= 0) errs[`item_${idx}_price`] = t("order.price_required");
-      if (item.quantity < 1) errs[`item_${idx}_qty`] = t("orders.modal.err.qty_required");
     });
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -126,7 +131,20 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = () => {
     if (!validate()) return;
-    createMutation.mutate({ data: { customerName: form.customerName, customerPhone: form.customerPhone, customerEmail: form.customerEmail || undefined, wilaya: form.wilaya, commune: form.commune || undefined, address: form.address || undefined, sellerNote: form.sellerNote || undefined, items: items.map(i => ({ productName: i.productName, variant: i.variant || undefined, quantity: i.quantity, price: i.price })) } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() }); queryClient.invalidateQueries({ queryKey: ["orders-list"] }); queryClient.invalidateQueries({ queryKey: ["orders-stats"] }); onClose(); } });
+    createMutation.mutate({
+      data: {
+        customerName: form.customerName,
+        customerPhone: form.customerPhone,
+        customerEmail: form.customerEmail || undefined,
+        wilaya: form.wilaya,
+        commune: form.commune || undefined,
+        address: form.address || undefined,
+        sellerNote: form.sellerNote || undefined,
+        shippingOption: form.shippingOption,
+        shippingFee: form.shippingFee,
+        items: items.map(i => ({ productId: i.productId, productName: i.productName, variant: i.variant || undefined, quantity: i.quantity, price: i.price })),
+      } as any,
+    }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrdersQueryKey() }); queryClient.invalidateQueries({ queryKey: ["orders-list"] }); queryClient.invalidateQueries({ queryKey: ["orders-stats"] }); onClose(); } });
   };
 
   return (
@@ -178,6 +196,36 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
                 </select>
                 {errors.commune && <p className="text-red-500 text-xs mt-1">{errors.commune}</p>}
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">{t("orderDetail.delivery_type")}</label>
+                <div className="flex rounded-xl border border-border overflow-hidden text-sm font-bold">
+                  {(["home_delivery", "stopdesk"] as const).map(opt => (
+                    <button key={opt} type="button"
+                      onClick={() => {
+                        // Same rule as OrderDetail/Inbox: switching to Stop Desk
+                        // clears the commune if this store's carrier data says
+                        // it has no desk there. Static-source data never clears.
+                        const shouldClearCommune = opt === "stopdesk" && !isStaticCommuneSource
+                          && !!form.commune && !communeHasStopDesk(allCommunesForWilaya, form.commune);
+                        setForm(f => ({ ...f, shippingOption: opt, ...(shouldClearCommune ? { commune: "" } : {}) }));
+                      }}
+                      className={`flex-1 py-2 transition-colors ${form.shippingOption === opt ? "bg-primary text-white" : "bg-white text-muted-foreground hover:bg-secondary"}`}
+                    >
+                      {opt === "home_delivery" ? t("orderDetail.home") : t("orderDetail.stopdesk")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">{t("orderDetail.shipping_fee")}</label>
+                <div className="flex items-center gap-1.5">
+                  {fetchingShippingFee && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />}
+                  <span className="text-xs text-muted-foreground shrink-0">DZD</span>
+                  <input type="number" min={0} value={form.shippingFee}
+                    onChange={e => { setShippingFeeManuallyEdited(true); setForm(f => ({ ...f, shippingFee: Number(e.target.value) || 0 })); }}
+                    className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white" />
+                </div>
+              </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-medium mb-1">{t("orders.modal.street_address")}</label>
                 <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20" placeholder="Rue Larbi Ben M'hidi..." />
@@ -189,36 +237,18 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">{t("orders.modal.order_items")}</h3>
-              <button onClick={() => setItems(prev => [...prev, defaultItem()])} className="flex items-center gap-1 text-xs text-primary font-semibold hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-colors"><Plus className="w-3 h-3" /> {t("orders.modal.add_item")}</button>
-            </div>
-            {errors.items && <p className="text-red-500 text-xs mb-2">{errors.items}</p>}
-            <div className="space-y-3">
-              {items.map((item, idx) => (
-                <div key={idx} className="bg-secondary/30 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-muted-foreground">{t("orders.modal.item_n").replace("{n}", String(idx + 1))}</span>
-                    {items.length > 1 && <button onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2">
-                      <input value={item.productName} onChange={e => updateItem(idx, "productName", e.target.value)} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_name`] ? "border-red-400" : "border-border"}`} placeholder={t("orders.modal.product_placeholder")} />
-                      {errors[`item_${idx}_name`] && <p className="text-red-500 text-xs mt-1">{errors[`item_${idx}_name`]}</p>}
-                    </div>
-                    <input value={item.variant} onChange={e => updateItem(idx, "variant", e.target.value)} className="px-3 py-2 rounded-xl border border-border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white" placeholder={t("orders.modal.variant_placeholder")} />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input type="number" min={1} value={item.quantity} onChange={e => updateItem(idx, "quantity", Number(e.target.value))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_qty`] ? "border-red-400" : "border-border"}`} placeholder={t("order.qty")} />
-                      <input type="number" min={0} value={item.price || ""} onChange={e => updateItem(idx, "price", Number(e.target.value))} className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-primary/20 bg-white ${errors[`item_${idx}_price`] ? "border-red-400" : "border-border"}`} placeholder={t("orders.modal.price_placeholder")} />
-                    </div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">{t("orders.modal.subtotal")} <span className="font-bold text-foreground">DZD {(item.price * item.quantity).toLocaleString()}</span></div>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3">{t("orders.modal.order_items")}</h3>
+            <ProductPicker items={items} errors={errors} onChange={setItems} />
+            <div className="mt-4 bg-primary/5 border border-primary/20 rounded-xl px-5 py-3 space-y-1">
+              {form.shippingFee > 0 && (
+                <div className="flex justify-between items-center text-xs text-muted-foreground">
+                  <span>{t("inbox.subtotal_line").replace("{subtotal}", subtotal.toLocaleString()).replace("{shipping}", form.shippingFee.toLocaleString())}</span>
                 </div>
-              ))}
-            </div>
-            <div className="mt-4 flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-5 py-3">
-              <span className="font-bold text-foreground">{t("orders.modal.total_cod")}</span>
-              <span className="text-xl font-bold text-primary">DZD {total.toLocaleString()}</span>
+              )}
+              <div className="flex justify-between items-center">
+                <span className="font-bold text-foreground">{t("orders.modal.total_cod")}</span>
+                <span className="text-xl font-bold text-primary">DZD {total.toLocaleString()}</span>
+              </div>
             </div>
           </div>
         </div>

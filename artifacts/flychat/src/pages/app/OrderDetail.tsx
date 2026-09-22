@@ -9,7 +9,8 @@ import { useGetOrder, useUpdateOrder, useGetWilayas } from "@workspace/api-clien
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
-import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
+import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk, communeMatchesList } from "@/hooks/use-carrier-communes";
+import { fetchShippingFee, type ShippingDeliveryType } from "@/hooks/use-shipping-fee";
 
 const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
@@ -331,7 +332,7 @@ export default function OrderDetail() {
   // warning's. Same rule the backend enforces at dispatch
   // (isValidCommuneForWilaya) — flagged here so a bad/missing commune gets
   // fixed via this dropdown.
-  const hasValidCommune = communesLoading || (!!order.commune && allCommunesForWilaya.some(c => c.name === order.commune));
+  const hasValidCommune = communesLoading || communeMatchesList(allCommunesForWilaya, order.commune || "");
   // Mirrors COMMUNE_VALIDATION_CUTOFF in
   // artifacts/api-server/src/routes/carriers.ts — orders created before this
   // never get blocked from dispatch by the backend, however bad their
@@ -424,7 +425,20 @@ export default function OrderDetail() {
                   </div>
                   <select
                     value={order.wilaya}
-                    onChange={async e => { await updateOrder.mutateAsync({ id: id!, data: { wilaya: e.target.value, commune: "" } as any }); refetch(); }}
+                    onChange={async e => {
+                      const newWilaya = e.target.value;
+                      // Auto-fill only ever fires in response to this explicit
+                      // change, never on page load — never touches an existing
+                      // order's fee "just because it rendered." A fetch failure
+                      // (fee === null) leaves the current fee untouched.
+                      const deliveryTypeParam: ShippingDeliveryType = deliveryType === "stopdesk" ? "stopdesk" : "home_delivery";
+                      const fee = await fetchShippingFee(newWilaya, deliveryTypeParam);
+                      await updateOrder.mutateAsync({
+                        id: id!,
+                        data: { wilaya: newWilaya, commune: "", ...(fee != null ? { shippingFee: fee } : {}) } as any,
+                      });
+                      refetch();
+                    }}
                     className="font-medium text-foreground bg-transparent text-right outline-none cursor-pointer max-w-[200px]"
                   >
                     <option value="">{t("orders.modal.select_wilaya")}</option>
@@ -489,11 +503,16 @@ export default function OrderDetail() {
                               // data can't tell us either way, so it never clears.
                               const shouldClearCommune = opt === "stopdesk" && !isStaticCommuneSource
                                 && !!order.commune && !communeHasStopDesk(allCommunesForWilaya, order.commune);
+                              const newShippingOption: ShippingDeliveryType = opt === "home" ? "home_delivery" : "stopdesk";
+                              // Same rule as the wilaya select above: fee only ever
+                              // auto-updates in response to this explicit change.
+                              const fee = await fetchShippingFee(order.wilaya, newShippingOption);
                               await updateOrder.mutateAsync({
                                 id: id!,
                                 data: {
-                                  shippingOption: opt === "home" ? "home_delivery" : "stopdesk",
+                                  shippingOption: newShippingOption,
                                   ...(shouldClearCommune ? { commune: "" } : {}),
+                                  ...(fee != null ? { shippingFee: fee } : {}),
                                 } as any,
                               });
                               refetch();
@@ -520,6 +539,12 @@ export default function OrderDetail() {
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-muted-foreground">DZD</span>
                       <input
+                        // Uncontrolled (defaultValue) so typing doesn't fight
+                        // the auto-fill — but that means it needs a fresh key
+                        // whenever the fee changes from outside typing (wilaya/
+                        // delivery-type auto-fill) or it'll keep showing the
+                        // stale value it first mounted with.
+                        key={shippingFee}
                         type="number"
                         defaultValue={shippingFee}
                         onBlur={async e => {
