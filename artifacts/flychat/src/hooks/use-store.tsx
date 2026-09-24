@@ -35,7 +35,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
-    if (!token || !user?.organizationId) { setLoading(false); return; }
+    // GET /api/organization is requireOwnerOrAdmin-gated server-side — an
+    // agent would always get a 403 here. Already caught (falls back to
+    // `{ stores: [] }`), but skip the doomed request entirely rather than
+    // firing it on every page load for every agent.
+    const canFetch = user?.role === "owner" || user?.role === "admin" || user?.role === "superadmin";
+    if (!token || !user?.organizationId || !canFetch) { setLoading(false); return; }
     setLoading(true);
     fetch(`${API_BASE}/api/organization`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => res.ok ? res.json() : { stores: [] })

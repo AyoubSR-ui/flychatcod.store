@@ -12,6 +12,7 @@ import { useCreateOrder, useGetProducts, useGetTeamMembers, useGetWilayas, getGe
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { useAuth } from "@/hooks/use-auth";
 import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
 import { useShippingFeeAutofill, type ShippingDeliveryType } from "@/hooks/use-shipping-fee";
 import { ProductPicker, ProductPickerItem } from "@/components/ProductPicker";
@@ -300,8 +301,13 @@ export default function Orders() {
   const SOURCE_OPTIONS = getSourceOptions(t);
   const queryClient = useQueryClient();
 
+  const { user } = useAuth();
   const { data: productsData } = useGetProducts({ limit: 200 });
-  const { data: teamData } = useGetTeamMembers();
+  // GET /api/team/members is requireOwner-gated server-side (team.ts) — even
+  // admins 403 there, not just agents. Already degraded gracefully (teamData
+  // stays undefined, teamMembers falls back to []), but there's no reason to
+  // fire a request every non-owner is guaranteed to get a 403 on.
+  const { data: teamData } = useGetTeamMembers({ query: { enabled: user?.role === "owner" } });
 
   useEffect(() => { setPage(1); }, [filters, sort]);
 
