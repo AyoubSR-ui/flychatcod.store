@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { authFetch } from "@/lib/auth-fetch";
 
 // GET /api/carriers/communes — per-store union of every connected carrier's
 // cached commune list (see artifacts/api-server/src/routes/carriers.ts),
 // each tagged with hasStopDesk. Falls back to source: "static" (the same
 // dataset GET /geo/wilayas serves, wrapped in this shape) when no connection
 // has synced commune data yet — see the backend route for the exact rule.
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
 
 export interface CarrierCommune {
   name: string;
@@ -60,10 +59,7 @@ export function communeMatchesList(communes: CarrierCommune[], communeName: stri
 export function useCarrierCommunes() {
   return useQuery({
     queryKey: ["carrier-communes"],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/carriers/communes`, { headers: authHeaders() });
-      return res.json() as Promise<CarrierCommunesResponse>;
-    },
+    queryFn: () => authFetch<CarrierCommunesResponse>("/api/carriers/communes"),
     // Communes/stop-desk availability don't change minute to minute — the
     // backend itself only refreshes daily (carrier-geo-cache.ts) — no need
     // to refetch this aggressively across three different pages.

@@ -14,6 +14,10 @@ export interface SuccessResponse {
   message?: string;
 }
 
+export interface TokenResponse {
+  token: string;
+}
+
 export interface ErrorResponse {
   error: string;
   message: string;
@@ -714,6 +718,7 @@ export const TeamMemberStatus = {
   active: "active",
   invited: "invited",
   inactive: "inactive",
+  removed: "removed",
 } as const;
 
 export interface TeamMember {

@@ -11,9 +11,7 @@ import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk, communeMatchesList } from "@/hooks/use-carrier-communes";
 import { fetchShippingFee, type ShippingDeliveryType } from "@/hooks/use-shipping-fee";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
+import { authFetch } from "@/lib/auth-fetch";
 
 // Delivery type isn't always stored as our own 'home_delivery'/'stopdesk'
 // values — Shopify orders carry the merchant's raw shipping-line title
@@ -134,7 +132,7 @@ export default function OrderDetail() {
   const { data: order, isLoading, refetch } = useGetOrder(id!);
   const { data: wilayasData } = useGetWilayas();
   const wilayas = wilayasData?.wilayas || [];
-  const { data: communesData, isLoading: communesLoading } = useCarrierCommunes();
+  const { data: communesData, isLoading: communesLoading, isError: communesIsError } = useCarrierCommunes();
   const updateOrder = useUpdateOrder();
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
@@ -158,18 +156,15 @@ export default function OrderDetail() {
   const { t } = useI18n();
   const SOURCE_META = getSourceMeta(t);
 
-  const { data: carriersData } = useQuery({
+  const { data: carriersData, isError: carriersIsError } = useQuery({
     queryKey: ["carriers"],
-    queryFn: async () => { const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() }); return res.json(); },
+    queryFn: () => authFetch<any>("/api/carriers"),
   });
   const connectedCarriers: any[] = carriersData?.connections || [];
 
-  const { data: eventsData, refetch: refetchEvents } = useQuery({
+  const { data: eventsData, isError: eventsIsError, refetch: refetchEvents } = useQuery({
     queryKey: ["order-events", id],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/events`, { headers: authHeaders() });
-      return res.json();
-    },
+    queryFn: () => authFetch<any>(`/api/orders/${id}/events`),
     enabled: !!id,
   });
   const events: any[] = eventsData?.events || [];
@@ -194,9 +189,7 @@ export default function OrderDetail() {
   const handleRefreshTracking = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/refresh-tracking`, { method: "POST", headers: authHeaders() });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || t("orderDetail.err.refresh_failed"));
+      await authFetch(`/api/orders/${id}/refresh-tracking`, { method: "POST" });
       refetch();
     } catch (err: any) {
       alert(err.message || t("orderDetail.err.refresh_failed"));
@@ -214,13 +207,10 @@ export default function OrderDetail() {
     if (!scheduleDate) { setDispatchError(t("orderDetail.err.choose_ship_date")); return; }
     setScheduling(true); setDispatchError("");
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/schedule`, {
+      await authFetch(`/api/orders/${id}/schedule`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ carrierConnectionId: selectedCarrierId, scheduledDate: new Date(scheduleDate).toISOString(), note: scheduleNote || undefined }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || t("orderDetail.err.schedule_failed"));
       setScheduleMode(false); setScheduleDate(""); setScheduleNote("");
       refetch(); refetchEvents();
     } catch (err: any) {
@@ -231,9 +221,7 @@ export default function OrderDetail() {
   const handleCancelSchedule = async () => {
     setCancellingSchedule(true);
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/schedule`, { method: "DELETE", headers: authHeaders() });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || t("orderDetail.err.cancel_schedule_failed"));
+      await authFetch(`/api/orders/${id}/schedule`, { method: "DELETE" });
       refetch(); refetchEvents();
     } catch (err: any) {
       alert(err.message || t("orderDetail.err.cancel_schedule_failed"));
@@ -243,9 +231,7 @@ export default function OrderDetail() {
   const handleSyncShopify = async () => {
     setSyncingShopify(true); setSyncMessage(null);
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/sync-shopify`, { method: "POST", headers: authHeaders() });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || t("orderDetail.sync_failed"));
+      await authFetch(`/api/orders/${id}/sync-shopify`, { method: "POST" });
       setSyncMessage({ ok: true, text: t("orderDetail.sync_success") });
       refetchEvents();
     } catch (err: any) {
@@ -257,13 +243,10 @@ export default function OrderDetail() {
     if (!selectedCarrierId) { setDispatchError(t("orderDetail.err.choose_carrier")); return; }
     setDispatching(true); setDispatchError("");
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/dispatch`, {
+      await authFetch(`/api/orders/${id}/dispatch`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ carrierConnectionId: selectedCarrierId }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || t("orderDetail.err.dispatch_failed"));
       refetch(); refetchEvents();
     } catch (err: any) {
       setDispatchError(err.message || t("orderDetail.err.dispatch_failed"));
@@ -285,13 +268,7 @@ export default function OrderDetail() {
     if (valid.length === 0) { alert(t("orderDetail.err.save_items_min")); return; }
     setSavingItems(true);
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${id}/items`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ items: valid }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || t("orderDetail.err.save_items_failed"));
+      await authFetch(`/api/orders/${id}/items`, { method: "PUT", body: JSON.stringify({ items: valid }) });
       setEditingItems(false);
       refetch();
       queryClient.invalidateQueries({ queryKey: ["orders-list"] });
@@ -332,7 +309,10 @@ export default function OrderDetail() {
   // warning's. Same rule the backend enforces at dispatch
   // (isValidCommuneForWilaya) — flagged here so a bad/missing commune gets
   // fixed via this dropdown.
-  const hasValidCommune = communesLoading || communeMatchesList(allCommunesForWilaya, order.commune || "");
+  // A failed commune fetch must not look like a validated commune — but it
+  // also must not falsely flag a fine one as wrong; treat it the same as
+  // still-loading (unknown) rather than "no communes matched."
+  const hasValidCommune = communesLoading || communesIsError || communeMatchesList(allCommunesForWilaya, order.commune || "");
   // Mirrors COMMUNE_VALIDATION_CUTOFF in
   // artifacts/api-server/src/routes/carriers.ts — orders created before this
   // never get blocked from dispatch by the backend, however bad their
@@ -614,7 +594,9 @@ export default function OrderDetail() {
                     <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide block">
                       {scheduleMode ? t("orderDetail.schedule_parcel_label") : shipment ? t("orderDetail.replacement_parcel_label") : t("orderDetail.create_parcel_label")}
                     </label>
-                    {connectedCarriers.length === 0 ? (
+                    {carriersIsError ? (
+                      <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">{t("common.load_failed")}</div>
+                    ) : connectedCarriers.length === 0 ? (
                       <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
                         {t("orderDetail.no_courier")} <Link href="/delivery" className="underline font-medium">{t("orderDetail.connect_one")}</Link>.
                       </div>
@@ -820,7 +802,12 @@ export default function OrderDetail() {
               {/* Confirmation Status */}
               <div className="bg-card border border-border rounded-2xl p-5 shadow-sm">
                 <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">{t("orderDetail.confirmation_status")}</h3>
-                {statusEvents.length === 0 ? (
+                {eventsIsError ? (
+                  <div className="flex items-center justify-between gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                    <span>{t("common.load_failed")}</span>
+                    <button onClick={() => refetchEvents()} className="text-xs font-bold hover:underline shrink-0">{t("common.retry")}</button>
+                  </div>
+                ) : statusEvents.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("orderDetail.no_status_changes")}</p>
                 ) : (
                   <div>

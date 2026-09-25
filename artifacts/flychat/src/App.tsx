@@ -73,6 +73,11 @@ function ProtectedRoute({ component: Component, roles }: { component: React.Comp
   const { user, isLoading, token } = useAuth();
   if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-background"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" /></div>;
   if (!token || !user) return <Redirect to="/login" />;
+  // Onboarding sets storeId + onboardingCompleted together — checked on every
+  // navigation, not just at login, so a user who lands here with neither
+  // (e.g. a stale tab, or a direct URL after signup) gets sent to finish
+  // onboarding instead of rendering an app with no store behind it.
+  if (user.role !== "superadmin" && (!user.storeId || !user.onboardingCompleted)) return <Redirect to="/onboarding" />;
   if (roles && user.role !== "superadmin" && !roles.includes(user.role)) return <Redirect to="/dashboard" />;
   return <Component />;
 }

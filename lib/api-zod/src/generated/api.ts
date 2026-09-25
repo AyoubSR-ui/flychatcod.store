@@ -125,6 +125,14 @@ export const AuthMeResponse = zod.object({
 });
 
 /**
+ * Sliding-refresh for an active session — call when the current token is within ~1 day of expiring. A 401 here means the token was already expired (or otherwise invalid) by the time this was called; treat it as a genuine session expiry, not a reason to retry.
+ * @summary Re-issue a fresh token from a still-valid one
+ */
+export const AuthRefreshResponse = zod.object({
+  token: zod.string(),
+});
+
+/**
  * @summary Request a password reset
  */
 export const AuthResetPasswordBody = zod.object({
@@ -1032,7 +1040,7 @@ export const GetTeamMembersResponse = zod.object({
       email: zod.string(),
       name: zod.string().nullish(),
       role: zod.enum(["owner", "admin", "agent"]),
-      status: zod.enum(["active", "invited", "inactive"]),
+      status: zod.enum(["active", "invited", "inactive", "removed"]),
       createdAt: zod.date(),
     }),
   ),
@@ -1065,7 +1073,7 @@ export const UpdateTeamMemberResponse = zod.object({
   email: zod.string(),
   name: zod.string().nullish(),
   role: zod.enum(["owner", "admin", "agent"]),
-  status: zod.enum(["active", "invited", "inactive"]),
+  status: zod.enum(["active", "invited", "inactive", "removed"]),
   createdAt: zod.date(),
 });
 

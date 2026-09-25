@@ -4,13 +4,13 @@ import { Plus, Trash2, Link, Package, AlertCircle, CheckCircle2, X } from "lucid
 import { DocButton } from "@/components/DocButton";
 import { useGetProducts } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+import { authFetch } from "@/lib/auth-fetch";
 
 export default function AdLinks() {
   const { t } = useI18n();
   const [links, setLinks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [adRef, setAdRef] = useState("");
   const [adName, setAdName] = useState("");
@@ -22,12 +22,11 @@ export default function AdLinks() {
   const { data: productsData } = useGetProducts({ limit: 100 });
 
   const fetchLinks = async () => {
-    const token = localStorage.getItem("flychat_token") || "";
+    setLoading(true); setLoadError(false);
     try {
-      const res = await fetch(`${API_BASE}/api/ad-links`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
+      const data = await authFetch<{ links?: any[] }>("/api/ad-links");
       setLinks(data.links || []);
-    } catch { }
+    } catch { setLoadError(true); }
     finally { setLoading(false); }
   };
 
@@ -37,24 +36,24 @@ export default function AdLinks() {
     if (!adRef.trim() || !productId) { setErrorMsg(t("adLinks.err.required")); return; }
     setSaving(true); setErrorMsg("");
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${API_BASE}/api/ad-links`, {
+      await authFetch("/api/ad-links", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ adRef: adRef.trim(), productId, adName: adName.trim() }),
       });
-      if (!res.ok) throw new Error("Failed to create link");
       setSuccessMsg(t("adLinks.success_created"));
       setShowModal(false); setAdRef(""); setAdName(""); setProductId("");
       fetchLinks();
-    } catch (err: any) { setErrorMsg(err.message); }
+    } catch (err: any) { setErrorMsg(err.message || "Failed to create link"); }
     finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(t("adLinks.confirm_delete"))) return;
-    const token = localStorage.getItem("flychat_token") || "";
-    await fetch(`${API_BASE}/api/ad-links/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    try {
+      await authFetch(`/api/ad-links/${id}`, { method: "DELETE" });
+    } catch (err: any) {
+      alert(err.message || t("common.load_failed"));
+    }
     fetchLinks();
   };
 
@@ -99,6 +98,11 @@ export default function AdLinks() {
           <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
             {loading ? (
               <div className="p-8 text-center text-muted-foreground">{t("common.loading")}</div>
+            ) : loadError ? (
+              <div className="p-12 text-center space-y-3">
+                <p className="text-red-700 font-medium">{t("common.load_failed")}</p>
+                <button onClick={fetchLinks} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors">{t("common.retry")}</button>
+              </div>
             ) : links.length === 0 ? (
               <div className="p-12 text-center">
                 <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center mx-auto mb-3">

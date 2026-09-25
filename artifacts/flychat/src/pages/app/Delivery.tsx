@@ -4,9 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Truck, CheckCircle2, XCircle, AlertCircle, Loader2, Plus, Trash2, Pencil, Check, X, RefreshCw } from "lucide-react";
 import { useI18n } from "@/hooks/use-i18n";
 import { format } from "date-fns";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
+import { authFetch } from "@/lib/auth-fetch";
 
 interface CredentialField { key: string; label: string; placeholder: string; secret?: boolean; }
 interface CarrierMeta { id: string; name: string; status: "live" | "not_available"; credentialFields: CredentialField[]; logo?: string; }
@@ -64,13 +62,10 @@ function ConnectModal({ meta, onClose, onSuccess }: { meta: CarrierMeta; onClose
     if (!label.trim()) { setError(t("deliveryPage.err.label_required")); return; }
     setError(""); setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/carriers/connect`, {
+      const data = await authFetch<{ verification: CarrierVerification | null }>("/api/carriers/connect", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ carrier: meta.id, label: label.trim(), credentials }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Connection failed");
       onSuccess(data.verification ?? null); onClose();
     } catch (err: any) {
       setError(err.message || t("deliveryPage.err.connect_failed"));
@@ -125,12 +120,9 @@ export default function Delivery() {
   const [renaming, setRenaming] = useState(false);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["carriers"],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() });
-      return res.json() as Promise<{ registry: CarrierMeta[]; connections: CarrierConnection[] }>;
-    },
+    queryFn: () => authFetch<{ registry: CarrierMeta[]; connections: CarrierConnection[] }>("/api/carriers"),
   });
 
   const registry = data?.registry || [];
@@ -147,15 +139,21 @@ export default function Delivery() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["carriers"] });
 
   const handleDisconnect = async (id: string) => {
-    await fetch(`${API_BASE}/api/carriers/${id}`, { method: "DELETE", headers: authHeaders() });
-    invalidate();
+    try {
+      await authFetch(`/api/carriers/${id}`, { method: "DELETE" });
+      invalidate();
+    } catch (err: any) {
+      setSuccessMsg({ text: err.message || t("common.load_failed"), tone: "error" });
+    }
   };
 
   const handleVerify = async (id: string) => {
     setVerifyingId(id);
     try {
-      await fetch(`${API_BASE}/api/carriers/${id}/verify`, { method: "POST", headers: authHeaders() });
+      await authFetch(`/api/carriers/${id}/verify`, { method: "POST" });
       invalidate();
+    } catch (err: any) {
+      setSuccessMsg({ text: err.message || t("common.load_failed"), tone: "error" });
     } finally {
       setVerifyingId(null);
     }
@@ -167,13 +165,11 @@ export default function Delivery() {
     if (!renameValue.trim()) return;
     setRenaming(true);
     try {
-      await fetch(`${API_BASE}/api/carriers/${id}/rename`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ label: renameValue.trim() }),
-      });
+      await authFetch(`/api/carriers/${id}/rename`, { method: "PATCH", body: JSON.stringify({ label: renameValue.trim() }) });
       setRenamingId(null);
       invalidate();
+    } catch (err: any) {
+      setSuccessMsg({ text: err.message || t("common.load_failed"), tone: "error" });
     } finally { setRenaming(false); }
   };
 
@@ -198,8 +194,15 @@ export default function Delivery() {
             </div>
           )}
 
+          {isError && (
+            <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+              <span className="text-sm font-medium text-red-800">{t("common.load_failed")}</span>
+              <button onClick={() => refetch()} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors">{t("common.retry")}</button>
+            </div>
+          )}
+
           {/* ── Connected accounts (grouped per carrier) ── */}
-          {Object.keys(connectionsByCarrier).length > 0 && (
+          {!isError && Object.keys(connectionsByCarrier).length > 0 && (
             <div className="space-y-4">
               {Object.entries(connectionsByCarrier).map(([carrier, accounts]) => (
                 <div key={carrier} className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
@@ -265,7 +268,7 @@ export default function Delivery() {
           {/* ── Available carriers ── */}
           {isLoading ? (
             <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
-          ) : (
+          ) : isError ? null : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {registry.filter(meta => !connectionsByCarrier[meta.id]).map(meta => (
                 <div key={meta.id} className={`bg-card border rounded-2xl shadow-sm p-5 space-y-3 ${meta.status === "live" ? "border-border" : "border-border opacity-60"}`}>

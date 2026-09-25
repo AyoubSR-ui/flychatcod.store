@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useGetSubscription, useGetTeamMembers, useInviteTeamMember, useRemoveTeamMember } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { authFetch } from "@/lib/auth-fetch";
 
 const ROLE_CONFIG = {
   owner: { labelKey: "team.role.owner", color: "bg-violet-100 text-violet-800 border-violet-200", icon: Crown },
@@ -18,7 +19,7 @@ const STATUS_CONFIG = {
 };
 
 export default function Team() {
-  const { data, isLoading, refetch } = useGetTeamMembers();
+  const { data, isLoading, isError, refetch } = useGetTeamMembers();
   const inviteMember = useInviteTeamMember();
   const removeMember = useRemoveTeamMember();
   const [showModal, setShowModal] = useState(false);
@@ -59,23 +60,14 @@ export default function Team() {
     setResendingId(id);
     setInviteMessage(null);
     try {
-      const token = localStorage.getItem("flychat_token");
-      const resp = await fetch(`/api/team/members/${id}/resend-invite`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-      });
-      const data = await resp.json();
-      if (resp.ok) {
-        if (data.inviteSent) {
-          setInviteMessage({ type: "success", text: t("team.resend_success") });
-        } else {
-          setInviteMessage({ type: "warning", text: t("team.resend_no_email") });
-        }
+      const data = await authFetch<{ inviteSent: boolean }>(`/api/team/members/${id}/resend-invite`, { method: "POST" });
+      if (data.inviteSent) {
+        setInviteMessage({ type: "success", text: t("team.resend_success") });
       } else {
-        setInviteMessage({ type: "error", text: data.message || t("team.resend_failed") });
+        setInviteMessage({ type: "warning", text: t("team.resend_no_email") });
       }
-    } catch {
-      setInviteMessage({ type: "error", text: t("team.network_error") });
+    } catch (err: any) {
+      setInviteMessage({ type: "error", text: err.message || t("team.network_error") });
     } finally {
       setResendingId(null);
       setTimeout(() => setInviteMessage(null), 5000);
@@ -147,6 +139,11 @@ export default function Team() {
             <div className="divide-y divide-border/50">
               {isLoading ? (
                 <p className="px-6 py-10 text-center text-muted-foreground">{t("common.loading")}</p>
+              ) : isError ? (
+                <div className="px-6 py-10 text-center space-y-2">
+                  <p className="text-red-700">{t("common.load_failed")}</p>
+                  <button onClick={() => refetch()} className="text-sm font-bold text-primary hover:underline">{t("common.retry")}</button>
+                </div>
               ) : data?.members.length === 0 ? (
                 <p className="px-6 py-10 text-center text-muted-foreground">{t("team.no_members")}</p>
               ) : data?.members.map((member) => {

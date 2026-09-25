@@ -1,8 +1,6 @@
 import { Globe } from "lucide-react";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
+import { authFetch } from "@/lib/auth-fetch";
 
 export function LanguageSwitcher() {
   const { language, setLanguage } = useI18n();
@@ -12,12 +10,11 @@ export function LanguageSwitcher() {
     setLanguage(next);
     // Best-effort — a logged-out visitor (or a request that fails) still
     // gets the local/localStorage switch above; this just makes it follow
-    // the user across devices when they're signed in.
-    fetch(`${API_BASE}/api/settings/language`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ language: next }),
-    }).catch(() => {});
+    // the user across devices when they're signed in. Still goes through
+    // authFetch (not a bare fetch) so a 401 here reports session expiry
+    // globally like every other request — only the failure itself is
+    // swallowed, not the session-expiry signal.
+    authFetch("/api/settings/language", { method: "PATCH", body: JSON.stringify({ language: next }) }).catch(() => {});
   };
 
   return (

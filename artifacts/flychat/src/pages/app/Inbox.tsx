@@ -20,6 +20,7 @@ import { useI18n } from "@/hooks/use-i18n";
 import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
 import { useShippingFeeAutofill } from "@/hooks/use-shipping-fee";
 import { ProductPicker, ProductPickerItem } from "@/components/ProductPicker";
+import { authFetch } from "@/lib/auth-fetch";
 import { io, Socket } from "socket.io-client";
 
 // Internal fallback strings the backend writes when Vision analysis produces
@@ -310,6 +311,7 @@ export default function Inbox() {
   const [teamNotifications, setTeamNotifications] = useState<TeamNotificationToast[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedConvs, setArchivedConvs] = useState<any[]>([]);
+  const [archivedStatus, setArchivedStatus] = useState<"idle" | "loading" | "error" | "loaded">("idle");
   const [archiveToast, setArchiveToast] = useState<string | null>(null);
 
   const msgMenuRef = useRef<HTMLDivElement>(null);
@@ -332,48 +334,50 @@ export default function Inbox() {
     ? allConvs
     : allConvs.filter(c => c.channel === channelFilter);
 
-  const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-
   const fetchArchivedConvs = useCallback(async () => {
-    const token = localStorage.getItem("flychat_token");
-    if (!token) return;
-    const res = await fetch(`${API_BASE}/api/conversations?archived=true&limit=50`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
+    setArchivedStatus("loading");
+    try {
+      const data = await authFetch<{ conversations: any[] }>("/api/conversations?archived=true&limit=50");
       setArchivedConvs(data.conversations ?? []);
+      setArchivedStatus("loaded");
+    } catch {
+      setArchivedStatus("error");
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => {
     if (showArchived) fetchArchivedConvs();
   }, [showArchived, fetchArchivedConvs]);
 
   const archiveConv = useCallback(async (id: string) => {
-    const token = localStorage.getItem("flychat_token");
-    if (!token) return;
     // Optimistic remove from list
     queryClient.setQueryData(getGetConversationsQueryKey({ status: "open" }), (old: any) => {
       if (!old) return old;
       return { ...old, conversations: old.conversations.filter((c: any) => c.id !== id) };
     });
     if (activeConvId === id) setActiveConvId(null);
-    await fetch(`${API_BASE}/api/conversations/${id}/archive`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
-    setArchiveToast(t("inbox.archive_conversation_toast"));
+    try {
+      await authFetch(`/api/conversations/${id}/archive`, { method: "PATCH" });
+      setArchiveToast(t("inbox.archive_conversation_toast"));
+    } catch (err: any) {
+      setArchiveToast(err.message || t("common.load_failed"));
+      queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
+    }
     setTimeout(() => setArchiveToast(null), 3000);
-  }, [API_BASE, activeConvId, queryClient, t]);
+  }, [activeConvId, queryClient, t]);
 
   const unarchiveConv = useCallback(async (id: string) => {
-    const token = localStorage.getItem("flychat_token");
-    if (!token) return;
     setArchivedConvs(prev => prev.filter(c => c.id !== id));
     if (activeConvId === id) setActiveConvId(null);
-    await fetch(`${API_BASE}/api/conversations/${id}/unarchive`, { method: "PATCH", headers: { Authorization: `Bearer ${token}` } });
+    try {
+      await authFetch(`/api/conversations/${id}/unarchive`, { method: "PATCH" });
+      setArchiveToast(t("inbox.restore_conversation_toast"));
+    } catch (err: any) {
+      setArchiveToast(err.message || t("common.load_failed"));
+    }
     queryClient.invalidateQueries({ queryKey: getGetConversationsQueryKey({ status: "open" }) });
-    setArchiveToast(t("inbox.restore_conversation_toast"));
     setTimeout(() => setArchiveToast(null), 3000);
-  }, [API_BASE, activeConvId, queryClient, t]);
+  }, [activeConvId, queryClient, t]);
 
   useEffect(() => {
     const token = localStorage.getItem("flychat_token");
@@ -712,7 +716,14 @@ export default function Inbox() {
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {showArchived ? (
-              archivedConvs.length === 0 ? (
+              archivedStatus === "loading" ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">{t("common.loading")}</div>
+              ) : archivedStatus === "error" ? (
+                <div className="p-4 text-center text-sm space-y-2">
+                  <p className="text-red-700">{t("common.load_failed")}</p>
+                  <button onClick={() => fetchArchivedConvs()} className="text-xs font-bold text-primary hover:underline">{t("common.retry")}</button>
+                </div>
+              ) : archivedConvs.length === 0 ? (
                 <div className="p-4 text-center text-sm text-muted-foreground">{t("inbox.no_archived_conversations")}</div>
               ) : archivedConvs.map((conv) => (
                 <div key={conv.id} className={`group w-full text-left p-3 rounded-xl transition-all border ${activeConvId === conv.id ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-secondary/50 border-transparent"}`}>

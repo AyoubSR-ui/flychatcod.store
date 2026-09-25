@@ -5,8 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGetSubscription } from "@workspace/api-client-react";
 import { getSubscriptionStatusBadge } from "@/lib/subscription-status";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+import { authFetch } from "@/lib/auth-fetch";
 
 const PLAN_STORE_LIMITS: Record<string, number> = {
   free: 1, starter: 1, pro: 1, agency: 5,
@@ -39,6 +38,7 @@ export default function Organization() {
   const { data: sub } = useGetSubscription();
   const [org, setOrg] = useState<OrgData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -48,37 +48,45 @@ export default function Organization() {
   const currentStores = org?.stores.length ?? 0;
   const canAddStore = plan === "agency" && currentStores < storeLimit;
 
-  useEffect(() => {
-    const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/organization`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => r.json())
+  const loadOrg = () => {
+    setLoading(true); setLoadError(false);
+    authFetch<OrgData>("/api/organization")
       .then(data => {
         setOrg(data);
         setEditName(data.name || "");
-        setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadOrg(); }, []);
 
   const handleSaveName = async () => {
     if (!editName.trim()) return;
     setSaving(true);
-    const token = localStorage.getItem("flychat_token") || "";
-    await fetch(`${API_BASE}/api/organization`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ name: editName }),
-    });
-    setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+      await authFetch("/api/organization", { method: "PATCH", body: JSON.stringify({ name: editName }) });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      alert(err.message || t("common.load_failed"));
+    }
+    setSaving(false);
   };
 
   if (loading) return (
     <AppLayout>
       <div className="p-10 flex justify-center">
         <div className="w-8 h-8 animate-spin border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    </AppLayout>
+  );
+
+  if (loadError || !org) return (
+    <AppLayout>
+      <div className="p-10 flex flex-col items-center gap-3 text-center">
+        <p className="text-red-700 font-medium">{t("common.load_failed")}</p>
+        <button onClick={loadOrg} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors">{t("common.retry")}</button>
       </div>
     </AppLayout>
   );

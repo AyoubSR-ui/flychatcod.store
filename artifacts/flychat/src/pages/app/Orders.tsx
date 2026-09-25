@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import {
   Search, Plus, Loader2, Package, PhoneCall, AlertTriangle, Truck,
-  ShoppingBag, CheckCircle2, XCircle, TrendingUp, Send,
+  ShoppingBag, CheckCircle2, XCircle, TrendingUp, Send, RotateCw,
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
 import { DispatchModal } from "@/components/DispatchModal";
@@ -16,9 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk } from "@/hooks/use-carrier-communes";
 import { useShippingFeeAutofill, type ShippingDeliveryType } from "@/hooks/use-shipping-fee";
 import { ProductPicker, ProductPickerItem } from "@/components/ProductPicker";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
+import { authFetch } from "@/lib/auth-fetch";
 
 const STATUS_OPTIONS = [
   "new", "awaiting_confirmation", "self_confirmation", "self_confirmed", "confirmed",
@@ -266,7 +264,7 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
 
 // ─── Dispatch modal — pick a connected carrier account to create a colis ──────
 // ─── KPI summary bar ────────────────────────────────────────────────────────────
-function KpiCard({ icon, iconBg, label, value, sub }: { icon: React.ReactNode; iconBg: string; label: string; value: string | number; sub?: string }) {
+function KpiCard({ icon, iconBg, label, value, sub }: { icon: React.ReactNode; iconBg: string; label: string; value: React.ReactNode; sub?: string }) {
   return (
     <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-2 min-w-0">
       <div className="flex items-center gap-2">
@@ -325,26 +323,22 @@ export default function Orders() {
     return p;
   }, [filters, sort, page, limit]);
 
-  const { data: ordersData, isLoading } = useQuery({
+  const { data: ordersData, isLoading, isError: ordersIsError, refetch: refetchOrders } = useQuery({
     queryKey: ["orders-list", queryParams],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/orders?${new URLSearchParams(queryParams)}`, { headers: authHeaders() });
-      return res.json();
-    },
+    queryFn: () => authFetch<any>(`/api/orders?${new URLSearchParams(queryParams)}`),
   });
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, isLoading: statsIsLoading, isError: statsIsError, refetch: refetchStats } = useQuery({
     queryKey: ["orders-stats", queryParams],
-    queryFn: async () => {
+    queryFn: () => {
       const qp = { ...queryParams }; delete (qp as any).limit; delete (qp as any).sort; delete (qp as any).page;
-      const res = await fetch(`${API_BASE}/api/orders/stats?${new URLSearchParams(qp)}`, { headers: authHeaders() });
-      return res.json();
+      return authFetch<any>(`/api/orders/stats?${new URLSearchParams(qp)}`);
     },
   });
 
   const { data: carriersData } = useQuery({
     queryKey: ["carriers"],
-    queryFn: async () => { const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() }); return res.json(); },
+    queryFn: () => authFetch<any>("/api/carriers"),
   });
 
   const invalidateOrders = () => {
@@ -369,29 +363,26 @@ export default function Orders() {
   };
 
   const handleStatusChange = async (orderId: string, status: string) => {
-    await fetch(`${API_BASE}/api/orders/${orderId}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ status }),
-    });
-    invalidateOrders();
+    try {
+      await authFetch(`/api/orders/${orderId}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      invalidateOrders();
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
   };
 
   const handleAssignAgent = async (orderId: string, agentId: string) => {
-    await fetch(`${API_BASE}/api/orders/${orderId}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ assignedAgentId: agentId || null }),
-    });
-    invalidateOrders();
+    try {
+      await authFetch(`/api/orders/${orderId}`, { method: "PATCH", body: JSON.stringify({ assignedAgentId: agentId || null }) });
+      invalidateOrders();
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
   };
 
   const handleVoiceCall = async (orderId: string) => {
     setCallingOrderId(orderId);
     try {
-      const res = await fetch(`${API_BASE}/api/voice/call-order/${orderId}`, { method: "POST", headers: authHeaders() });
-      const data = await res.json();
+      const data = await authFetch<{ success: boolean; message?: string }>(`/api/voice/call-order/${orderId}`, { method: "POST" });
       if (data.success) { alert(t("orders.voice_call_success")); invalidateOrders(); }
       else alert(data.message ? "❌ " + data.message : t("orders.voice_call_failed"));
-    } catch { alert(t("orders.network_error")); }
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
     finally { setCallingOrderId(null); }
   };
 
@@ -419,15 +410,25 @@ export default function Orders() {
             </button>
           </div>
 
-          {/* ── KPI summary bar ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KpiCard icon={<ShoppingBag className="w-4 h-4 text-blue-600" />} iconBg="bg-blue-100" label={t("orders.kpi.total")} value={statsData?.total ?? "—"} sub={statsData ? t("orders.kpi.total_today").replace("{n}", String(statsData.today)) : undefined} />
-            <KpiCard icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} iconBg="bg-green-100" label={t("orders.kpi.confirmed")} value={statsData?.confirmed ?? "—"} sub={statsData ? `${statsData.confirmedRate}%` : undefined} />
-            <KpiCard icon={<XCircle className="w-4 h-4 text-red-600" />} iconBg="bg-red-100" label={t("orders.kpi.cancelled")} value={statsData?.cancelled ?? "—"} sub={statsData ? `${statsData.cancelledRate}%` : undefined} />
-            <KpiCard icon={<AlertTriangle className="w-4 h-4 text-orange-600" />} iconBg="bg-orange-100" label={t("orders.kpi.delivery_failed")} value={statsData?.deliveryFailed ?? "—"} sub={statsData ? `${statsData.deliveryFailedRate}%` : undefined} />
-            <KpiCard icon={<TrendingUp className="w-4 h-4 text-teal-600" />} iconBg="bg-teal-100" label={t("orders.kpi.delivery_rate")} value={statsData ? `${statsData.deliveryRate}%` : "—"} />
-            <KpiCard icon={<Truck className="w-4 h-4 text-purple-600" />} iconBg="bg-purple-100" label={t("orders.kpi.delivered_period")} value={statsData?.delivered ?? "—"} />
-          </div>
+          {/* ── KPI summary bar — loading / failed / loaded are visibly different states, */}
+          {/* never a silent "—" for a request that actually failed. ── */}
+          {statsIsError ? (
+            <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+              <span className="text-sm font-medium text-red-800">{t("orders.stats_load_failed")}</span>
+              <button onClick={() => refetchStats()} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors">
+                <RotateCw className="w-3.5 h-3.5" /> {t("common.retry")}
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <KpiCard icon={<ShoppingBag className="w-4 h-4 text-blue-600" />} iconBg="bg-blue-100" label={t("orders.kpi.total")} value={statsIsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : statsData.total} sub={!statsIsLoading ? t("orders.kpi.total_today").replace("{n}", String(statsData.today)) : undefined} />
+              <KpiCard icon={<CheckCircle2 className="w-4 h-4 text-green-600" />} iconBg="bg-green-100" label={t("orders.kpi.confirmed")} value={statsIsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : statsData.confirmed} sub={!statsIsLoading ? `${statsData.confirmedRate}%` : undefined} />
+              <KpiCard icon={<XCircle className="w-4 h-4 text-red-600" />} iconBg="bg-red-100" label={t("orders.kpi.cancelled")} value={statsIsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : statsData.cancelled} sub={!statsIsLoading ? `${statsData.cancelledRate}%` : undefined} />
+              <KpiCard icon={<AlertTriangle className="w-4 h-4 text-orange-600" />} iconBg="bg-orange-100" label={t("orders.kpi.delivery_failed")} value={statsIsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : statsData.deliveryFailed} sub={!statsIsLoading ? `${statsData.deliveryFailedRate}%` : undefined} />
+              <KpiCard icon={<TrendingUp className="w-4 h-4 text-teal-600" />} iconBg="bg-teal-100" label={t("orders.kpi.delivery_rate")} value={statsIsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : `${statsData.deliveryRate}%`} />
+              <KpiCard icon={<Truck className="w-4 h-4 text-purple-600" />} iconBg="bg-purple-100" label={t("orders.kpi.delivered_period")} value={statsIsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : statsData.delivered} />
+            </div>
+          )}
 
           <div className="bg-card border border-border rounded-2xl shadow-sm flex flex-col">
             {/* ── Date quick tabs ── */}
@@ -507,7 +508,19 @@ export default function Orders() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
-                    <tr><td colSpan={9} className="px-6 py-8 text-center">{t("common.loading")}</td></tr>
+                    <tr><td colSpan={9} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
+                  ) : ordersIsError ? (
+                    <tr>
+                      <td colSpan={9} className="px-6 py-16 text-center">
+                        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                          <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center"><AlertTriangle className="w-7 h-7 text-red-500" /></div>
+                          <p className="font-medium text-red-700">{t("orders.load_failed")}</p>
+                          <button onClick={() => refetchOrders()} className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors">
+                            <RotateCw className="w-3.5 h-3.5" /> {t("common.retry")}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ) : orders.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-6 py-16 text-center">

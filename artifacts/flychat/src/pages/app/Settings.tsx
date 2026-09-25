@@ -4,6 +4,7 @@ import { useGetStoreSettings, useUpdateStoreSettings } from "@workspace/api-clie
 import { useI18n } from "@/hooks/use-i18n";
 import { Store, Globe, MapPin, Bot, Check, Truck, Package } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
+import { authFetch } from "@/lib/auth-fetch";
 
 const TABS = ["profile", "language", "shipping", "autopilot"] as const;
 
@@ -86,8 +87,6 @@ const CHANNEL_META = {
   widget:    { labelKey: "settings.autopilot.channel.widget",    color: "text-violet-700", bg: "bg-violet-50", border: "border-violet-200",dot: "bg-violet-500" },
 } as const;
 
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-
 type Channel = keyof typeof CHANNEL_META;
 type AiModes = Record<Channel, "human" | "ai_autopilot">;
 
@@ -124,6 +123,7 @@ export default function Settings() {
   });
 
   const [shipping, setShipping] = useState<ShippingOptions>(defaultShipping);
+  const [shippingLoadError, setShippingLoadError] = useState(false);
   const [shippingSaving, setShippingSaving] = useState(false);
   const [shippingSaved, setShippingSaved] = useState(false);
   const [applyAllHome, setApplyAllHome] = useState("");
@@ -133,6 +133,7 @@ export default function Settings() {
   const [aiModes, setAiModes] = useState<AiModes>({
     whatsapp: "human", instagram: "human", messenger: "human", widget: "human",
   });
+  const [aiModesLoadError, setAiModesLoadError] = useState(false);
   const [aiSaving, setAiSaving] = useState(false);
   const [aiSaved, setAiSaved] = useState(false);
   const [applyingChannel, setApplyingChannel] = useState<string | null>(null);
@@ -150,22 +151,28 @@ export default function Settings() {
     });
   }, [store]);
 
-  useEffect(() => {
-    if (tab !== "shipping") return;
-    const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/settings/shipping-options`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
+  const loadShippingOptions = () => {
+    setShippingLoadError(false);
+    authFetch<Partial<ShippingOptions>>("/api/settings/shipping-options")
       .then(data => { if (data && typeof data === "object") setShipping({ ...defaultShipping, ...data }); })
-      .catch(() => {});
+      .catch(() => setShippingLoadError(true));
+  };
+
+  const loadAiModes = () => {
+    setAiModesLoadError(false);
+    authFetch<Partial<AiModes>>("/api/settings/channels-ai")
+      .then(data => { if (data && typeof data === "object") setAiModes(prev => ({ ...prev, ...data })); })
+      .catch(() => setAiModesLoadError(true));
+  };
+
+  useEffect(() => {
+    if (tab === "shipping") loadShippingOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   useEffect(() => {
-    if (tab !== "autopilot") return;
-    const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/settings/channels-ai`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => { if (data && typeof data === "object") setAiModes(prev => ({ ...prev, ...data })); })
-      .catch(console.error);
+    if (tab === "autopilot") loadAiModes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
   const handleSave = async () => {
@@ -178,17 +185,14 @@ export default function Settings() {
 
   const handleSaveShipping = async () => {
     setShippingSaving(true);
-    const token = localStorage.getItem("flychat_token") || "";
     try {
-      await fetch(`${API_BASE}/api/settings/shipping-options`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(shipping),
-      });
+      await authFetch("/api/settings/shipping-options", { method: "PATCH", body: JSON.stringify(shipping) });
       await updateStore.mutateAsync({ data: { shippingWilayas: ALL_WILAYAS } as any });
       setShippingSaved(true);
       setTimeout(() => setShippingSaved(false), 2000);
-    } catch {}
+    } catch (err: any) {
+      alert(err.message || t("common.load_failed"));
+    }
     setShippingSaving(false);
   };
 
@@ -197,19 +201,15 @@ export default function Settings() {
     if (!confirm(t("settings.autopilot.confirm_apply").replace("{channel}", label))) return;
     setApplyingChannel(channelKey);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${API_BASE}/api/settings/apply-ai-to-all`, {
+      const data = await authFetch<{ updatedCount?: number }>("/api/settings/apply-ai-to-all", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ channel: channelKey }),
       });
-      const data = await res.json();
       setAppliedCount(data.updatedCount || 0);
       setAppliedChannel(channelKey);
       setTimeout(() => setAppliedChannel(null), 5000);
-    } catch (err) {
-      console.error("Apply AI failed:", err);
-      alert(t("settings.err.apply_ai_failed"));
+    } catch (err: any) {
+      alert(err.message || t("settings.err.apply_ai_failed"));
     } finally {
       setApplyingChannel(null);
     }
@@ -219,17 +219,11 @@ export default function Settings() {
     if (!confirm(t("settings.autopilot.confirm_all_conversations"))) return;
     setApplyingAll(true);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${API_BASE}/api/settings/apply-ai-to-all-conversations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
+      const data = await authFetch<{ updated?: number }>("/api/settings/apply-ai-to-all-conversations", { method: "POST" });
       setAppliedAllCount(data.updated ?? 0);
       setTimeout(() => setAppliedAllCount(null), 6000);
-    } catch (err) {
-      console.error("Apply AI to all conversations failed:", err);
-      alert(t("settings.err.apply_ai_all_failed"));
+    } catch (err: any) {
+      alert(err.message || t("settings.err.apply_ai_all_failed"));
     } finally {
       setApplyingAll(false);
     }
@@ -237,14 +231,14 @@ export default function Settings() {
 
   const handleSaveAiModes = async () => {
     setAiSaving(true);
-    const token = localStorage.getItem("flychat_token") || "";
-    await fetch(`${API_BASE}/api/settings/channels-ai`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(aiModes),
-    });
-    setAiSaving(false); setAiSaved(true);
-    setTimeout(() => setAiSaved(false), 2000);
+    try {
+      await authFetch("/api/settings/channels-ai", { method: "PATCH", body: JSON.stringify(aiModes) });
+      setAiSaved(true);
+      setTimeout(() => setAiSaved(false), 2000);
+    } catch (err: any) {
+      alert(err.message || t("common.load_failed"));
+    }
+    setAiSaving(false);
   };
 
   const getWilaya = (w: string): WilayaPrice => ({
@@ -383,6 +377,12 @@ export default function Settings() {
 
           {tab === "shipping" && (
             <div className="space-y-5">
+              {shippingLoadError && (
+                <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3 text-sm">
+                  <span className="text-red-800 font-medium">{t("common.load_failed")}</span>
+                  <button onClick={loadShippingOptions} className="text-red-700 font-bold hover:underline">{t("common.retry")}</button>
+                </div>
+              )}
               {/* ── Shipping Mode Config ── */}
               <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-5">
                 <div className="flex items-center gap-3 pb-4 border-b border-border">
@@ -547,6 +547,13 @@ export default function Settings() {
           )}
 
           {tab === "autopilot" && (
+            <div className="space-y-5">
+              {aiModesLoadError && (
+                <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3 text-sm">
+                  <span className="text-red-800 font-medium">{t("common.load_failed")}</span>
+                  <button onClick={loadAiModes} className="text-red-700 font-bold hover:underline">{t("common.retry")}</button>
+                </div>
+              )}
             <div className="bg-card border border-border rounded-2xl p-6 shadow-sm space-y-6">
               <div className="flex items-center gap-3 pb-4 border-b border-border">
                 <Bot className="w-5 h-5 text-primary" />
@@ -654,6 +661,7 @@ export default function Settings() {
                   </p>
                 )}
               </div>
+            </div>
             </div>
           )}
         </div>

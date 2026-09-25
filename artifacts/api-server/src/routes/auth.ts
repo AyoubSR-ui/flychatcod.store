@@ -182,6 +182,19 @@ router.get("/me", requireAuth, async (req, res) => {
   res.json(serializeUser(req.user!));
 });
 
+// Re-issues a fresh 7-day token from a still-valid one. requireAuth already
+// rejects an expired token (verifyToken checks exp) with the same 401 as
+// every other authenticated route, so there's no separate "is it too late"
+// check here — an already-expired token 401s here exactly like it would
+// anywhere else, and the client (see artifacts/flychat's custom-fetch.ts /
+// auth-fetch.ts maybeRefreshToken) treats that as a genuine expiry and logs
+// out instead of retrying this endpoint.
+router.post("/refresh", requireAuth, async (req, res) => {
+  const user = req.user!;
+  const token = createToken({ userId: user.id, email: user.email, storeId: user.storeId });
+  res.json({ token });
+});
+
 const RESET_SENT_MESSAGE = "If an account exists with this email, a reset link will be sent.";
 
 router.post("/reset-password", async (req, res) => {
@@ -324,21 +337,44 @@ router.post("/accept-invite", async (req, res) => {
    const [store] = await db.select({ organizationId: storesTable.organizationId })
   .from(storesTable).where(eq(storesTable.id, invite.storeId)).limit(1);
 
-  const userId = generateId("usr");
   const passwordHash = await hashPassword(password);
 
-  await db.insert(usersTable).values({
-  id: userId,
-  email: invite.email.toLowerCase(),
-  passwordHash,
-  name,
-  role: invite.role === "admin" ? "admin" : "agent",
-  language: "fr",
-  storeId: invite.storeId,
-  organizationId: store?.organizationId || null,
-  onboardingCompleted: true,
-  });
-   
+  // Removing a team member hard-deletes their users row for that store (see
+  // DELETE /team/members/:id), so the row's existence is the signal: none
+  // means this is a first-time or post-removal accept and we insert. A row
+  // already existing here is a safety net for legacy pre-migration
+  // duplicates and double-submitted invite links, not the expected path —
+  // reuse it (new password, new name) rather than insert a second account
+  // for the same (email, store) pair.
+  const [existing] = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.email, invite.email.toLowerCase()), eq(usersTable.storeId, invite.storeId)))
+    .limit(1);
+
+  const userId = existing?.id || generateId("usr");
+
+  if (existing) {
+    await db.update(usersTable).set({
+      passwordHash,
+      name,
+      role: invite.role === "admin" ? "admin" : "agent",
+      organizationId: store?.organizationId || null,
+      onboardingCompleted: true,
+      updatedAt: new Date(),
+    }).where(eq(usersTable.id, userId));
+  } else {
+    await db.insert(usersTable).values({
+      id: userId,
+      email: invite.email.toLowerCase(),
+      passwordHash,
+      name,
+      role: invite.role === "admin" ? "admin" : "agent",
+      language: "fr",
+      storeId: invite.storeId,
+      organizationId: store?.organizationId || null,
+      onboardingCompleted: true,
+    });
+  }
+
     await db.update(teamMembersTable).set({
       userId,
       name,
@@ -367,6 +403,24 @@ router.post("/accept-invite", async (req, res) => {
 router.post("/onboarding", requireAuth, async (req, res) => {
   try {
     const user = req.user!;
+
+    // storeId is only ever set at the end of this handler (see the final
+    // `db.update(usersTable)` below), so a user who already has one has
+    // already completed onboarding once. Without this guard, a retried or
+    // double-submitted request (the client's own send button isn't
+    // debounced) would create a second org/store/subscription for the same
+    // person, silently orphaning the first. Onboarding intentionally stays
+    // a single atomic step rather than resumable partial state — signup
+    // only collects email/password/name, so there is no in-progress store
+    // to resume into; the frontend (ProtectedRoute) guarantees a user with
+    // no storeId is always routed back to /onboarding until this succeeds,
+    // so "leave storeId NULL forever" isn't a reachable state, and this
+    // guard is what makes it safe to retry after a failed attempt.
+    if (user.storeId) {
+      res.status(409).json({ error: "already_onboarded", message: "This account has already completed onboarding.", storeId: user.storeId });
+      return;
+    }
+
     const {
       businessName,
       storeName,

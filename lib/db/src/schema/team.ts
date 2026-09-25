@@ -3,7 +3,12 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const teamRoleEnum = pgEnum("team_role", ["owner", "admin", "agent"]);
-export const teamStatusEnum = pgEnum("team_status", ["active", "invited", "inactive"]);
+// "removed" is distinct from "inactive" (a manual pause an owner can toggle
+// back on): a removed member's users row is hard-deleted and the row itself
+// is terminal — kept only so past orders (orders.assigned_agent_id) and the
+// performance dashboard still resolve a name, never re-activated in place.
+// Re-inviting the same email creates a fresh team_members row instead.
+export const teamStatusEnum = pgEnum("team_status", ["active", "invited", "inactive", "removed"]);
 
 export const teamMembersTable = pgTable("team_members", {
   id: text("id").primaryKey(),

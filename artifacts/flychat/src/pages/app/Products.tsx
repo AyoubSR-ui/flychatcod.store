@@ -4,8 +4,7 @@ import { DocButton } from "@/components/DocButton";
 import { useState, useRef } from "react";
 import { useGetProducts, useCreateProduct, useUpdateProduct, useDeleteProduct } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
+import { authFetch } from "@/lib/auth-fetch";
 
 // Preset colors for color variants
 const PRESET_COLORS = [
@@ -69,16 +68,9 @@ function parseVariantGroups(variants: string[]): VariantGroup[] {
 // Upload image to Cloudinary via our backend
 async function uploadImage(file: File): Promise<string | null> {
   try {
-    const token = localStorage.getItem("flychat_token") || "";
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch(`${API_BASE}/api/storage/upload`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    });
-    if (!res.ok) return null;
-    const { url } = await res.json();
+    const { url } = await authFetch<{ url?: string }>("/api/storage/upload", { method: "POST", body: formData });
     return url || null;
   } catch (err) {
     console.error("Upload failed:", err);
@@ -95,7 +87,7 @@ export default function Products() {
   const [imageTab, setImageTab] = useState<"url" | "upload">("url");
   const [groupColorHex, setGroupColorHex] = useState<Record<number, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data, isLoading, refetch } = useGetProducts({ search: search || undefined, limit: 50 });
+  const { data, isLoading, isError, refetch } = useGetProducts({ search: search || undefined, limit: 50 });
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
@@ -218,6 +210,13 @@ export default function Products() {
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
                     <tr><td colSpan={6} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
+                  ) : isError ? (
+                    <tr><td colSpan={6} className="px-6 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-red-700">
+                        <span>{t("common.load_failed")}</span>
+                        <button onClick={() => refetch()} className="text-xs font-bold hover:underline">{t("common.retry")}</button>
+                      </div>
+                    </td></tr>
                   ) : data?.products.length === 0 ? (
                     <tr><td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">{t("products.no_products")}</td></tr>
                   ) : data?.products.map((p) => {

@@ -13,4 +13,5 @@ export const TeamMemberStatus = {
   active: "active",
   invited: "invited",
   inactive: "inactive",
+  removed: "removed",
 } as const;

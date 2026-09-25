@@ -7,17 +7,8 @@ import {
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API = import.meta.env.VITE_API_URL ?? "";
-
-async function apiFetch<T>(path: string): Promise<T> {
-  const token = localStorage.getItem("flychat_token") ?? "";
-  const res = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<T>;
-}
+import { authFetch, API_BASE } from "@/lib/auth-fetch";
+import { API_UNAUTHORIZED_EVENT, maybeRefreshToken } from "@workspace/api-client-react";
 
 interface LeadStats {
   total_conversations: string;
@@ -118,7 +109,7 @@ export default function LeadIntelligence() {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    apiFetch<LeadStatsResponse>("/api/analytics/lead-stats")
+    authFetch<LeadStatsResponse>("/api/analytics/lead-stats")
       .then((d) => { setData(d); setLoading(false); })
       .catch(() => { setError(t("leadIntel.err.load_failed")); setLoading(false); });
   }, []);
@@ -133,10 +124,14 @@ export default function LeadIntelligence() {
     setExporting(true);
     try {
       const token = localStorage.getItem("flychat_token") ?? "";
-      const res = await fetch(`${API}/api/analytics/export-engaged-csv`, {
+      const res = await fetch(`${API_BASE}/api/analytics/export-engaged-csv`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        if (res.status === 401 && token) window.dispatchEvent(new Event(API_UNAUTHORIZED_EVENT));
+        throw new Error(await res.text());
+      }
+      if (token) maybeRefreshToken(token);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

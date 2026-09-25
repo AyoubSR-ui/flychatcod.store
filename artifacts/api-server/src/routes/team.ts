@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, pool, teamMembersTable, inviteTokensTable, storesTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, pool, teamMembersTable, inviteTokensTable, storesTable, usersTable } from "@workspace/db";
+import { eq, and, ne } from "drizzle-orm";
 import { requireOwner } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { sendInviteEmail } from "../lib/email.js";
@@ -43,8 +43,10 @@ router.get("/members", requireOwner, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ members: [] }); return; }
+    // "removed" rows are kept for order history / the performance dashboard
+    // (see DELETE /members/:id) but must never appear as active roster.
     const members = await db.select().from(teamMembersTable)
-      .where(eq(teamMembersTable.storeId, String(storeId)));
+      .where(and(eq(teamMembersTable.storeId, String(storeId)), ne(teamMembersTable.status, "removed")));
     res.json({ members });
   } catch (err) {
     console.error(err);
@@ -73,7 +75,7 @@ router.post("/members", requireOwner, async (req, res) => {
     const limit = PLAN_LIMITS[plan] ?? 1;
     if (limit !== -1) {
       const currentMembers = await db.select().from(teamMembersTable)
-        .where(eq(teamMembersTable.storeId, String(storeId)));
+        .where(and(eq(teamMembersTable.storeId, String(storeId)), ne(teamMembersTable.status, "removed")));
       if (currentMembers.length >= limit) {
         res.status(403).json({
           error: "plan_limit_reached",
@@ -183,6 +185,25 @@ router.patch("/members/:id", requireOwner, async (req, res) => {
       res.status(400).json({ error: "invalid_role", message: "role must be \"admin\" or \"agent\" — you can't promote someone to owner." });
       return;
     }
+    // "removed" is terminal and paired with hard-deleting the login — only
+    // DELETE /members/:id can set it; going through here would leave the
+    // users row alive under a status this route never expects to see.
+    if (status === "removed") {
+      res.status(400).json({ error: "invalid_status", message: "Use DELETE to remove a team member." });
+      return;
+    }
+
+    const [existing] = await db.select({ status: teamMembersTable.status }).from(teamMembersTable)
+      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, storeId)))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "not_found", message: "Team member not found" }); return; }
+    // Removed rows are terminal (their login is gone) — re-invite the email
+    // instead of trying to revive this row in place.
+    if (existing.status === "removed") {
+      res.status(410).json({ error: "removed", message: "This team member was removed. Invite them again instead." });
+      return;
+    }
+
     const updates: Partial<typeof teamMembersTable.$inferSelect> = { updatedAt: new Date() };
     if (role) updates.role = role;
     if (status) updates.status = status;
@@ -218,7 +239,19 @@ router.delete("/members/:id", requireOwner, async (req, res) => {
         eq(inviteTokensTable.teamMemberId, String(req.params.id)),
         eq(inviteTokensTable.storeId, String(storeId))
       ));
-    await db.delete(teamMembersTable)
+
+    // Hard-delete the login (its existence is what accept-invite checks to
+    // decide reuse vs. insert — see POST /accept-invite), but keep the
+    // team_members row itself, marked removed, so past orders
+    // (orders.assigned_agent_id) and the performance dashboard still
+    // resolve an agent name. A re-invite of this email creates a fresh
+    // team_members row rather than reviving this one.
+    if (member.userId) {
+      await db.delete(usersTable)
+        .where(and(eq(usersTable.id, member.userId), eq(usersTable.storeId, storeId)));
+    }
+    await db.update(teamMembersTable)
+      .set({ status: "removed", updatedAt: new Date() })
       .where(and(
         eq(teamMembersTable.id, String(req.params.id)),
         eq(teamMembersTable.storeId, String(storeId))

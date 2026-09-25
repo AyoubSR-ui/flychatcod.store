@@ -2,19 +2,14 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Truck, Loader2 } from "lucide-react";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("flychat_token") || ""}` });
+import { authFetch } from "@/lib/auth-fetch";
 
 // Shared by Orders.tsx (list row) and OrderDetail.tsx ("Create Parcel").
 export function DispatchModal({ orderId, onClose, onDone }: { orderId: string; onClose: () => void; onDone: () => void }) {
   const { t } = useI18n();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: carriersIsError, refetch: refetchCarriers } = useQuery({
     queryKey: ["carriers"],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/carriers`, { headers: authHeaders() });
-      return res.json();
-    },
+    queryFn: () => authFetch<any>("/api/carriers"),
   });
   const [carrierConnectionId, setCarrierConnectionId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -26,13 +21,7 @@ export function DispatchModal({ orderId, onClose, onDone }: { orderId: string; o
     if (!carrierConnectionId) { setError(t("dispatchModal.err.choose_carrier_account")); return; }
     setSubmitting(true); setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/orders/${orderId}/dispatch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ carrierConnectionId }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message || t("orderDetail.err.dispatch_failed"));
+      await authFetch(`/api/orders/${orderId}/dispatch`, { method: "POST", body: JSON.stringify({ carrierConnectionId }) });
       onDone(); onClose();
     } catch (err: any) {
       setError(err.message || t("orderDetail.err.dispatch_failed"));
@@ -48,6 +37,11 @@ export function DispatchModal({ orderId, onClose, onDone }: { orderId: string; o
         </div>
         {isLoading ? (
           <div className="py-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+        ) : carriersIsError ? (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center justify-between gap-2">
+            <span>{t("common.load_failed")}</span>
+            <button onClick={() => refetchCarriers()} className="font-bold hover:underline shrink-0">{t("common.retry")}</button>
+          </div>
         ) : connections.length === 0 ? (
           <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl text-yellow-800 text-sm">
             {t("dispatchModal.no_carrier_connected")}
@@ -64,7 +58,7 @@ export function DispatchModal({ orderId, onClose, onDone }: { orderId: string; o
         {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>}
         <div className="flex gap-3 pt-1">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
-          <button onClick={handleDispatch} disabled={submitting || connections.length === 0} className="flex-1 py-2.5 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-2">
+          <button onClick={handleDispatch} disabled={submitting || carriersIsError || connections.length === 0} className="flex-1 py-2.5 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-2">
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />} {t("dispatchModal.submit_btn")}
           </button>
         </div>

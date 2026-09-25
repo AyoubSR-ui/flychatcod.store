@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { MessageSquare, Loader2, Building2, ArrowLeft } from "lucide-react";
 import { useAuthLogin, useAuthLoginSelect, LoginAccountOption } from "@workspace/api-client-react";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, SESSION_EXPIRED_KEY } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { PasswordInput } from "@/components/PasswordInput";
@@ -26,6 +26,19 @@ export default function Login() {
   // in a browser where they still have a FlyChat session) shouldn't have to
   // re-enter their password just to trigger the claim in onSuccess below —
   // claim immediately and skip the form.
+  // Set by use-auth.tsx's logout("expired") right before it redirects here —
+  // sessionStorage (not state) because that redirect is a fresh mount of
+  // this component, with nothing else to carry the reason across it.
+  useEffect(() => {
+    if (!sessionStorage.getItem(SESSION_EXPIRED_KEY)) return;
+    sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+    toast({
+      variant: "destructive",
+      title: "Session expired",
+      description: "Your session expired, please log in again.",
+    });
+  }, []);
+
   useEffect(() => {
     if (!token || !hasPendingShopifyClaim()) return;
     claimPendingShopifyInstall(token).then((result) => {

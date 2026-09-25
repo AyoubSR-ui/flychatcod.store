@@ -74,6 +74,7 @@ import type {
   SuccessResponse,
   TeamMember,
   TeamMemberListResponse,
+  TokenResponse,
   UpdateAiSettingsBody,
   UpdateAutomationRuleRequest,
   UpdateConversationAiModeBody,
@@ -577,6 +578,88 @@ export function useAuthMe<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * Sliding-refresh for an active session — call when the current token is within ~1 day of expiring. A 401 here means the token was already expired (or otherwise invalid) by the time this was called; treat it as a genuine session expiry, not a reason to retry.
+ * @summary Re-issue a fresh token from a still-valid one
+ */
+export const getAuthRefreshUrl = () => {
+  return `/api/auth/refresh`;
+};
+
+export const authRefresh = async (
+  options?: RequestInit,
+): Promise<TokenResponse> => {
+  return customFetch<TokenResponse>(getAuthRefreshUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getAuthRefreshMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof authRefresh>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof authRefresh>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["authRefresh"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof authRefresh>>,
+    void
+  > = () => {
+    return authRefresh(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AuthRefreshMutationResult = NonNullable<
+  Awaited<ReturnType<typeof authRefresh>>
+>;
+
+export type AuthRefreshMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Re-issue a fresh token from a still-valid one
+ */
+export const useAuthRefresh = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof authRefresh>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof authRefresh>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getAuthRefreshMutationOptions(options));
+};
 
 /**
  * @summary Request a password reset

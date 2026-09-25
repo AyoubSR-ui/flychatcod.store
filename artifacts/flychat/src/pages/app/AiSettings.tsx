@@ -3,24 +3,11 @@ import { AppLayout } from "@/components/AppLayout";
 import { Bot, Brain, BookOpen, Globe, CheckCircle2, AlertCircle, Loader2, Save, RefreshCw, Download, Sparkles, Play } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
 import { useI18n } from "@/hooks/use-i18n";
-
-const API = import.meta.env.VITE_API_URL ?? "";
+import { authFetch, API_BASE } from "@/lib/auth-fetch";
+import { API_UNAUTHORIZED_EVENT, maybeRefreshToken } from "@workspace/api-client-react";
 
 function getToken() {
   return localStorage.getItem("flychat_token") ?? "";
-}
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const res = await fetch(`${API}${path}`, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getToken()}`,
-      ...(opts?.headers ?? {}),
-    },
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
 }
 
 // ─── Data Quality Card ────────────────────────────────────────────────────────
@@ -30,7 +17,7 @@ function DataQualitySection() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch("/api/settings/ai-data-quality")
+    authFetch("/api/settings/ai-data-quality")
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
@@ -119,7 +106,7 @@ function LanguageSection() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    apiFetch("/api/settings/ai-language")
+    authFetch<{ language?: string }>("/api/settings/ai-language")
       .then(d => setLang(d.language || "auto"))
       .catch(() => {});
   }, []);
@@ -127,7 +114,7 @@ function LanguageSection() {
   async function save() {
     setSaving(true);
     try {
-      await apiFetch("/api/settings/ai-language", {
+      await authFetch("/api/settings/ai-language", {
         method: "PATCH",
         body: JSON.stringify({ language: lang }),
       });
@@ -173,7 +160,7 @@ function RulesSection() {
   const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
-    apiFetch("/api/settings/ai-rules")
+    authFetch("/api/settings/ai-rules")
       .then((d: any) => setRules(d.rules || ""))
       .catch(() => {});
   }, []);
@@ -182,7 +169,7 @@ function RulesSection() {
     setSaving(true);
     setSaveError("");
     try {
-      await apiFetch("/api/settings/ai-rules", {
+      await authFetch("/api/settings/ai-rules", {
         method: "POST",
         body: JSON.stringify({ rules }),
       });
@@ -278,10 +265,15 @@ function TrainingDataSection() {
   async function handleExport() {
     setDownloading(true);
     try {
-      const res = await fetch(`${API}/api/sync/export-training-data`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
+      const token = getToken();
+      const res = await fetch(`${API_BASE}/api/sync/export-training-data`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error("Export failed");
+      if (!res.ok) {
+        if (res.status === 401 && token) window.dispatchEvent(new Event(API_UNAUTHORIZED_EVENT));
+        throw new Error("Export failed");
+      }
+      if (token) maybeRefreshToken(token);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -302,7 +294,7 @@ function TrainingDataSection() {
     setSyncError("");
     setSyncWarning("");
     try {
-      const data = await apiFetch<{ messagesSynced: number; conversationsSynced: number; results?: Record<string, { synced: number; error: string | null }> }>(
+      const data = await authFetch<{ messagesSynced: number; conversationsSynced: number; results?: Record<string, { synced: number; error: string | null }> }>(
         "/api/sync/meta-conversations"
       );
       const failedChannels = Object.entries(data.results ?? {})
@@ -396,8 +388,8 @@ function OptimizerSection() {
   // Phase 1: load estimate on mount (no credits deducted)
   useEffect(() => {
     Promise.all([
-      apiFetch("/api/analytics/optimizer/estimate", { method: "POST" }).catch(() => null),
-      apiFetch("/api/analytics/optimizer/status").catch(() => null),
+      authFetch("/api/analytics/optimizer/estimate", { method: "POST" }).catch(() => null),
+      authFetch("/api/analytics/optimizer/status").catch(() => null),
     ]).then(([est, stat]) => {
       setEstimate(est);
       setStatus(stat);
@@ -408,7 +400,7 @@ function OptimizerSection() {
     setRunning(true);
     setRunError("");
     try {
-      const result = await apiFetch("/api/analytics/optimizer/run", { method: "POST" });
+      const result = await authFetch<any>("/api/analytics/optimizer/run", { method: "POST" });
 
       // Billing blocked — show top-up message
       if (result.blocked || result.status === "blocked_insufficient_credits") {
@@ -422,8 +414,8 @@ function OptimizerSection() {
 
       // Refresh status after successful run
       const [updatedStatus, updatedEstimate] = await Promise.all([
-        apiFetch("/api/analytics/optimizer/status").catch(() => null),
-        apiFetch("/api/analytics/optimizer/estimate", { method: "POST" }).catch(() => null),
+        authFetch("/api/analytics/optimizer/status").catch(() => null),
+        authFetch("/api/analytics/optimizer/estimate", { method: "POST" }).catch(() => null),
       ]);
       setStatus(updatedStatus);
       setEstimate(updatedEstimate);
@@ -437,8 +429,8 @@ function OptimizerSection() {
   async function handleApprove() {
     setApproving(true);
     try {
-      await apiFetch("/api/analytics/optimizer/approve", { method: "POST" });
-      const updated = await apiFetch("/api/analytics/optimizer/status").catch(() => null);
+      await authFetch("/api/analytics/optimizer/approve", { method: "POST" });
+      const updated = await authFetch("/api/analytics/optimizer/status").catch(() => null);
       setStatus(updated);
     } catch {
       // silent

@@ -36,7 +36,7 @@ import {
   orderItemsTable,
   customersTable,
 } from "@workspace/db";
-import { eq, and, desc, gte, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, asc, sql, inArray, ne } from "drizzle-orm";
 import { generateId, generateOrderNumber } from "./id.js";
 import { getIO } from "../socket.js";
 import { generateAiReply, extractOrderState } from "./ai-service.js";
@@ -1097,6 +1097,7 @@ async function executeAction(
           and(
             eq(teamMembersTable.id, agentId),
             eq(teamMembersTable.storeId, ctx.storeId),
+            ne(teamMembersTable.status, "removed"),
           ),
         )
         .limit(1);

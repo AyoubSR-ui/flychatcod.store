@@ -4,6 +4,7 @@ import { CheckCircle2, XCircle, Clock, AlertCircle, ExternalLink, Play, X, Loade
 import { useGetChannels } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/use-i18n";
 import WidgetGuideVideo from "@/components/WidgetGuideVideo";
+import { authFetch, API_BASE } from "@/lib/auth-fetch";
 
 const WidgetIcon = () => (
   <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -112,7 +113,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-function WhatsAppModal({ onClose, onSuccess, apiBase }: { onClose: () => void; onSuccess: () => void; apiBase: string }) {
+function WhatsAppModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const [accessToken, setAccessToken] = useState("");
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -123,14 +124,10 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: { onClose: () => void; o
     if (!phoneNumberId.trim()) { setError("Phone Number ID is required."); return; }
     setError(""); setLoading(true);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${apiBase}/api/whatsapp/connect`, {
+      await authFetch("/api/whatsapp/connect", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ accessToken: accessToken.trim(), phoneNumberId: phoneNumberId.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Connection failed");
       onSuccess(); onClose();
     } catch (err: any) {
       setError(err.message || "Failed to connect WhatsApp.");
@@ -173,7 +170,7 @@ function WhatsAppModal({ onClose, onSuccess, apiBase }: { onClose: () => void; o
   );
 }
 
-function VoiceCallModal({ onClose, onSuccess, apiBase }: { onClose: () => void; onSuccess: (phone: string) => void; apiBase: string }) {
+function VoiceCallModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (phone: string) => void }) {
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -185,13 +182,9 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: { onClose: () => void; 
     if (!phone.trim()) { setError("Phone number is required."); return; }
     setError(""); setLoading(true);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${apiBase}/api/voice/verify-send`, {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ phone: phone.trim() }),
+      const data = await authFetch<{ phone: string }>("/api/voice/verify-send", {
+        method: "POST", body: JSON.stringify({ phone: phone.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to send OTP");
       setVerifiedPhone(data.phone); setStep("otp");
     } catch (err: any) { setError(err.message || "Failed to send verification code."); }
     finally { setLoading(false); }
@@ -201,13 +194,9 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: { onClose: () => void; 
     if (!otp.trim()) { setError("Verification code is required."); return; }
     setError(""); setLoading(true);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${apiBase}/api/voice/verify-confirm`, {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ phone: verifiedPhone, code: otp.trim() }),
+      await authFetch("/api/voice/verify-confirm", {
+        method: "POST", body: JSON.stringify({ phone: verifiedPhone, code: otp.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Invalid code");
       onSuccess(verifiedPhone); onClose();
     } catch (err: any) { setError(err.message || "Invalid verification code."); }
     finally { setLoading(false); }
@@ -265,7 +254,7 @@ function VoiceCallModal({ onClose, onSuccess, apiBase }: { onClose: () => void; 
   );
 }
 
-function ShopifyModal({ onClose, apiBase, onSuccess }: { onClose: () => void; apiBase: string; onSuccess: (shop: string) => void }) {
+function ShopifyModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (shop: string) => void }) {
   const [shop, setShop] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -292,12 +281,7 @@ function ShopifyModal({ onClose, apiBase, onSuccess }: { onClose: () => void; ap
   }
     setError(""); setLoading(true);
     try {
-      const token = localStorage.getItem("flychat_token") || "";
-      const res = await fetch(`${apiBase}/api/shopify/oauth/start?shop=${shopUrl}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to start OAuth");
+      const data = await authFetch<{ url?: string }>(`/api/shopify/oauth/start?shop=${shopUrl}`);
       if (data.url) {
         const popup = window.open(data.url, "shopify_oauth", "width=600,height=700,scrollbars=yes");
         const timer = setInterval(() => {
@@ -346,7 +330,7 @@ function ShopifyModal({ onClose, apiBase, onSuccess }: { onClose: () => void; ap
 }
 
 export default function Channels() {
-  const { data, isLoading, refetch } = useGetChannels();
+  const { data, isLoading, isError, refetch } = useGetChannels();
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
   const [waModalOpen, setWaModalOpen] = useState(false);
@@ -358,8 +342,6 @@ export default function Channels() {
   const [shopifyStatus, setShopifyStatus] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [namesSyncing, setNamesSyncing] = useState(false);
-
-  const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -373,11 +355,8 @@ export default function Channels() {
 
   const handleSyncNames = async () => {
     setNamesSyncing(true);
-    const token = localStorage.getItem("flychat_token") || "";
     try {
-      const res = await fetch(`${API_BASE}/api/sync/backfill-names`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || "Sync failed");
+      const data = await authFetch<{ message?: string; updated?: number }>("/api/sync/backfill-names");
       setSuccessMsg(data.message || `Updated ${data.updated} customer names`);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to sync customer names.");
@@ -385,15 +364,11 @@ export default function Channels() {
   };
 
   const fetchShopifyStatus = () => {
-    const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/shopify/status`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json()).then(data => setShopifyStatus(data)).catch(() => {});
+    authFetch<any>("/api/shopify/status").then(setShopifyStatus).catch(() => {});
   };
 
   useEffect(() => {
-    const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/voice/status`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json()).then(data => setVoiceStatus(data)).catch(() => {});
+    authFetch<any>("/api/voice/status").then(setVoiceStatus).catch(() => {});
     fetchShopifyStatus();
   }, []);
 
@@ -408,22 +383,18 @@ export default function Channels() {
 
   const handleDisconnect = async (ch: string) => {
     if (ch === "widget") return;
-    const token = localStorage.getItem("flychat_token") || "";
     try {
-      await fetch(`${API_BASE}/api/${ch}/disconnect`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      await authFetch(`/api/${ch}/disconnect`, { method: "POST" });
       setSuccessMsg(`${CHANNEL_META[ch]?.name || ch} disconnected.`); refetch();
-    } catch { setErrorMsg("Failed to disconnect. Please try again."); }
+    } catch (err: any) { setErrorMsg(err.message || "Failed to disconnect. Please try again."); }
   };
 
   const handleShopifySync = async (type: "products" | "orders") => {
     setSyncing(true);
-    const token = localStorage.getItem("flychat_token") || "";
     try {
-      const res = await fetch(`${API_BASE}/api/shopify/sync/${type}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || "Sync failed");
+      const data = await authFetch<{ synced?: number }>(`/api/shopify/sync/${type}`, { method: "POST" });
       setSuccessMsg(`Synced ${data.synced} ${type} from Shopify ✅`);
-    } catch { setErrorMsg("Sync failed. Please try again."); }
+    } catch (err: any) { setErrorMsg(err.message || "Sync failed. Please try again."); }
     finally { setSyncing(false); }
   };
 
@@ -480,6 +451,11 @@ export default function Channels() {
 
           {isLoading ? (
             <div className="text-center py-10 text-muted-foreground">{t("common.loading")}</div>
+          ) : isError ? (
+            <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+              <span className="text-sm font-medium text-red-800">{t("common.load_failed")}</span>
+              <button onClick={() => refetch()} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 transition-colors">{t("common.retry")}</button>
+            </div>
           ) : (
             <>
               {/* ── Messaging Channels ── */}
@@ -554,9 +530,9 @@ export default function Channels() {
                     <div className="flex gap-3 pt-2 border-t border-border">
                       <button onClick={() => {
                         if (voiceConnected) {
-                          const token = localStorage.getItem("flychat_token") || "";
-                          fetch(`${API_BASE}/api/voice/verify-confirm`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } })
-                            .then(() => setVoiceStatus((prev: any) => ({ ...prev, callerPhone: null }))).catch(() => {});
+                          authFetch("/api/voice/verify-confirm", { method: "DELETE" })
+                            .then(() => setVoiceStatus((prev: any) => ({ ...prev, callerPhone: null })))
+                            .catch((err: any) => setErrorMsg(err.message || "Failed to disconnect. Please try again."));
                         } else { setVoiceModalOpen(true); }
                       }} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${voiceConnected ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" : "bg-orange-500 text-white hover:bg-orange-600"}`}>
                         {voiceConnected ? "Disconnect" : "Connect Voice Calls"}
@@ -615,10 +591,11 @@ export default function Channels() {
                     <div className="flex gap-3 pt-2 border-t border-border">
                       {shopifyStatus?.connected ? (
                         <button onClick={async () => {
-                          const token = localStorage.getItem("flychat_token") || "";
-                          await fetch(`${API_BASE}/api/shopify/disconnect`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-                          setShopifyStatus({ connected: false });
-                          setSuccessMsg("Shopify disconnected.");
+                          try {
+                            await authFetch("/api/shopify/disconnect", { method: "POST" });
+                            setShopifyStatus({ connected: false });
+                            setSuccessMsg("Shopify disconnected.");
+                          } catch (err: any) { setErrorMsg(err.message || "Failed to disconnect. Please try again."); }
                         }} className="flex-1 py-2 rounded-xl text-sm font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all">
                           Disconnect
                         </button>
@@ -637,9 +614,9 @@ export default function Channels() {
         </div>
       </div>
 
-      {waModalOpen && <WhatsAppModal apiBase={API_BASE} onClose={() => setWaModalOpen(false)} onSuccess={() => { setSuccessMsg("WhatsApp connected successfully!"); refetch(); }} />}
-      {voiceModalOpen && <VoiceCallModal apiBase={API_BASE} onClose={() => setVoiceModalOpen(false)} onSuccess={(phone) => { setSuccessMsg(`Voice calls connected! AI will call customers from ${phone}`); setVoiceStatus((prev: any) => ({ ...prev, callerPhone: phone })); }} />}
-      {shopifyModalOpen && <ShopifyModal apiBase={API_BASE} onClose={() => setShopifyModalOpen(false)} onSuccess={(shop) => { setShopifyStatus({ connected: true, shop }); setSuccessMsg(`Shopify store ${shop} connected!`); }} />}
+      {waModalOpen && <WhatsAppModal onClose={() => setWaModalOpen(false)} onSuccess={() => { setSuccessMsg("WhatsApp connected successfully!"); refetch(); }} />}
+      {voiceModalOpen && <VoiceCallModal onClose={() => setVoiceModalOpen(false)} onSuccess={(phone) => { setSuccessMsg(`Voice calls connected! AI will call customers from ${phone}`); setVoiceStatus((prev: any) => ({ ...prev, callerPhone: phone })); }} />}
+      {shopifyModalOpen && <ShopifyModal onClose={() => setShopifyModalOpen(false)} onSuccess={(shop) => { setShopifyStatus({ connected: true, shop }); setSuccessMsg(`Shopify store ${shop} connected!`); }} />}
 
       {guideOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setGuideOpen(false)}>

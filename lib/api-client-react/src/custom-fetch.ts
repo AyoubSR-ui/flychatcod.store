@@ -2,6 +2,80 @@ export type CustomFetchOptions = RequestInit & {
   responseType?: "json" | "text" | "blob" | "auto";
 };
 
+// Fired on a 401 for a request that actually carried a bearer token — i.e.
+// the session was believed valid and the server rejected it, not a
+// credentials-check 401 from an unauthenticated endpoint like /auth/login.
+// The generated client can't hold app state (it has no React tree, no
+// router) — this is how it tells the app "log this session out" without
+// depending on it. See artifacts/flychat/src/hooks/use-auth.tsx, the sole
+// listener, and artifacts/flychat/src/lib/auth-fetch.ts, which dispatches
+// the same event for the app's hand-rolled fetch calls.
+export const API_UNAUTHORIZED_EVENT = "api:unauthorized";
+
+function reportUnauthorized(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(API_UNAUTHORIZED_EVENT));
+}
+
+const TOKEN_STORAGE_KEY = "flychat_token";
+const REFRESH_URL = "/api/auth/refresh";
+const REFRESH_WITHIN_SECONDS = 60 * 60 * 24; // ~1 day — matches the 7-day TTL in artifacts/api-server/src/lib/auth.ts
+const REFRESH_COOLDOWN_MS = 60_000;
+
+function decodeTokenExp(token: string): number | null {
+  if (typeof atob !== "function") return null; // browser-only decode; no-op in any other runtime
+  try {
+    const payloadSegment = token.split(".")[1];
+    if (!payloadSegment) return null;
+    const base64 = payloadSegment.replace(/-/g, "+").replace(/_/g, "/").padEnd(payloadSegment.length + ((4 - (payloadSegment.length % 4)) % 4), "=");
+    const payload = JSON.parse(atob(base64));
+    return typeof payload.exp === "number" ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+let refreshInFlight: Promise<void> | null = null;
+let lastRefreshAttemptAt = 0;
+
+// Called after every successful (2xx) request that carried a token. Sliding
+// refresh: if that token is within ~1 day of expiring, silently trade it for
+// a fresh one so an active user never hits the 7-day cliff mid-session. Not
+// wired to retries or queues — `refreshInFlight` collapses concurrent
+// callers into one request, and the cooldown bounds how often this can even
+// attempt to run, so there's no path for this to loop: a 401 here (the
+// token was already invalid by the time this ran) is reported exactly like
+// any other 401 and left to the normal logout flow, never retried.
+export function maybeRefreshToken(token: string | null): void {
+  if (!token || typeof window === "undefined" || typeof localStorage === "undefined") return;
+  if (refreshInFlight) return;
+
+  const exp = decodeTokenExp(token);
+  if (exp == null) return;
+  const now = Math.floor(Date.now() / 1000);
+  if (exp <= now || exp - now > REFRESH_WITHIN_SECONDS) return;
+
+  if (Date.now() - lastRefreshAttemptAt < REFRESH_COOLDOWN_MS) return;
+  lastRefreshAttemptAt = Date.now();
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(REFRESH_URL, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        if (res.status === 401) reportUnauthorized();
+        return;
+      }
+      const data = await res.json();
+      if (data && typeof data.token === "string") {
+        localStorage.setItem(TOKEN_STORAGE_KEY, data.token);
+      }
+    } catch {
+      // Network hiccup — skip silently, the next successful request re-checks and retries.
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+}
+
 export type ErrorType<T = unknown> = ApiError<T>;
 
 export type BodyType<T> = T;
@@ -304,9 +378,12 @@ export async function customFetch<T = unknown>(
   const response = await fetch(input, { ...init, method, headers });
 
   if (!response.ok) {
+    if (response.status === 401 && token) reportUnauthorized();
     const errorData = await parseErrorBody(response, method);
     throw new ApiError(response, errorData, requestInfo);
   }
+
+  if (token) maybeRefreshToken(token);
 
   return (await parseSuccessBody(response, responseType, requestInfo)) as T;
 }

@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, pool, ordersTable, orderItemsTable, customersTable, conversationsTable } from "@workspace/db";
-import { eq, and, ilike, sql } from "drizzle-orm";
+import { db, pool, ordersTable, orderItemsTable, customersTable, conversationsTable, teamMembersTable } from "@workspace/db";
+import { eq, and, ilike, sql, ne } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
@@ -375,6 +375,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
     await ensureOrderStatusValues();
     await ensureOrdersAgentColumn();
     const { status, sellerNote, wilaya, address, commune, shippingFee, shippingOption, assignedAgentId, customerName, customerPhone } = req.body;
+
+    if (assignedAgentId) {
+      const [agent] = await db.select({ id: teamMembersTable.id })
+        .from(teamMembersTable)
+        .where(and(eq(teamMembersTable.id, assignedAgentId), eq(teamMembersTable.storeId, storeId!), ne(teamMembersTable.status, "removed"))).limit(1);
+      if (!agent) { res.status(400).json({ error: "invalid_agent", message: "assignedAgentId does not refer to a team member in this store" }); return; }
+    }
 
     let previousStatus: string | null = null;
     if (status) {

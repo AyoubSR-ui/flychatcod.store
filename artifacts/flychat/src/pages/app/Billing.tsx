@@ -5,6 +5,7 @@ import { useGetSubscription, useGetPlans, useGetBillingAiStatus } from "@workspa
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
 import { getSubscriptionStatusBadge } from "@/lib/subscription-status";
+import { authFetch } from "@/lib/auth-fetch";
 
 const PLAN_COLORS: Record<string, string> = {
   free: "from-gray-400 to-gray-500",
@@ -27,26 +28,25 @@ function getPrice(price: number, annual: boolean) {
   return annual ? Math.round(price * (1 - DISCOUNT)) : price;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || "https://zealous-nature-production-771f.up.railway.app";
-
 async function handleCheckout(priceKey: string, annual: boolean = false) {
-  const token = localStorage.getItem("flychat_token") || "";
-  const res = await fetch(`${API_BASE}/api/stripe/create-checkout`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ priceKey, annual }),
-  });
-  const data = await res.json();
-  if (data.url) window.location.href = data.url;
+  try {
+    const data = await authFetch<{ url?: string }>("/api/stripe/create-checkout", {
+      method: "POST",
+      body: JSON.stringify({ priceKey, annual }),
+    });
+    if (data.url) window.location.href = data.url;
+  } catch (err: any) {
+    alert(err.message || "Failed to start checkout. Please try again.");
+  }
 }
 
 async function handlePortal() {
-  const token = localStorage.getItem("flychat_token") || "";
-  const res = await fetch(`${API_BASE}/api/stripe/portal`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json();
-  if (data.url) window.location.href = data.url;
+  try {
+    const data = await authFetch<{ url?: string }>("/api/stripe/portal");
+    if (data.url) window.location.href = data.url;
+  } catch (err: any) {
+    alert(err.message || "Failed to open billing portal. Please try again.");
+  }
 }
 
 export default function Billing() {
@@ -54,6 +54,7 @@ export default function Billing() {
   const [annual, setAnnual] = useState(false);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(true);
+  const [invoicesError, setInvoicesError] = useState(false);
   const { data: plansData } = useGetPlans();
   const { t } = useI18n();
   const { data: aiStatusData } = useGetBillingAiStatus();
@@ -61,13 +62,15 @@ export default function Billing() {
   
   const plans = plansData?.plans ?? [];
 
-  useEffect(() => {
-    const token = localStorage.getItem("flychat_token") || "";
-    fetch(`${API_BASE}/api/stripe/invoices`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(data => { setInvoices(data.invoices || []); setLoadingInvoices(false); })
-      .catch(() => setLoadingInvoices(false));
-  }, []);
+  const loadInvoices = () => {
+    setLoadingInvoices(true); setInvoicesError(false);
+    authFetch<{ invoices?: any[] }>("/api/stripe/invoices")
+      .then(data => setInvoices(data.invoices || []))
+      .catch(() => setInvoicesError(true))
+      .finally(() => setLoadingInvoices(false));
+  };
+
+  useEffect(() => { loadInvoices(); }, []);
   const topUps = (plansData as any)?.topUps ?? [];
 
   const currentPlanIndex = PLAN_ORDER.indexOf(sub?.plan ?? "free");
@@ -311,6 +314,11 @@ export default function Billing() {
             </div>
             {loadingInvoices ? (
               <div className="text-center py-8 text-muted-foreground text-sm">{t("billing.loading_invoices")}</div>
+            ) : invoicesError ? (
+              <div className="text-center py-8 space-y-2">
+                <p className="text-red-700 text-sm">{t("common.load_failed")}</p>
+                <button onClick={loadInvoices} className="text-sm font-bold text-primary hover:underline">{t("common.retry")}</button>
+              </div>
             ) : invoices.length === 0 ? (
               <div className="text-center py-8 border border-dashed border-border rounded-xl">
                 <FileText className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
