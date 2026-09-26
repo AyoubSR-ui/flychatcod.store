@@ -29,6 +29,8 @@ export interface Order {
   sellerNote?: string | null;
   createdBySource?: OrderCreatedBySource;
   cancelledBySource?: OrderCancelledBySource;
+  /** Hidden from the default (non-archived) list/KPIs when true — see GET /orders's archived param. */
+  isArchived?: boolean;
   items: OrderItem[];
   createdAt: Date;
   updatedAt: Date;

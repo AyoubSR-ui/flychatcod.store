@@ -27,6 +27,10 @@ import type {
   AutoDispatchConfig,
   AutomationRule,
   AutomationRuleListResponse,
+  BulkActionResult,
+  BulkDispatchOrdersRequest,
+  BulkOrderIdsRequest,
+  BulkUpdateOrdersRequest,
   ChannelConnection,
   ChannelListResponse,
   Conversation,
@@ -1710,6 +1714,352 @@ export const useCreateOrder = <
   TContext
 > => {
   return useMutation(getCreateOrderMutationOptions(options));
+};
+
+/**
+ * @summary Bulk status change and/or agent reassignment (owner/admin only)
+ */
+export const getBulkUpdateOrdersUrl = () => {
+  return `/api/orders/bulk`;
+};
+
+export const bulkUpdateOrders = async (
+  bulkUpdateOrdersRequest: BulkUpdateOrdersRequest,
+  options?: RequestInit,
+): Promise<BulkActionResult> => {
+  return customFetch<BulkActionResult>(getBulkUpdateOrdersUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(bulkUpdateOrdersRequest),
+  });
+};
+
+export const getBulkUpdateOrdersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkUpdateOrders>>,
+    TError,
+    { data: BodyType<BulkUpdateOrdersRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkUpdateOrders>>,
+  TError,
+  { data: BodyType<BulkUpdateOrdersRequest> },
+  TContext
+> => {
+  const mutationKey = ["bulkUpdateOrders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkUpdateOrders>>,
+    { data: BodyType<BulkUpdateOrdersRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return bulkUpdateOrders(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkUpdateOrdersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkUpdateOrders>>
+>;
+export type BulkUpdateOrdersMutationBody = BodyType<BulkUpdateOrdersRequest>;
+export type BulkUpdateOrdersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk status change and/or agent reassignment (owner/admin only)
+ */
+export const useBulkUpdateOrders = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkUpdateOrders>>,
+    TError,
+    { data: BodyType<BulkUpdateOrdersRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkUpdateOrders>>,
+  TError,
+  { data: BodyType<BulkUpdateOrdersRequest> },
+  TContext
+> => {
+  return useMutation(getBulkUpdateOrdersMutationOptions(options));
+};
+
+/**
+ * Sequential per-order dispatch — a carrier can reject an individual order (bad commune, etc.) without failing the rest of the batch.
+ * @summary Bulk parcel creation (owner/admin only)
+ */
+export const getBulkDispatchOrdersUrl = () => {
+  return `/api/orders/bulk/dispatch`;
+};
+
+export const bulkDispatchOrders = async (
+  bulkDispatchOrdersRequest: BulkDispatchOrdersRequest,
+  options?: RequestInit,
+): Promise<BulkActionResult> => {
+  return customFetch<BulkActionResult>(getBulkDispatchOrdersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(bulkDispatchOrdersRequest),
+  });
+};
+
+export const getBulkDispatchOrdersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkDispatchOrders>>,
+    TError,
+    { data: BodyType<BulkDispatchOrdersRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkDispatchOrders>>,
+  TError,
+  { data: BodyType<BulkDispatchOrdersRequest> },
+  TContext
+> => {
+  const mutationKey = ["bulkDispatchOrders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkDispatchOrders>>,
+    { data: BodyType<BulkDispatchOrdersRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return bulkDispatchOrders(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkDispatchOrdersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkDispatchOrders>>
+>;
+export type BulkDispatchOrdersMutationBody =
+  BodyType<BulkDispatchOrdersRequest>;
+export type BulkDispatchOrdersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk parcel creation (owner/admin only)
+ */
+export const useBulkDispatchOrders = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkDispatchOrders>>,
+    TError,
+    { data: BodyType<BulkDispatchOrdersRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkDispatchOrders>>,
+  TError,
+  { data: BodyType<BulkDispatchOrdersRequest> },
+  TContext
+> => {
+  return useMutation(getBulkDispatchOrdersMutationOptions(options));
+};
+
+/**
+ * @summary Bulk archive (owner/admin only)
+ */
+export const getBulkArchiveOrdersUrl = () => {
+  return `/api/orders/bulk/archive`;
+};
+
+export const bulkArchiveOrders = async (
+  bulkOrderIdsRequest: BulkOrderIdsRequest,
+  options?: RequestInit,
+): Promise<BulkActionResult> => {
+  return customFetch<BulkActionResult>(getBulkArchiveOrdersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(bulkOrderIdsRequest),
+  });
+};
+
+export const getBulkArchiveOrdersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkArchiveOrders>>,
+    TError,
+    { data: BodyType<BulkOrderIdsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkArchiveOrders>>,
+  TError,
+  { data: BodyType<BulkOrderIdsRequest> },
+  TContext
+> => {
+  const mutationKey = ["bulkArchiveOrders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkArchiveOrders>>,
+    { data: BodyType<BulkOrderIdsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return bulkArchiveOrders(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkArchiveOrdersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkArchiveOrders>>
+>;
+export type BulkArchiveOrdersMutationBody = BodyType<BulkOrderIdsRequest>;
+export type BulkArchiveOrdersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk archive (owner/admin only)
+ */
+export const useBulkArchiveOrders = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkArchiveOrders>>,
+    TError,
+    { data: BodyType<BulkOrderIdsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkArchiveOrders>>,
+  TError,
+  { data: BodyType<BulkOrderIdsRequest> },
+  TContext
+> => {
+  return useMutation(getBulkArchiveOrdersMutationOptions(options));
+};
+
+/**
+ * @summary Bulk unarchive (owner/admin only)
+ */
+export const getBulkUnarchiveOrdersUrl = () => {
+  return `/api/orders/bulk/unarchive`;
+};
+
+export const bulkUnarchiveOrders = async (
+  bulkOrderIdsRequest: BulkOrderIdsRequest,
+  options?: RequestInit,
+): Promise<BulkActionResult> => {
+  return customFetch<BulkActionResult>(getBulkUnarchiveOrdersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(bulkOrderIdsRequest),
+  });
+};
+
+export const getBulkUnarchiveOrdersMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkUnarchiveOrders>>,
+    TError,
+    { data: BodyType<BulkOrderIdsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof bulkUnarchiveOrders>>,
+  TError,
+  { data: BodyType<BulkOrderIdsRequest> },
+  TContext
+> => {
+  const mutationKey = ["bulkUnarchiveOrders"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof bulkUnarchiveOrders>>,
+    { data: BodyType<BulkOrderIdsRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return bulkUnarchiveOrders(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type BulkUnarchiveOrdersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof bulkUnarchiveOrders>>
+>;
+export type BulkUnarchiveOrdersMutationBody = BodyType<BulkOrderIdsRequest>;
+export type BulkUnarchiveOrdersMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Bulk unarchive (owner/admin only)
+ */
+export const useBulkUnarchiveOrders = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof bulkUnarchiveOrders>>,
+    TError,
+    { data: BodyType<BulkOrderIdsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof bulkUnarchiveOrders>>,
+  TError,
+  { data: BodyType<BulkOrderIdsRequest> },
+  TContext
+> => {
+  return useMutation(getBulkUnarchiveOrdersMutationOptions(options));
 };
 
 /**

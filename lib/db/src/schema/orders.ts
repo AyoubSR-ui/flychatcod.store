@@ -45,6 +45,11 @@ export const ordersTable = pgTable("orders", {
   confirmedBySource: text("confirmed_by_source"),
   voiceCallSid: text("voice_call_sid"),
   assignedAgentId: text("assigned_agent_id"),
+  // Mirrors conversations.isArchived — hides an order from the normal list/
+  // KPIs without deleting it. See lib/order-filters.ts's buildOrderFilters,
+  // which always filters on this (defaulting to false) for both GET /orders
+  // and GET /orders/stats.
+  isArchived: boolean("is_archived").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [

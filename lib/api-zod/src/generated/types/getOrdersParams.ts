@@ -5,6 +5,7 @@
  * FlyChat COD API - Chat-to-Order SaaS for COD ecommerce sellers
  * OpenAPI spec version: 0.1.0
  */
+import type { GetOrdersArchived } from "./getOrdersArchived";
 import type { GetOrdersStatus } from "./getOrdersStatus";
 
 export type GetOrdersParams = {
@@ -12,4 +13,8 @@ export type GetOrdersParams = {
   search?: string;
   page?: number;
   limit?: number;
+  /**
+   * "true" shows archived orders only; omitted/"false" (the default) excludes them.
+   */
+  archived?: GetOrdersArchived;
 };

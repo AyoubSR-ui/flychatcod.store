@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Link } from "wouter";
 import {
   Search, Plus, Loader2, Package, PhoneCall, AlertTriangle, Truck,
   ShoppingBag, CheckCircle2, XCircle, TrendingUp, Send, RotateCw,
+  Archive, ArchiveRestore, ChevronDown,
 } from "lucide-react";
 import { DocButton } from "@/components/DocButton";
 import { DispatchModal } from "@/components/DispatchModal";
@@ -279,6 +280,122 @@ function KpiCard({ icon, iconBg, label, value, sub }: { icon: React.ReactNode; i
   );
 }
 
+// ─── Bulk actions (owner/admin only) ───────────────────────────────────────────
+interface BulkResult { succeeded: string[]; failed: { orderId: string; reason: string }[] }
+
+// Shared shape for the three bulk actions that need the merchant to pick one
+// option first (assign / status / dispatch) — the confirmation sentence that
+// appears once something's picked IS the "states what will happen to how
+// many orders" step; there's no separate native confirm() on top of it.
+function BulkPickerModal({ title, options, placeholder, count, confirmText, submitLabel, disabledReason, onSubmit, onClose }: {
+  title: string;
+  options: { value: string; label: string }[];
+  placeholder: string;
+  count: number;
+  confirmText: (n: number, label: string) => string;
+  submitLabel: (n: number) => string;
+  disabledReason?: string;
+  onSubmit: (value: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const selectedLabel = options.find(o => o.value === value)?.label || "";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-foreground">{title}</h3>
+        {disabledReason ? (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">{disabledReason}</p>
+        ) : (
+          <>
+            <select value={value} onChange={e => setValue(e.target.value)} className="w-full px-3 py-2 rounded-xl border border-border text-sm bg-white">
+              <option value="">{placeholder}</option>
+              {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {value && <p className="text-sm text-muted-foreground">{confirmText(count, selectedLabel)}</p>}
+          </>
+        )}
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
+          {!disabledReason && (
+            <button
+              disabled={!value || submitting}
+              onClick={async () => { setSubmitting(true); await onSubmit(value); setSubmitting(false); }}
+              className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50"
+            >
+              {submitting ? t("common.saving") : submitLabel(count)}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Archive/unarchive need no picker — just an explicit confirm step stating
+// the count and effect, per the "every bulk action confirms first" rule.
+function BulkConfirmModal({ title, message, confirmLabel, onConfirm, onClose }: {
+  title: string; message: string; confirmLabel: string; onConfirm: () => Promise<void>; onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [submitting, setSubmitting] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-foreground">{title}</h3>
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-secondary">{t("common.cancel")}</button>
+          <button
+            disabled={submitting}
+            onClick={async () => { setSubmitting(true); await onConfirm(); setSubmitting(false); }}
+            className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 disabled:opacity-50"
+          >
+            {submitting ? t("common.saving") : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Honest partial-failure reporting — "18 of 20 succeeded, 2 failed: <reason>"
+// rather than a blanket success toast, for every bulk action.
+function BulkResultModal({ actionLabel, result, orderNumberFor, onClose }: {
+  actionLabel: string; result: BulkResult; orderNumberFor: (id: string) => string; onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const total = result.succeeded.length + result.failed.length;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-foreground">{actionLabel}</h3>
+        <p className={`text-sm font-medium ${result.failed.length > 0 ? "text-amber-700" : "text-green-700"}`}>
+          {result.failed.length === 0
+            ? t("orders.bulk.result_all_succeeded").replace("{n}", String(result.succeeded.length))
+            : t("orders.bulk.result_partial").replace("{ok}", String(result.succeeded.length)).replace("{total}", String(total)).replace("{failed}", String(result.failed.length))}
+        </p>
+        {result.failed.length > 0 && (
+          <div className="overflow-y-auto border border-border rounded-xl divide-y divide-border/50">
+            {result.failed.map(f => (
+              <div key={f.orderId} className="px-3 py-2 text-xs">
+                <span className="font-bold text-foreground">{orderNumberFor(f.orderId)}</span>
+                <span className="text-muted-foreground"> — {f.reason}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-end shrink-0">
+          <button onClick={onClose} className="px-5 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90">{t("common.close")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Filters {
   search: string; status: string; source: string; delivery: string;
   carrier: string; agent: string; product: string; dateFrom: string; dateTo: string;
@@ -294,6 +411,11 @@ export default function Orders() {
   const [sort, setSort] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
+  const [archivedView, setArchivedView] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [bulkModal, setBulkModal] = useState<null | "assign" | "status" | "dispatch" | "archive" | "unarchive">(null);
+  const [bulkResult, setBulkResult] = useState<{ actionLabel: string; result: BulkResult; orderNumbers: Record<string, string> } | null>(null);
   const { t } = useI18n();
   const DELIVERY_OPTIONS = getDeliveryOptions(t);
   const SOURCE_OPTIONS = getSourceOptions(t);
@@ -307,10 +429,15 @@ export default function Orders() {
   // fire a request every non-owner is guaranteed to get a 403 on.
   const { data: teamData } = useGetTeamMembers({ query: { enabled: user?.role === "owner" } });
 
-  useEffect(() => { setPage(1); }, [filters, sort]);
+  useEffect(() => { setPage(1); }, [filters, sort, archivedView]);
+  // Selection is tied to what's currently rendered — clear it whenever the
+  // set of rows on screen could change out from under it, so a stale
+  // selection can never bulk-act on rows the merchant isn't looking at
+  // anymore.
+  useEffect(() => { setSelectedIds(new Set()); }, [filters, sort, page, archivedView]);
 
   const queryParams = useMemo(() => {
-    const p: Record<string, string> = { limit: String(limit), page: String(page), sort };
+    const p: Record<string, string> = { limit: String(limit), page: String(page), sort, archived: archivedView ? "true" : "false" };
     if (filters.search) p.search = filters.search;
     if (filters.status !== "all") p.status = filters.status;
     if (filters.source !== "all") p.source = filters.source;
@@ -321,7 +448,7 @@ export default function Orders() {
     if (filters.dateFrom) p.dateFrom = filters.dateFrom;
     if (filters.dateTo) p.dateTo = filters.dateTo;
     return p;
-  }, [filters, sort, page, limit]);
+  }, [filters, sort, page, limit, archivedView]);
 
   const { data: ordersData, isLoading, isError: ordersIsError, refetch: refetchOrders } = useQuery({
     queryKey: ["orders-list", queryParams],
@@ -391,6 +518,86 @@ export default function Orders() {
   const teamMembers = teamData?.members || [];
   const carrierConnections = carriersData?.connections || [];
 
+  // Bulk actions are owner/admin only — an agent never sees the checkbox
+  // column, the selection bar, or the Actions menu at all. This mirrors the
+  // server side: every /api/orders/bulk* route is requireOwnerOrAdmin, so
+  // there's no separate "can this agent bulk-act on their own orders"
+  // question to answer — the door is simply closed for that role.
+  const canBulkAct = user?.role === "owner" || user?.role === "admin";
+  const currentPageIds: string[] = orders.map((o: any) => o.id);
+  const allPageSelected = currentPageIds.length > 0 && currentPageIds.every(id => selectedIds.has(id));
+  const somePageSelected = currentPageIds.some(id => selectedIds.has(id));
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerCheckboxRef.current) headerCheckboxRef.current.indeterminate = somePageSelected && !allPageSelected;
+  }, [somePageSelected, allPageSelected]);
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allPageSelected) currentPageIds.forEach(id => next.delete(id));
+      else currentPageIds.forEach(id => next.add(id));
+      return next;
+    });
+  };
+  const toggleSelectOne = (orderId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
+  };
+  const selectedIdsArray = Array.from(selectedIds);
+
+  // Snapshotted at the moment the action runs, not read live off `orders` —
+  // invalidateOrders() below refetches immediately, and an archived/reassigned/
+  // paged-away order could otherwise vanish from `orders` before the merchant
+  // has even seen the result modal naming it.
+  const finishBulkAction = (actionLabel: string, result: BulkResult) => {
+    const orderNumbers: Record<string, string> = {};
+    for (const o of orders) orderNumbers[o.id] = o.orderNumber;
+    setBulkModal(null);
+    setBulkResult({ actionLabel, result, orderNumbers });
+    setSelectedIds(new Set());
+    invalidateOrders();
+  };
+
+  const handleBulkAssign = async (agentId: string) => {
+    try {
+      const result = await authFetch<BulkResult>("/api/orders/bulk", {
+        method: "PATCH", body: JSON.stringify({ orderIds: selectedIdsArray, assignedAgentId: agentId }),
+      });
+      finishBulkAction(t("orders.bulk.assign_to"), result);
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
+  };
+
+  const handleBulkStatus = async (status: string) => {
+    try {
+      const result = await authFetch<BulkResult>("/api/orders/bulk", {
+        method: "PATCH", body: JSON.stringify({ orderIds: selectedIdsArray, status }),
+      });
+      finishBulkAction(t("orders.bulk.update_status"), result);
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
+  };
+
+  const handleBulkDispatch = async (carrierConnectionId: string) => {
+    try {
+      const result = await authFetch<BulkResult>("/api/orders/bulk/dispatch", {
+        method: "POST", body: JSON.stringify({ orderIds: selectedIdsArray, carrierConnectionId }),
+      });
+      finishBulkAction(t("orders.bulk.create_parcels"), result);
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
+  };
+
+  const handleBulkArchive = async (archive: boolean) => {
+    try {
+      const result = await authFetch<BulkResult>(`/api/orders/bulk/${archive ? "archive" : "unarchive"}`, {
+        method: "POST", body: JSON.stringify({ orderIds: selectedIdsArray }),
+      });
+      finishBulkAction(archive ? t("orders.bulk.archive") : t("orders.bulk.unarchive"), result);
+    } catch (err: any) { alert(err.message || t("orders.network_error")); }
+  };
+
   return (
     <AppLayout>
       {showCreate && <CreateOrderModal onClose={() => setShowCreate(false)} />}
@@ -407,6 +614,18 @@ export default function Orders() {
             </div>
             <button onClick={() => setShowCreate(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2 transition-colors">
               <Plus className="w-4 h-4" /> {t("order.create")}
+            </button>
+          </div>
+
+          {/* ── Active / Archived view — same pattern as the Inbox's archived tab. */}
+          {/* Archived orders never appear in the Active KPIs/list, and vice versa: */}
+          {/* the "archived" query param is baked into queryParams for both queries. ── */}
+          <div className="flex gap-1 bg-secondary/60 p-1 rounded-xl w-fit">
+            <button onClick={() => setArchivedView(false)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${!archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+              {t("orders.view.active")}
+            </button>
+            <button onClick={() => setArchivedView(true)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5 ${archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+              <Archive className="w-3.5 h-3.5" /> {t("orders.view.archived")}
             </button>
           </div>
 
@@ -491,10 +710,65 @@ export default function Orders() {
               </select>
             </div>
 
+            {/* ── Selection bar — only when something's selected, owner/admin only ── */}
+            {canBulkAct && selectedIds.size > 0 && (
+              <div className="p-3 border-b border-border bg-primary/5 flex flex-wrap items-center gap-3">
+                <span className="text-sm font-bold text-foreground">{t("orders.bulk.selected_count").replace("{n}", String(selectedIds.size))}</span>
+                {allPageSelected && ordersData && ordersData.total > currentPageIds.length && (
+                  <span className="text-xs text-muted-foreground">{t("orders.bulk.page_only_hint").replace("{total}", String(ordersData.total))}</span>
+                )}
+                <div className="relative ml-auto">
+                  <button
+                    onClick={() => setActionsMenuOpen(o => !o)}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors"
+                  >
+                    {t("orders.bulk.actions")} <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                  {actionsMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setActionsMenuOpen(false)} />
+                      <div className="absolute right-0 mt-1 w-52 bg-white border border-border rounded-xl shadow-lg z-20 py-1.5">
+                        <button onClick={() => { setActionsMenuOpen(false); setBulkModal("assign"); }} className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors">
+                          {t("orders.bulk.assign_to")}
+                        </button>
+                        <button onClick={() => { setActionsMenuOpen(false); setBulkModal("status"); }} className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors">
+                          {t("orders.bulk.update_status")}
+                        </button>
+                        <button onClick={() => { setActionsMenuOpen(false); setBulkModal("dispatch"); }} className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors">
+                          {t("orders.bulk.create_parcels")}
+                        </button>
+                        <button
+                          onClick={() => { setActionsMenuOpen(false); setBulkModal(archivedView ? "unarchive" : "archive"); }}
+                          className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2"
+                        >
+                          {archivedView ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                          {archivedView ? t("orders.bulk.unarchive") : t("orders.bulk.archive")}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => setSelectedIds(new Set())} className="text-sm font-bold text-muted-foreground hover:text-foreground transition-colors">
+                  {t("orders.bulk.deselect_all")}
+                </button>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="bg-secondary/50 text-muted-foreground uppercase text-xs">
                   <tr>
+                    {canBulkAct && (
+                      <th className="px-4 py-3 w-10">
+                        <input
+                          ref={headerCheckboxRef}
+                          type="checkbox"
+                          checked={allPageSelected}
+                          onChange={toggleSelectAllOnPage}
+                          className="w-4 h-4 rounded border-border cursor-pointer"
+                        />
+                      </th>
+                    )}
                     <th className="px-4 py-3 font-medium">{t("orders.table.order")}</th>
                     <th className="px-4 py-3 font-medium">{t("orders.table.agent")}</th>
                     <th className="px-4 py-3 font-medium">{t("orders.table.tracking")}</th>
@@ -510,10 +784,10 @@ export default function Orders() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {isLoading ? (
-                    <tr><td colSpan={9} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
+                    <tr><td colSpan={canBulkAct ? 10 : 9} className="px-6 py-8 text-center text-muted-foreground">{t("common.loading")}</td></tr>
                   ) : ordersIsError ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-16 text-center">
+                      <td colSpan={canBulkAct ? 10 : 9} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center"><AlertTriangle className="w-7 h-7 text-red-500" /></div>
                           <p className="font-medium text-red-700">{t("orders.load_failed")}</p>
@@ -525,11 +799,15 @@ export default function Orders() {
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-16 text-center">
+                      <td colSpan={canBulkAct ? 10 : 9} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                          <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center"><Package className="w-7 h-7" /></div>
-                          <p className="font-medium">{user?.role === "agent" ? t("orders.no_orders_assigned") : t("orders.no_orders")}</p>
-                          {user?.role !== "agent" && (
+                          <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center">
+                            {archivedView ? <Archive className="w-7 h-7" /> : <Package className="w-7 h-7" />}
+                          </div>
+                          <p className="font-medium">
+                            {archivedView ? t("orders.no_archived_orders") : user?.role === "agent" ? t("orders.no_orders_assigned") : t("orders.no_orders")}
+                          </p>
+                          {!archivedView && user?.role !== "agent" && (
                             <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">{t("orders.create_first")}</button>
                           )}
                         </div>
@@ -540,7 +818,17 @@ export default function Orders() {
                     const dup: string[] = order.duplicateOf || [];
                     const shipment = order.shipment;
                     return (
-                      <tr key={order.id} className="hover:bg-secondary/30 transition-colors">
+                      <tr key={order.id} className={`hover:bg-secondary/30 transition-colors ${selectedIds.has(order.id) ? "bg-primary/5" : ""}`}>
+                        {canBulkAct && (
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(order.id)}
+                              onChange={() => toggleSelectOne(order.id)}
+                              className="w-4 h-4 rounded border-border cursor-pointer"
+                            />
+                          </td>
+                        )}
                         {/* Commande */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
@@ -671,6 +959,75 @@ export default function Orders() {
           </div>
         </div>
       </div>
+
+      {bulkModal === "assign" && (
+        <BulkPickerModal
+          title={t("orders.bulk.assign_title")}
+          options={teamMembers.map((m: any) => ({ value: m.id, label: m.name || m.email }))}
+          placeholder={t("orders.bulk.assign_placeholder")}
+          count={selectedIds.size}
+          confirmText={(n, name) => t("orders.bulk.assign_confirm").replace("{n}", String(n)).replace("{name}", name)}
+          submitLabel={(n) => t("orders.bulk.assign_btn").replace("{n}", String(n))}
+          onSubmit={handleBulkAssign}
+          onClose={() => setBulkModal(null)}
+        />
+      )}
+
+      {bulkModal === "status" && (
+        <BulkPickerModal
+          title={t("orders.bulk.status_title")}
+          options={STATUS_OPTIONS.map(s => ({ value: s, label: t(`status.${s}`) }))}
+          placeholder={t("orders.bulk.status_placeholder")}
+          count={selectedIds.size}
+          confirmText={(n, status) => t("orders.bulk.status_confirm").replace("{n}", String(n)).replace("{status}", status)}
+          submitLabel={(n) => t("orders.bulk.status_btn").replace("{n}", String(n))}
+          onSubmit={handleBulkStatus}
+          onClose={() => setBulkModal(null)}
+        />
+      )}
+
+      {bulkModal === "dispatch" && (
+        <BulkPickerModal
+          title={t("orders.bulk.dispatch_title")}
+          options={carrierConnections.map((c: any) => ({ value: c.id, label: `${c.label} (${c.carrier})` }))}
+          placeholder={t("orders.bulk.dispatch_placeholder")}
+          count={selectedIds.size}
+          confirmText={(n, carrier) => t("orders.bulk.dispatch_confirm").replace("{n}", String(n)).replace("{name}", carrier)}
+          submitLabel={(n) => t("orders.bulk.dispatch_btn").replace("{n}", String(n))}
+          disabledReason={carrierConnections.length === 0 ? t("orders.bulk.no_carrier_connected") : undefined}
+          onSubmit={handleBulkDispatch}
+          onClose={() => setBulkModal(null)}
+        />
+      )}
+
+      {bulkModal === "archive" && (
+        <BulkConfirmModal
+          title={t("orders.bulk.archive_title")}
+          message={t("orders.bulk.archive_confirm").replace("{n}", String(selectedIds.size))}
+          confirmLabel={t("orders.bulk.archive_btn").replace("{n}", String(selectedIds.size))}
+          onConfirm={() => handleBulkArchive(true)}
+          onClose={() => setBulkModal(null)}
+        />
+      )}
+
+      {bulkModal === "unarchive" && (
+        <BulkConfirmModal
+          title={t("orders.bulk.unarchive_title")}
+          message={t("orders.bulk.unarchive_confirm").replace("{n}", String(selectedIds.size))}
+          confirmLabel={t("orders.bulk.unarchive_btn").replace("{n}", String(selectedIds.size))}
+          onConfirm={() => handleBulkArchive(false)}
+          onClose={() => setBulkModal(null)}
+        />
+      )}
+
+      {bulkResult && (
+        <BulkResultModal
+          actionLabel={bulkResult.actionLabel}
+          result={bulkResult.result}
+          orderNumberFor={(id) => bulkResult.orderNumbers[id] || id}
+          onClose={() => setBulkResult(null)}
+        />
+      )}
     </AppLayout>
   );
 }

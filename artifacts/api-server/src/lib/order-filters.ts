@@ -80,13 +80,17 @@ export interface OrderFilterQuery {
   product?: string;
   dateFrom?: string;
   dateTo?: string;
+  archived?: string;
 }
 
 // Builds the outer WHERE clause (referencing the `b` alias over ORDERS_BASE_CTE)
 // plus the params array. values[0] is always storeId ($1, consumed by the CTE).
 export async function buildOrderFilters(storeId: string, query: OrderFilterQuery): Promise<{ whereSQL: string; values: any[] }> {
   const values: any[] = [storeId];
-  const clauses: string[] = [];
+  // Always explicit, never conditional on presence — the normal (non-archived)
+  // list/KPIs must never accidentally include an archived order just because
+  // this param was left off. Mirrors conversations' archived=true/false split.
+  const clauses: string[] = [query.archived === "true" ? "b.is_archived = true" : "b.is_archived = false"];
 
   if (query.search) {
     values.push(`%${query.search}%`);
