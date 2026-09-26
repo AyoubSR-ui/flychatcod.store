@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-client-react";
 import { format } from "date-fns";
 import { useI18n } from "@/hooks/use-i18n";
+import { Switch } from "@/components/ui/switch";
 import { authFetch } from "@/lib/auth-fetch";
 
 const ROLE_CONFIG = {
@@ -316,12 +317,7 @@ function DispatchTab() {
           <h3 className="font-bold text-foreground">{t("team.dispatch.auto_title")}</h3>
           <p className="text-sm text-muted-foreground mt-0.5">{t("team.dispatch.auto_desc")}</p>
         </div>
-        <button
-          onClick={toggleEnabled}
-          className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${enabled ? "bg-primary" : "bg-secondary border border-border"}`}
-        >
-          <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-5" : "translate-x-0.5"}`} />
-        </button>
+        <Switch checked={enabled} onCheckedChange={toggleEnabled} className="shrink-0" />
       </div>
 
       {/* Per-agent quota / share / toggle */}
@@ -348,13 +344,12 @@ function DispatchTab() {
                   />
                 </div>
                 <span className="shrink-0 w-14 text-right text-sm font-bold text-foreground">{agent.sharePercent}%</span>
-                <button
-                  onClick={() => handleActiveToggle(agent.id, !agent.active)}
+                <Switch
+                  checked={agent.active}
+                  onCheckedChange={(checked) => handleActiveToggle(agent.id, checked)}
                   title={agent.active ? t("team.dispatch.active_title") : t("team.dispatch.off_title")}
-                  className={`shrink-0 relative w-11 h-6 rounded-full transition-colors ${agent.active ? "bg-primary" : "bg-secondary border border-border"}`}
-                >
-                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${agent.active ? "translate-x-5" : "translate-x-0.5"}`} />
-                </button>
+                  className="shrink-0"
+                />
               </div>
             ))}
           </div>
