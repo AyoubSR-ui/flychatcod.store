@@ -5,6 +5,7 @@ import { requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { ensureFreshShopifyToken, ShopifyReauthRequiredError, tokenExpiryFields } from "../lib/shopify-token.js";
 import { normalizeWilayaForStorage } from "../lib/carriers/wilaya-codes.js";
+import { autoAssignIfEnabled } from "../lib/order-dispatch.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -1083,6 +1084,10 @@ async function syncOrders(storeId: string, shop: string): Promise<number> {
           String(so.id), shippingLine?.title || null, new Date(so.created_at),
         ]
       );
+      // Only reached for orders that didn't already exist per the SELECT
+      // above — autoAssignIfEnabled's own "still unassigned" guard covers
+      // the rare ON CONFLICT race the comment above describes.
+      await autoAssignIfEnabled(storeId, orderId).catch(err => console.error("[Shopify] Auto-dispatch error:", err));
     }
 
     count++;
@@ -1172,6 +1177,8 @@ async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<v
       String(order.id), shippingLine?.title || null,
     ]
   );
+
+  await autoAssignIfEnabled(storeId, orderId).catch(err => console.error("[Shopify] Auto-dispatch error:", err));
 
   console.log(`[Shopify] Webhook: new order ${order.name} for store ${storeId}`);
 }

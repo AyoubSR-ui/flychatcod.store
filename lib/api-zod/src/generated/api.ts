@@ -1041,6 +1041,8 @@ export const GetTeamMembersResponse = zod.object({
       name: zod.string().nullish(),
       role: zod.enum(["owner", "admin", "agent"]),
       status: zod.enum(["active", "invited", "inactive", "removed"]),
+      dispatchQuota: zod.number().optional(),
+      dispatchActive: zod.boolean().optional(),
       createdAt: zod.date(),
     }),
   ),
@@ -1074,6 +1076,8 @@ export const UpdateTeamMemberResponse = zod.object({
   name: zod.string().nullish(),
   role: zod.enum(["owner", "admin", "agent"]),
   status: zod.enum(["active", "invited", "inactive", "removed"]),
+  dispatchQuota: zod.number().optional(),
+  dispatchActive: zod.boolean().optional(),
   createdAt: zod.date(),
 });
 
@@ -1087,6 +1091,102 @@ export const RemoveTeamMemberParams = zod.object({
 export const RemoveTeamMemberResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
+});
+
+/**
+ * @summary Update an agent's auto-dispatch quota and on/off toggle
+ */
+export const UpdateDispatchSettingsParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const updateDispatchSettingsBodyQuotaMin = 0;
+
+export const UpdateDispatchSettingsBody = zod.object({
+  quota: zod.number().min(updateDispatchSettingsBodyQuotaMin).optional(),
+  active: zod.boolean().optional(),
+});
+
+export const UpdateDispatchSettingsResponse = zod.object({
+  id: zod.string(),
+  userId: zod.string().nullish(),
+  storeId: zod.string(),
+  email: zod.string(),
+  name: zod.string().nullish(),
+  role: zod.enum(["owner", "admin", "agent"]),
+  status: zod.enum(["active", "invited", "inactive", "removed"]),
+  dispatchQuota: zod.number().optional(),
+  dispatchActive: zod.boolean().optional(),
+  createdAt: zod.date(),
+});
+
+/**
+ * @summary Get store Auto Dispatch config and per-agent quota/share
+ */
+export const GetAutoDispatchResponse = zod.object({
+  enabled: zod.boolean(),
+  inactiveAgentRule: zod.enum(["none", "transfer", "redistribute"]),
+  transferToAgentIds: zod.array(zod.string()),
+  agents: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string().nullish(),
+      email: zod.string(),
+      quota: zod.number(),
+      active: zod.boolean(),
+      sharePercent: zod.number(),
+    }),
+  ),
+  unassignedEligibleCount: zod
+    .number()
+    .describe(
+      'How many unassigned orders \"Dispatch Now\" would actually act on (status new or confirmed only).',
+    ),
+});
+
+/**
+ * @summary Update store Auto Dispatch config
+ */
+export const UpdateAutoDispatchBody = zod.object({
+  enabled: zod.boolean().optional(),
+  inactiveAgentRule: zod.enum(["none", "transfer", "redistribute"]).optional(),
+  transferToAgentIds: zod.array(zod.string()).optional(),
+});
+
+export const UpdateAutoDispatchResponse = zod.object({
+  enabled: zod.boolean(),
+  inactiveAgentRule: zod.enum(["none", "transfer", "redistribute"]),
+  transferToAgentIds: zod.array(zod.string()),
+  agents: zod.array(
+    zod.object({
+      id: zod.string(),
+      name: zod.string().nullish(),
+      email: zod.string(),
+      quota: zod.number(),
+      active: zod.boolean(),
+      sharePercent: zod.number(),
+    }),
+  ),
+  unassignedEligibleCount: zod
+    .number()
+    .describe(
+      'How many unassigned orders \"Dispatch Now\" would actually act on (status new or confirmed only).',
+    ),
+});
+
+/**
+ * @summary Dispatch Now — distribute unassigned orders across agents by quota
+ */
+export const RunAutoDispatchResponse = zod.object({
+  assignedCount: zod.number(),
+  byAgent: zod.array(
+    zod.object({
+      agentId: zod.string(),
+      name: zod.string().nullish(),
+      email: zod.string(),
+      count: zod.number(),
+    }),
+  ),
 });
 
 /**

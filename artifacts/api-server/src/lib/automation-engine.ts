@@ -42,6 +42,7 @@ import { getIO } from "../socket.js";
 import { generateAiReply, extractOrderState } from "./ai-service.js";
 import { getAiStatus, consumeCredits, recordBlockedRun } from "./ai-credits.js";
 import { callAiBridge, type AgentProduct, type AgentOrder } from "./ai-agent-bridge.js";
+import { autoAssignIfEnabled } from "./order-dispatch.js";
 
 export type TriggerType = "new_conversation" | "keyword" | "order_created" | "inactivity";
 
@@ -894,6 +895,8 @@ async function handleAiOrderCreation(
     total: total.toString(),
     createdBySource: "ai",
   });
+
+  await autoAssignIfEnabled(storeId, orderId).catch(err => console.error("[AutoEngine] Auto-dispatch error:", err));
 
   await db.insert(orderItemsTable).values({
     id: generateId("oi"),

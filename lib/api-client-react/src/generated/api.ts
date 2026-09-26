@@ -24,6 +24,7 @@ import type {
   AiSettings,
   AiStatus,
   AuthResponse,
+  AutoDispatchConfig,
   AutomationRule,
   AutomationRuleListResponse,
   ChannelConnection,
@@ -40,6 +41,7 @@ import type {
   CustomerDetail,
   CustomerListResponse,
   DashboardStats,
+  DispatchNowResponse,
   ErrorResponse,
   GetAdminStoresParams,
   GetAdminUsersParams,
@@ -76,10 +78,12 @@ import type {
   TeamMemberListResponse,
   TokenResponse,
   UpdateAiSettingsBody,
+  UpdateAutoDispatchConfigRequest,
   UpdateAutomationRuleRequest,
   UpdateConversationAiModeBody,
   UpdateConversationRequest,
   UpdateCustomerRequest,
+  UpdateDispatchSettingsRequest,
   UpdateOrderRequest,
   UpdateProductRequest,
   UpdateStoreSettingsRequest,
@@ -3657,6 +3661,337 @@ export const useRemoveTeamMember = <
   TContext
 > => {
   return useMutation(getRemoveTeamMemberMutationOptions(options));
+};
+
+/**
+ * @summary Update an agent's auto-dispatch quota and on/off toggle
+ */
+export const getUpdateDispatchSettingsUrl = (id: string) => {
+  return `/api/team/members/${id}/dispatch`;
+};
+
+export const updateDispatchSettings = async (
+  id: string,
+  updateDispatchSettingsRequest: UpdateDispatchSettingsRequest,
+  options?: RequestInit,
+): Promise<TeamMember> => {
+  return customFetch<TeamMember>(getUpdateDispatchSettingsUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateDispatchSettingsRequest),
+  });
+};
+
+export const getUpdateDispatchSettingsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDispatchSettings>>,
+    TError,
+    { id: string; data: BodyType<UpdateDispatchSettingsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateDispatchSettings>>,
+  TError,
+  { id: string; data: BodyType<UpdateDispatchSettingsRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateDispatchSettings"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateDispatchSettings>>,
+    { id: string; data: BodyType<UpdateDispatchSettingsRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateDispatchSettings(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateDispatchSettingsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateDispatchSettings>>
+>;
+export type UpdateDispatchSettingsMutationBody =
+  BodyType<UpdateDispatchSettingsRequest>;
+export type UpdateDispatchSettingsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update an agent's auto-dispatch quota and on/off toggle
+ */
+export const useUpdateDispatchSettings = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateDispatchSettings>>,
+    TError,
+    { id: string; data: BodyType<UpdateDispatchSettingsRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateDispatchSettings>>,
+  TError,
+  { id: string; data: BodyType<UpdateDispatchSettingsRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateDispatchSettingsMutationOptions(options));
+};
+
+/**
+ * @summary Get store Auto Dispatch config and per-agent quota/share
+ */
+export const getGetAutoDispatchUrl = () => {
+  return `/api/team/auto-dispatch`;
+};
+
+export const getAutoDispatch = async (
+  options?: RequestInit,
+): Promise<AutoDispatchConfig> => {
+  return customFetch<AutoDispatchConfig>(getGetAutoDispatchUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAutoDispatchQueryKey = () => {
+  return [`/api/team/auto-dispatch`] as const;
+};
+
+export const getGetAutoDispatchQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAutoDispatch>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAutoDispatch>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAutoDispatchQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAutoDispatch>>> = ({
+    signal,
+  }) => getAutoDispatch({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAutoDispatch>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAutoDispatchQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAutoDispatch>>
+>;
+export type GetAutoDispatchQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get store Auto Dispatch config and per-agent quota/share
+ */
+
+export function useGetAutoDispatch<
+  TData = Awaited<ReturnType<typeof getAutoDispatch>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getAutoDispatch>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAutoDispatchQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update store Auto Dispatch config
+ */
+export const getUpdateAutoDispatchUrl = () => {
+  return `/api/team/auto-dispatch`;
+};
+
+export const updateAutoDispatch = async (
+  updateAutoDispatchConfigRequest: UpdateAutoDispatchConfigRequest,
+  options?: RequestInit,
+): Promise<AutoDispatchConfig> => {
+  return customFetch<AutoDispatchConfig>(getUpdateAutoDispatchUrl(), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateAutoDispatchConfigRequest),
+  });
+};
+
+export const getUpdateAutoDispatchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAutoDispatch>>,
+    TError,
+    { data: BodyType<UpdateAutoDispatchConfigRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateAutoDispatch>>,
+  TError,
+  { data: BodyType<UpdateAutoDispatchConfigRequest> },
+  TContext
+> => {
+  const mutationKey = ["updateAutoDispatch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateAutoDispatch>>,
+    { data: BodyType<UpdateAutoDispatchConfigRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateAutoDispatch(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateAutoDispatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateAutoDispatch>>
+>;
+export type UpdateAutoDispatchMutationBody =
+  BodyType<UpdateAutoDispatchConfigRequest>;
+export type UpdateAutoDispatchMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update store Auto Dispatch config
+ */
+export const useUpdateAutoDispatch = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateAutoDispatch>>,
+    TError,
+    { data: BodyType<UpdateAutoDispatchConfigRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateAutoDispatch>>,
+  TError,
+  { data: BodyType<UpdateAutoDispatchConfigRequest> },
+  TContext
+> => {
+  return useMutation(getUpdateAutoDispatchMutationOptions(options));
+};
+
+/**
+ * @summary Dispatch Now — distribute unassigned orders across agents by quota
+ */
+export const getRunAutoDispatchUrl = () => {
+  return `/api/team/auto-dispatch/run`;
+};
+
+export const runAutoDispatch = async (
+  options?: RequestInit,
+): Promise<DispatchNowResponse> => {
+  return customFetch<DispatchNowResponse>(getRunAutoDispatchUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRunAutoDispatchMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runAutoDispatch>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runAutoDispatch>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["runAutoDispatch"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof runAutoDispatch>>,
+    void
+  > = () => {
+    return runAutoDispatch(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunAutoDispatchMutationResult = NonNullable<
+  Awaited<ReturnType<typeof runAutoDispatch>>
+>;
+
+export type RunAutoDispatchMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Dispatch Now — distribute unassigned orders across agents by quota
+ */
+export const useRunAutoDispatch = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runAutoDispatch>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runAutoDispatch>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRunAutoDispatchMutationOptions(options));
 };
 
 /**

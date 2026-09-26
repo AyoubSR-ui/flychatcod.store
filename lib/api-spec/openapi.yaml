@@ -893,6 +893,74 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
+  /team/members/{id}/dispatch:
+    patch:
+      operationId: updateDispatchSettings
+      tags: [team]
+      summary: Update an agent's auto-dispatch quota and on/off toggle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDispatchSettingsRequest"
+      responses:
+        "200":
+          description: Updated team member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamMember"
+
+  /team/auto-dispatch:
+    get:
+      operationId: getAutoDispatch
+      tags: [team]
+      summary: Get store Auto Dispatch config and per-agent quota/share
+      responses:
+        "200":
+          description: Auto-dispatch settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutoDispatchConfig"
+    patch:
+      operationId: updateAutoDispatch
+      tags: [team]
+      summary: Update store Auto Dispatch config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAutoDispatchConfigRequest"
+      responses:
+        "200":
+          description: Updated auto-dispatch settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutoDispatchConfig"
+
+  /team/auto-dispatch/run:
+    post:
+      operationId: runAutoDispatch
+      tags: [team]
+      summary: "Dispatch Now — distribute unassigned orders across agents by quota"
+      responses:
+        "200":
+          description: Dispatch result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DispatchNowResponse"
+
   /billing/subscription:
     get:
       operationId: getSubscription
@@ -2147,6 +2215,10 @@ components:
         status:
           type: string
           enum: [active, invited, inactive, removed]
+        dispatchQuota:
+          type: integer
+        dispatchActive:
+          type: boolean
         createdAt:
           type: string
           format: date-time
@@ -2181,6 +2253,89 @@ components:
         status:
           type: string
           enum: [active, inactive]
+
+    UpdateDispatchSettingsRequest:
+      type: object
+      properties:
+        quota:
+          type: integer
+          minimum: 0
+        active:
+          type: boolean
+
+    DispatchAgent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+        quota:
+          type: integer
+        active:
+          type: boolean
+        sharePercent:
+          type: number
+      required: [id, email, quota, active, sharePercent]
+
+    AutoDispatchConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        inactiveAgentRule:
+          type: string
+          enum: [none, transfer, redistribute]
+        transferToAgentIds:
+          type: array
+          items:
+            type: string
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/DispatchAgent"
+        unassignedEligibleCount:
+          type: integer
+          description: How many unassigned orders "Dispatch Now" would actually act on (status new or confirmed only).
+      required: [enabled, inactiveAgentRule, transferToAgentIds, agents, unassignedEligibleCount]
+
+    UpdateAutoDispatchConfigRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        inactiveAgentRule:
+          type: string
+          enum: [none, transfer, redistribute]
+        transferToAgentIds:
+          type: array
+          items:
+            type: string
+
+    DispatchNowResponse:
+      type: object
+      properties:
+        assignedCount:
+          type: integer
+        byAgent:
+          type: array
+          items:
+            type: object
+            properties:
+              agentId:
+                type: string
+              name:
+                type: string
+                nullable: true
+              email:
+                type: string
+              count:
+                type: integer
+            required: [agentId, email, count]
+      required: [assignedCount, byAgent]
 
     Subscription:
       type: object

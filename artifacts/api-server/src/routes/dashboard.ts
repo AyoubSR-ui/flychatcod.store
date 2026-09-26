@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, conversationsTable, ordersTable } from "@workspace/db";
 import { eq, and, gte, count, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
+import { getAgentTeamMemberId } from "../lib/order-access.js";
 
 const router = Router();
 
@@ -26,6 +27,19 @@ router.get("/stats", requireAuth, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // An agent's dashboard shows only their own order numbers — this is the
+    // same scoping the orders list/stats routes apply, just against a
+    // different set of queries. Conversations stay store-wide for now
+    // (chatsToday, recentConversations) — whether agents should only see
+    // conversations assigned to them is a separate, not-yet-made decision.
+    const isAgent = user.role === "agent";
+    const ownAgentId = isAgent ? await getAgentTeamMemberId(user.id, storeId) : null;
+    // An agent with no roster link (shouldn't normally happen) gets zero
+    // orders rather than the store's — never falls back to unscoped.
+    const orderScope = isAgent
+      ? and(eq(ordersTable.storeId, storeId), eq(ordersTable.assignedAgentId, ownAgentId || "__no_agent_link__"))
+      : eq(ordersTable.storeId, storeId);
+
     // Chats today
     const [chatsTodayResult] = await db
       .select({ count: count() })
@@ -36,19 +50,22 @@ router.get("/stats", requireAuth, async (req, res) => {
     const [newOrdersResult] = await db
       .select({ count: count() })
       .from(ordersTable)
-      .where(and(eq(ordersTable.storeId, storeId), eq(ordersTable.status, "new")));
+      .where(and(orderScope, eq(ordersTable.status, "new")));
 
     const [confirmedOrdersResult] = await db
       .select({ count: count() })
       .from(ordersTable)
-      .where(and(eq(ordersTable.storeId, storeId), eq(ordersTable.status, "confirmed")));
+      .where(and(orderScope, eq(ordersTable.status, "confirmed")));
 
     const [pendingResult] = await db
       .select({ count: count() })
       .from(ordersTable)
-      .where(and(eq(ordersTable.storeId, storeId), eq(ordersTable.status, "awaiting_confirmation")));
+      .where(and(orderScope, eq(ordersTable.status, "awaiting_confirmation")));
 
-    // Conversion rate (confirmed / total conversations)
+    // Conversion rate (confirmed / total conversations) — conversations
+    // aren't agent-scoped (see note above), so for an agent this reads as
+    // "their orders over the store's total conversations": an approximation,
+    // not a true personal conversion rate, until conversation scoping exists.
     const [totalConvResult] = await db
       .select({ count: count() })
       .from(conversationsTable)
@@ -57,7 +74,7 @@ router.get("/stats", requireAuth, async (req, res) => {
     const [totalOrdersResult] = await db
       .select({ count: count() })
       .from(ordersTable)
-      .where(eq(ordersTable.storeId, storeId));
+      .where(orderScope);
 
     const totalConvCount = totalConvResult?.count ?? 0;
     const totalOrderCount = totalOrdersResult?.count ?? 0;
@@ -75,7 +92,7 @@ router.get("/stats", requireAuth, async (req, res) => {
     const recentOrders = await db
       .select()
       .from(ordersTable)
-      .where(eq(ordersTable.storeId, storeId))
+      .where(orderScope)
       .orderBy(sql`${ordersTable.createdAt} desc`)
       .limit(5);
 

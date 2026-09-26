@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, pool, conversationsTable, messagesTable, ordersTable, customersTable } from "@workspace/db";
 import { eq, and, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
+import { getAgentTeamMemberId } from "../lib/order-access.js";
 import { generateId } from "../lib/id.js";
 import { getIO } from "../socket.js";
 
@@ -94,6 +95,16 @@ router.get("/:id", requireAuth, async (req, res) => {
       .where(eq(messagesTable.conversationId, conv.id))
       .orderBy(messagesTable.createdAt);
 
+    // Same rule as the orders list/detail routes: an agent only ever sees
+    // orders assigned to them, even reached indirectly through a
+    // conversation. (Whether agents should see every conversation at all,
+    // vs. only their own, is a separate, not-yet-made decision — this only
+    // closes the order-visibility gap.)
+    const relatedOrdersConditions = [eq(ordersTable.conversationId, conv.id), eq(ordersTable.storeId, storeId!)];
+    if (req.user!.role === "agent") {
+      const ownId = await getAgentTeamMemberId(req.user!.id, String(storeId));
+      relatedOrdersConditions.push(eq(ordersTable.assignedAgentId, ownId || "__no_agent_link__"));
+    }
     const relatedOrders = await db
       .select({
         id: ordersTable.id,
@@ -104,7 +115,7 @@ router.get("/:id", requireAuth, async (req, res) => {
         createdAt: ordersTable.createdAt,
       })
       .from(ordersTable)
-      .where(and(eq(ordersTable.conversationId, conv.id), eq(ordersTable.storeId, storeId!)))
+      .where(and(...relatedOrdersConditions))
       .orderBy(sql`${ordersTable.createdAt} desc`)
       .limit(10);
 

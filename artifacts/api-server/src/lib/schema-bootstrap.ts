@@ -23,6 +23,18 @@ export async function ensureOrdersAgentColumn(): Promise<void> {
   ordersAgentColumnReady = true;
 }
 
+let dispatchColumnsReady = false;
+export async function ensureDispatchColumns(): Promise<void> {
+  if (dispatchColumnsReady) return;
+  await pool.query(`ALTER TABLE team_members ADD COLUMN IF NOT EXISTS dispatch_quota INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE team_members ADD COLUMN IF NOT EXISTS dispatch_active BOOLEAN NOT NULL DEFAULT true`);
+  // {enabled, inactiveAgentRule: "none"|"transfer"|"redistribute", transferToAgentIds: string[]}
+  // NULL until an owner ever opens Team → Order Dispatch — see getAutoDispatchConfig
+  // in lib/order-dispatch.ts for the default applied when it's still NULL.
+  await pool.query(`ALTER TABLE stores ADD COLUMN IF NOT EXISTS auto_dispatch JSONB`);
+  dispatchColumnsReady = true;
+}
+
 let profilePicColumnsReady = false;
 export async function ensureProfilePicColumns(): Promise<void> {
   if (profilePicColumnsReady) return;

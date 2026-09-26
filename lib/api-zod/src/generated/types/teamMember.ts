@@ -16,5 +16,7 @@ export interface TeamMember {
   name?: string | null;
   role: TeamMemberRole;
   status: TeamMemberStatus;
+  dispatchQuota?: number;
+  dispatchActive?: boolean;
   createdAt: Date;
 }
