@@ -380,6 +380,8 @@ export interface Order {
   sellerNote?: string | null;
   createdBySource?: OrderCreatedBySource;
   cancelledBySource?: OrderCancelledBySource;
+  /** Hidden from the default (non-archived) list/KPIs when true — see GET /orders's archived param. */
+  isArchived?: boolean;
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
@@ -395,6 +397,50 @@ export interface OrderListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface BulkOrderIdsRequest {
+  /** @maxItems 500 */
+  orderIds: string[];
+}
+
+export type BulkUpdateOrdersRequestStatus =
+  (typeof BulkUpdateOrdersRequestStatus)[keyof typeof BulkUpdateOrdersRequestStatus];
+
+export const BulkUpdateOrdersRequestStatus = {
+  new: "new",
+  awaiting_confirmation: "awaiting_confirmation",
+  confirmed: "confirmed",
+  shipped: "shipped",
+  delivered: "delivered",
+  cancelled: "cancelled",
+  suspicious: "suspicious",
+} as const;
+
+export interface BulkUpdateOrdersRequest {
+  /** @maxItems 500 */
+  orderIds: string[];
+  status?: BulkUpdateOrdersRequestStatus;
+  assignedAgentId?: string | null;
+}
+
+export interface BulkDispatchOrdersRequest {
+  /** @maxItems 500 */
+  orderIds: string[];
+  carrierConnectionId: string;
+}
+
+export type BulkActionResultFailedItem = {
+  orderId: string;
+  reason: string;
+};
+
+/**
+ * Per-order outcome — never a blanket success/failure for the whole batch.
+ */
+export interface BulkActionResult {
+  succeeded: string[];
+  failed: BulkActionResultFailedItem[];
 }
 
 export type CreateOrderRequestItemsItem = {
@@ -1042,6 +1088,10 @@ export type GetOrdersParams = {
   search?: string;
   page?: number;
   limit?: number;
+  /**
+   * "true" shows archived orders only; omitted/"false" (the default) excludes them.
+   */
+  archived?: GetOrdersArchived;
 };
 
 export type GetOrdersStatus =
@@ -1055,6 +1105,14 @@ export const GetOrdersStatus = {
   delivered: "delivered",
   cancelled: "cancelled",
   suspicious: "suspicious",
+} as const;
+
+export type GetOrdersArchived =
+  (typeof GetOrdersArchived)[keyof typeof GetOrdersArchived];
+
+export const GetOrdersArchived = {
+  true: "true",
+  false: "false",
 } as const;
 
 export type GetCustomersParams = {

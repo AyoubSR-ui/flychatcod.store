@@ -23,6 +23,19 @@ export async function ensureOrdersAgentColumn(): Promise<void> {
   ordersAgentColumnReady = true;
 }
 
+// Mirrors conversations.is_archived (see lib/db/src/schema/conversations.ts) —
+// same boolean-flag, hidden-by-default pattern, now for orders. See
+// order-filters.ts's buildOrderFilters, which always adds an is_archived
+// clause (defaulting to false) so archived orders never leak into the
+// normal list/KPIs by accident.
+let ordersArchivedColumnReady = false;
+export async function ensureOrdersArchivedColumn(): Promise<void> {
+  if (ordersArchivedColumnReady) return;
+  await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT false`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS orders_is_archived_idx ON orders (store_id, is_archived)`);
+  ordersArchivedColumnReady = true;
+}
+
 let dispatchColumnsReady = false;
 export async function ensureDispatchColumns(): Promise<void> {
   if (dispatchColumnsReady) return;

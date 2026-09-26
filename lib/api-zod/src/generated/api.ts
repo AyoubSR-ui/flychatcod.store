@@ -407,6 +407,12 @@ export const GetOrdersQueryParams = zod.object({
   search: zod.coerce.string().optional(),
   page: zod.coerce.number().optional(),
   limit: zod.coerce.number().optional(),
+  archived: zod
+    .enum(["true", "false"])
+    .optional()
+    .describe(
+      '\"true\" shows archived orders only; omitted\/\"false\" (the default) excludes them.',
+    ),
 });
 
 export const GetOrdersResponse = zod.object({
@@ -444,6 +450,12 @@ export const GetOrdersResponse = zod.object({
       sellerNote: zod.string().nullish(),
       createdBySource: zod.enum(["human", "ai"]).nullish(),
       cancelledBySource: zod.enum(["human", "ai"]).nullish(),
+      isArchived: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Hidden from the default (non-archived) list\/KPIs when true — see GET \/orders's archived param.",
+        ),
       items: zod.array(
         zod.object({
           id: zod.string(),
@@ -488,6 +500,112 @@ export const CreateOrderBody = zod.object({
 });
 
 /**
+ * @summary Bulk status change and/or agent reassignment (owner/admin only)
+ */
+export const bulkUpdateOrdersBodyOrderIdsMax = 500;
+
+export const BulkUpdateOrdersBody = zod.object({
+  orderIds: zod.array(zod.string()).max(bulkUpdateOrdersBodyOrderIdsMax),
+  status: zod
+    .enum([
+      "new",
+      "awaiting_confirmation",
+      "confirmed",
+      "shipped",
+      "delivered",
+      "cancelled",
+      "suspicious",
+    ])
+    .optional(),
+  assignedAgentId: zod.string().nullish(),
+});
+
+export const BulkUpdateOrdersResponse = zod
+  .object({
+    succeeded: zod.array(zod.string()),
+    failed: zod.array(
+      zod.object({
+        orderId: zod.string(),
+        reason: zod.string(),
+      }),
+    ),
+  })
+  .describe(
+    "Per-order outcome — never a blanket success\/failure for the whole batch.",
+  );
+
+/**
+ * Sequential per-order dispatch — a carrier can reject an individual order (bad commune, etc.) without failing the rest of the batch.
+ * @summary Bulk parcel creation (owner/admin only)
+ */
+export const bulkDispatchOrdersBodyOrderIdsMax = 500;
+
+export const BulkDispatchOrdersBody = zod.object({
+  orderIds: zod.array(zod.string()).max(bulkDispatchOrdersBodyOrderIdsMax),
+  carrierConnectionId: zod.string(),
+});
+
+export const BulkDispatchOrdersResponse = zod
+  .object({
+    succeeded: zod.array(zod.string()),
+    failed: zod.array(
+      zod.object({
+        orderId: zod.string(),
+        reason: zod.string(),
+      }),
+    ),
+  })
+  .describe(
+    "Per-order outcome — never a blanket success\/failure for the whole batch.",
+  );
+
+/**
+ * @summary Bulk archive (owner/admin only)
+ */
+export const bulkArchiveOrdersBodyOrderIdsMax = 500;
+
+export const BulkArchiveOrdersBody = zod.object({
+  orderIds: zod.array(zod.string()).max(bulkArchiveOrdersBodyOrderIdsMax),
+});
+
+export const BulkArchiveOrdersResponse = zod
+  .object({
+    succeeded: zod.array(zod.string()),
+    failed: zod.array(
+      zod.object({
+        orderId: zod.string(),
+        reason: zod.string(),
+      }),
+    ),
+  })
+  .describe(
+    "Per-order outcome — never a blanket success\/failure for the whole batch.",
+  );
+
+/**
+ * @summary Bulk unarchive (owner/admin only)
+ */
+export const bulkUnarchiveOrdersBodyOrderIdsMax = 500;
+
+export const BulkUnarchiveOrdersBody = zod.object({
+  orderIds: zod.array(zod.string()).max(bulkUnarchiveOrdersBodyOrderIdsMax),
+});
+
+export const BulkUnarchiveOrdersResponse = zod
+  .object({
+    succeeded: zod.array(zod.string()),
+    failed: zod.array(
+      zod.object({
+        orderId: zod.string(),
+        reason: zod.string(),
+      }),
+    ),
+  })
+  .describe(
+    "Per-order outcome — never a blanket success\/failure for the whole batch.",
+  );
+
+/**
  * @summary Get order by ID
  */
 export const GetOrderParams = zod.object({
@@ -528,6 +646,12 @@ export const GetOrderResponse = zod
     sellerNote: zod.string().nullish(),
     createdBySource: zod.enum(["human", "ai"]).nullish(),
     cancelledBySource: zod.enum(["human", "ai"]).nullish(),
+    isArchived: zod
+      .boolean()
+      .optional()
+      .describe(
+        "Hidden from the default (non-archived) list\/KPIs when true — see GET \/orders's archived param.",
+      ),
     items: zod.array(
       zod.object({
         id: zod.string(),
@@ -627,6 +751,12 @@ export const UpdateOrderResponse = zod.object({
   sellerNote: zod.string().nullish(),
   createdBySource: zod.enum(["human", "ai"]).nullish(),
   cancelledBySource: zod.enum(["human", "ai"]).nullish(),
+  isArchived: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Hidden from the default (non-archived) list\/KPIs when true — see GET \/orders's archived param.",
+    ),
   items: zod.array(
     zod.object({
       id: zod.string(),

@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { db, pool, ordersTable, orderItemsTable, customersTable, conversationsTable, teamMembersTable } from "@workspace/db";
 import { eq, and, ilike, sql, ne } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
+import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
-import { ensureOrderStatusValues, ensureOrdersAgentColumn, ensureScheduledParcelsTable } from "../lib/schema-bootstrap.js";
+import { ensureOrderStatusValues, ensureOrdersAgentColumn, ensureScheduledParcelsTable, ensureOrdersArchivedColumn } from "../lib/schema-bootstrap.js";
 import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/order-filters.js";
 import { dispatchOrderToCarrier, refreshShipmentStatus } from "./carriers.js";
 import { logOrderEvent } from "../lib/order-events.js";
@@ -36,6 +36,7 @@ router.get("/stats", requireAuth, async (req, res) => {
     const storeId = req.user!.storeId;
     if (!storeId) { res.json({ total: 0, today: 0, confirmed: 0, confirmedRate: 0, cancelled: 0, cancelledRate: 0, deliveryFailed: 0, deliveryFailedRate: 0, deliveryRate: 0, delivered: 0 }); return; }
     await ensureOrderStatusValues();
+    await ensureOrdersArchivedColumn();
 
     const scopedQuery = await scopeQueryToCaller(req, req.query as Record<string, string>, storeId);
     const { whereSQL, values } = await buildOrderFilters(storeId, scopedQuery);
@@ -80,6 +81,7 @@ router.get("/", requireAuth, async (req, res) => {
     await ensureOrderStatusValues();
     await ensureOrdersAgentColumn();
     await ensureScheduledParcelsTable();
+    await ensureOrdersArchivedColumn();
 
     const { page = "1", limit = "20" } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
@@ -142,6 +144,7 @@ router.get("/", requireAuth, async (req, res) => {
         sellerNote: o.seller_note,
         assignedAgentId: o.assigned_agent_id,
         assignedAgentName: o.agent_name,
+        isArchived: o.is_archived,
         scheduledShipDate: o.scheduled_ship_date,
         scheduleNote: o.schedule_note,
         shipment: o.shipment_id ? {
@@ -323,6 +326,168 @@ router.get("/", requireAuth, async (req, res) => {
     res.status(500).json({ error: "internal_error", message: "Failed to create order" });
   }
 });
+
+// ─── Bulk actions (owner/admin only — see requireOwnerOrAdmin on every route ──
+// below). Registered here, ahead of GET/PATCH /:id, so Express matches the
+// literal "/bulk" path segment first — same reason /stats is registered
+// ahead of GET /:id above; otherwise "/bulk" would be swallowed as an :id
+// value by whichever /:id route comes first.
+interface BulkResult { succeeded: string[]; failed: { orderId: string; reason: string }[] }
+
+const MAX_BULK_IDS = 500;
+
+function validateBulkIds(body: any, res: any): string[] | null {
+  const orderIds = body?.orderIds;
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    res.status(400).json({ error: "validation_error", message: "orderIds must be a non-empty array" });
+    return null;
+  }
+  if (orderIds.length > MAX_BULK_IDS) {
+    res.status(400).json({ error: "validation_error", message: `orderIds can't exceed ${MAX_BULK_IDS} at once` });
+    return null;
+  }
+  if (!orderIds.every((id: unknown) => typeof id === "string" && id)) {
+    res.status(400).json({ error: "validation_error", message: "orderIds must all be non-empty strings" });
+    return null;
+  }
+  return orderIds;
+}
+
+// ─── PATCH /api/orders/bulk — bulk status change and/or agent reassignment ────
+// One handler for both, mirroring PATCH /:id — a bulk "assign to agent" and a
+// bulk "update status" are the same request shape with different fields set.
+router.patch("/bulk", requireAuth, requireOwnerOrAdmin, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    await ensureOrderStatusValues();
+    await ensureOrdersAgentColumn();
+
+    const orderIds = validateBulkIds(req.body, res);
+    if (!orderIds) return;
+
+    const { status, assignedAgentId } = req.body as { status?: string; assignedAgentId?: string | null };
+    if (status === undefined && assignedAgentId === undefined) {
+      res.status(400).json({ error: "validation_error", message: "status or assignedAgentId is required" });
+      return;
+    }
+
+    // Validated once up front (same rule as PATCH /:id) rather than per
+    // order — an invalid agent id is a request-level mistake, not something
+    // that should show up as "19 failed, 1 succeeded".
+    if (assignedAgentId) {
+      const [agent] = await db.select({ id: teamMembersTable.id }).from(teamMembersTable)
+        .where(and(eq(teamMembersTable.id, assignedAgentId), eq(teamMembersTable.storeId, storeId), ne(teamMembersTable.status, "removed"))).limit(1);
+      if (!agent) { res.status(400).json({ error: "invalid_agent", message: "assignedAgentId does not refer to a team member in this store" }); return; }
+    }
+
+    const result: BulkResult = { succeeded: [], failed: [] };
+    for (const orderId of orderIds) {
+      try {
+        let previousStatus: string | null = null;
+        if (status) {
+          const { rows: current } = await pool.query(`SELECT status FROM orders WHERE id = $1 AND store_id = $2 LIMIT 1`, [orderId, storeId]);
+          previousStatus = current[0]?.status ?? null;
+        }
+
+        const setClauses: string[] = ["updated_at = NOW()"];
+        const params: any[] = [];
+        if (status) { params.push(status); setClauses.push(`status = $${params.length}`); }
+        if (assignedAgentId !== undefined) { params.push(assignedAgentId || null); setClauses.push(`assigned_agent_id = $${params.length}`); }
+        params.push(orderId, storeId);
+
+        const { rows } = await pool.query(
+          `UPDATE orders SET ${setClauses.join(", ")} WHERE id = $${params.length - 1} AND store_id = $${params.length} RETURNING id, customer_id`,
+          params
+        );
+        if (!rows[0]) { result.failed.push({ orderId, reason: "Order not found in this store" }); continue; }
+
+        if (status && status !== previousStatus) {
+          logOrderEvent({
+            orderId, eventType: "status_change", fromStatus: previousStatus, toStatus: status,
+            createdBy: req.user!.name || req.user!.email || "System",
+          }).catch(err => console.error("[Orders] Failed to log bulk status_change event:", err));
+
+          if (rows[0].customer_id && ["confirmed", "self_confirmed", "shipped", "delivered"].includes(status)) {
+            pool.query(`UPDATE customers SET lead_stage = 'order_confirmed', updated_at = NOW() WHERE id = $1`, [rows[0].customer_id])
+              .catch(err => console.error("[Orders] Failed to sync customer lead_stage:", err));
+          }
+        }
+        result.succeeded.push(orderId);
+      } catch (err: any) {
+        result.failed.push({ orderId, reason: err.message || "Update failed" });
+      }
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Bulk update failed" });
+  }
+});
+
+// ─── POST /api/orders/bulk/dispatch — bulk parcel creation ────────────────────
+// Sequential, per-order — dispatchOrderToCarrier already throws per-order
+// (a carrier can reject one order's commune/address while accepting the
+// rest), so this just needs to catch that per iteration instead of letting
+// one bad order fail the whole batch.
+router.post("/bulk/dispatch", requireAuth, requireOwnerOrAdmin, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const orderIds = validateBulkIds(req.body, res);
+    if (!orderIds) return;
+
+    const { carrierConnectionId } = req.body as { carrierConnectionId?: string };
+    if (!carrierConnectionId) { res.status(400).json({ error: "validation_error", message: "carrierConnectionId is required" }); return; }
+
+    const result: BulkResult = { succeeded: [], failed: [] };
+    for (const orderId of orderIds) {
+      try {
+        await dispatchOrderToCarrier(String(storeId), orderId, carrierConnectionId);
+        result.succeeded.push(orderId);
+      } catch (err: any) {
+        result.failed.push({ orderId, reason: describeDispatchError(err) });
+      }
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Bulk dispatch failed" });
+  }
+});
+
+// ─── POST /api/orders/bulk/archive & /bulk/unarchive ──────────────────────────
+async function bulkSetArchived(req: any, res: any, archived: boolean) {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+    await ensureOrdersArchivedColumn();
+
+    const orderIds = validateBulkIds(req.body, res);
+    if (!orderIds) return;
+
+    const result: BulkResult = { succeeded: [], failed: [] };
+    for (const orderId of orderIds) {
+      const { rows } = await pool.query(
+        `UPDATE orders SET is_archived = $1, updated_at = NOW() WHERE id = $2 AND store_id = $3 RETURNING id`,
+        [archived, orderId, storeId]
+      );
+      if (rows[0]) result.succeeded.push(orderId);
+      else result.failed.push({ orderId, reason: "Order not found in this store" });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: archived ? "Bulk archive failed" : "Bulk unarchive failed" });
+  }
+}
+
+router.post("/bulk/archive", requireAuth, requireOwnerOrAdmin, (req, res) => bulkSetArchived(req, res, true));
+router.post("/bulk/unarchive", requireAuth, requireOwnerOrAdmin, (req, res) => bulkSetArchived(req, res, false));
 
 // ─── GET /api/orders/:id ──────────────────────────────────────────────────────
 router.get("/:id", requireAuth, requireOrderAccess, async (req, res) => {

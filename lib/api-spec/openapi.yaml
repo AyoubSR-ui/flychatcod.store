@@ -429,6 +429,12 @@ paths:
           in: query
           schema:
             type: number
+        - name: archived
+          in: query
+          description: "\"true\" shows archived orders only; omitted/\"false\" (the default) excludes them."
+          schema:
+            type: string
+            enum: ["true", "false"]
       responses:
         "200":
           description: List of orders
@@ -453,6 +459,83 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Order"
+
+  /orders/bulk:
+    patch:
+      operationId: bulkUpdateOrders
+      tags: [orders]
+      summary: Bulk status change and/or agent reassignment (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpdateOrdersRequest"
+      responses:
+        "200":
+          description: Per-order result — never a blanket success/failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /orders/bulk/dispatch:
+    post:
+      operationId: bulkDispatchOrders
+      tags: [orders]
+      summary: Bulk parcel creation (owner/admin only)
+      description: Sequential per-order dispatch — a carrier can reject an individual order (bad commune, etc.) without failing the rest of the batch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkDispatchOrdersRequest"
+      responses:
+        "200":
+          description: Per-order result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /orders/bulk/archive:
+    post:
+      operationId: bulkArchiveOrders
+      tags: [orders]
+      summary: Bulk archive (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkOrderIdsRequest"
+      responses:
+        "200":
+          description: Per-order result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
+
+  /orders/bulk/unarchive:
+    post:
+      operationId: bulkUnarchiveOrders
+      tags: [orders]
+      summary: Bulk unarchive (owner/admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkOrderIdsRequest"
+      responses:
+        "200":
+          description: Per-order result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkActionResult"
 
   /orders/{id}:
     get:
@@ -1695,6 +1778,9 @@ components:
           type: string
           nullable: true
           enum: [human, ai]
+        isArchived:
+          type: boolean
+          description: Hidden from the default (non-archived) list/KPIs when true — see GET /orders's archived param.
         items:
           type: array
           items:
@@ -1752,6 +1838,64 @@ components:
         limit:
           type: number
       required: [orders, total, page, limit]
+
+    BulkOrderIdsRequest:
+      type: object
+      properties:
+        orderIds:
+          type: array
+          items:
+            type: string
+          maxItems: 500
+      required: [orderIds]
+
+    BulkUpdateOrdersRequest:
+      type: object
+      properties:
+        orderIds:
+          type: array
+          items:
+            type: string
+          maxItems: 500
+        status:
+          type: string
+          enum: [new, awaiting_confirmation, confirmed, shipped, delivered, cancelled, suspicious]
+        assignedAgentId:
+          type: string
+          nullable: true
+      required: [orderIds]
+
+    BulkDispatchOrdersRequest:
+      type: object
+      properties:
+        orderIds:
+          type: array
+          items:
+            type: string
+          maxItems: 500
+        carrierConnectionId:
+          type: string
+      required: [orderIds, carrierConnectionId]
+
+    BulkActionResult:
+      type: object
+      description: Per-order outcome — never a blanket success/failure for the whole batch.
+      properties:
+        succeeded:
+          type: array
+          items:
+            type: string
+        failed:
+          type: array
+          items:
+            type: object
+            properties:
+              orderId:
+                type: string
+              reason:
+                type: string
+            required: [orderId, reason]
+      required: [succeeded, failed]
 
     CreateOrderRequest:
       type: object
