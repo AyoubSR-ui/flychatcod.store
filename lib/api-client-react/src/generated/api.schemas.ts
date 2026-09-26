@@ -729,6 +729,8 @@ export interface TeamMember {
   name?: string | null;
   role: TeamMemberRole;
   status: TeamMemberStatus;
+  dispatchQuota?: number;
+  dispatchActive?: boolean;
   createdAt: string;
 }
 
@@ -768,6 +770,66 @@ export const UpdateTeamMemberRequestStatus = {
 export interface UpdateTeamMemberRequest {
   role?: UpdateTeamMemberRequestRole;
   status?: UpdateTeamMemberRequestStatus;
+}
+
+export interface UpdateDispatchSettingsRequest {
+  /** @minimum 0 */
+  quota?: number;
+  active?: boolean;
+}
+
+export interface DispatchAgent {
+  id: string;
+  name?: string | null;
+  email: string;
+  quota: number;
+  active: boolean;
+  sharePercent: number;
+}
+
+export type AutoDispatchConfigInactiveAgentRule =
+  (typeof AutoDispatchConfigInactiveAgentRule)[keyof typeof AutoDispatchConfigInactiveAgentRule];
+
+export const AutoDispatchConfigInactiveAgentRule = {
+  none: "none",
+  transfer: "transfer",
+  redistribute: "redistribute",
+} as const;
+
+export interface AutoDispatchConfig {
+  enabled: boolean;
+  inactiveAgentRule: AutoDispatchConfigInactiveAgentRule;
+  transferToAgentIds: string[];
+  agents: DispatchAgent[];
+  /** How many unassigned orders "Dispatch Now" would actually act on (status new or confirmed only). */
+  unassignedEligibleCount: number;
+}
+
+export type UpdateAutoDispatchConfigRequestInactiveAgentRule =
+  (typeof UpdateAutoDispatchConfigRequestInactiveAgentRule)[keyof typeof UpdateAutoDispatchConfigRequestInactiveAgentRule];
+
+export const UpdateAutoDispatchConfigRequestInactiveAgentRule = {
+  none: "none",
+  transfer: "transfer",
+  redistribute: "redistribute",
+} as const;
+
+export interface UpdateAutoDispatchConfigRequest {
+  enabled?: boolean;
+  inactiveAgentRule?: UpdateAutoDispatchConfigRequestInactiveAgentRule;
+  transferToAgentIds?: string[];
+}
+
+export type DispatchNowResponseByAgentItem = {
+  agentId: string;
+  name?: string | null;
+  email: string;
+  count: number;
+};
+
+export interface DispatchNowResponse {
+  assignedCount: number;
+  byAgent: DispatchNowResponseByAgentItem[];
 }
 
 export type SubscriptionPlan =

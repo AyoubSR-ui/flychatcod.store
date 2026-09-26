@@ -3,6 +3,7 @@ import { eq, and, inArray, desc } from "drizzle-orm";
 import { generateId } from "./id.js";
 import { detectLeadIntent, intentToLeadStage, extractConversationState } from "./lead-intent.js";
 import { normalizeWilayaForStorage } from "./carriers/wilaya-codes.js";
+import { autoAssignIfEnabled } from "./order-dispatch.js";
 
 const AGENT_URL = process.env.AI_AGENT_URL;
 const AGENT_SECRET = process.env.AGENT_SECRET || "";
@@ -621,6 +622,8 @@ async function executeCreateOrderSilent(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+
+    await autoAssignIfEnabled(storeId, orderId).catch(err => console.error("[AI Bridge] Auto-dispatch error:", err));
 
     for (const item of action.items ?? []) {
       await db.insert(orderItemsTable).values({

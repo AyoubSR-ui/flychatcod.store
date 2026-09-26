@@ -5,6 +5,10 @@ import { requireOwner } from "../middlewares/auth.js";
 import { generateId } from "../lib/id.js";
 import { sendInviteEmail } from "../lib/email.js";
 import { randomBytes } from "crypto";
+import {
+  getAutoDispatchConfig, setAutoDispatchConfig, getAllDispatchAgents,
+  dispatchNow, applyInactiveAgentRule, getUnassignedEligibleCount,
+} from "../lib/order-dispatch.js";
 
 const router = Router();
 
@@ -256,10 +260,118 @@ router.delete("/members/:id", requireOwner, async (req, res) => {
         eq(teamMembersTable.id, String(req.params.id)),
         eq(teamMembersTable.storeId, String(storeId))
       ));
+
+    await applyInactiveAgentRule(storeId, String(req.params.id)).catch(err => console.error("[Team] Inactive-agent rule error:", err));
+
     res.json({ success: true, message: "Team member removed" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "internal_error", message: "Failed to remove team member" });
+  }
+});
+
+// ─── PATCH member's dispatch settings (quota + on/off) ─────────────────────────
+router.patch("/members/:id/dispatch", requireOwner, async (req, res) => {
+  try {
+    const storeId = String(req.user!.storeId);
+    const { quota, active } = req.body as { quota?: number; active?: boolean };
+
+    if (quota !== undefined && (!Number.isInteger(quota) || quota < 0)) {
+      res.status(400).json({ error: "validation_error", message: "quota must be a non-negative integer" });
+      return;
+    }
+
+    const [existing] = await db.select().from(teamMembersTable)
+      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, storeId)))
+      .limit(1);
+    if (!existing) { res.status(404).json({ error: "not_found", message: "Team member not found" }); return; }
+    if (existing.status === "removed") { res.status(410).json({ error: "removed", message: "This team member was removed." }); return; }
+
+    const updates: Partial<typeof teamMembersTable.$inferSelect> = { updatedAt: new Date() };
+    if (quota !== undefined) updates.dispatchQuota = quota;
+    if (active !== undefined) updates.dispatchActive = active;
+
+    const [updated] = await db.update(teamMembersTable).set(updates)
+      .where(and(eq(teamMembersTable.id, String(req.params.id)), eq(teamMembersTable.storeId, storeId)))
+      .returning();
+
+    // Only the true → false transition matters here — turning an agent back
+    // on never needs to move anything, they just start receiving new orders
+    // again.
+    if (active === false && existing.dispatchActive !== false) {
+      await applyInactiveAgentRule(storeId, String(req.params.id)).catch(err => console.error("[Team] Inactive-agent rule error:", err));
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to update dispatch settings" });
+  }
+});
+
+// ─── GET auto-dispatch config + candidate agents with computed share % ────────
+router.get("/auto-dispatch", requireOwner, async (req, res) => {
+  try {
+    const storeId = String(req.user!.storeId);
+    const config = await getAutoDispatchConfig(storeId);
+    const allAgents = await getAllDispatchAgents(storeId);
+    // Share % is computed only across agents currently eligible to receive
+    // anything (toggled on, quota > 0) — an off agent's saved quota still
+    // shows in the input, but their share reads 0, matching what would
+    // actually happen if Dispatch Now ran right now.
+    const eligible = allAgents.filter(a => a.active && a.quota > 0);
+    const totalQuota = eligible.reduce((sum, a) => sum + a.quota, 0);
+    const agents = allAgents.map(a => ({
+      id: a.id, name: a.name, email: a.email, quota: a.quota, active: a.active,
+      sharePercent: (a.active && a.quota > 0 && totalQuota > 0) ? Math.round((a.quota / totalQuota) * 1000) / 10 : 0,
+    }));
+    // What "Dispatch Now" would actually act on right now — new/confirmed
+    // and still unassigned. Shown to the owner before they click it, not
+    // after.
+    const unassignedEligibleCount = await getUnassignedEligibleCount(storeId);
+    res.json({ ...config, agents, unassignedEligibleCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch auto-dispatch settings" });
+  }
+});
+
+// ─── PATCH auto-dispatch config (enabled / inactiveAgentRule / transferToAgentIds) ─
+router.patch("/auto-dispatch", requireOwner, async (req, res) => {
+  try {
+    const storeId = String(req.user!.storeId);
+    const { enabled, inactiveAgentRule, transferToAgentIds } = req.body as {
+      enabled?: boolean; inactiveAgentRule?: "none" | "transfer" | "redistribute"; transferToAgentIds?: string[];
+    };
+    if (inactiveAgentRule && !["none", "transfer", "redistribute"].includes(inactiveAgentRule)) {
+      res.status(400).json({ error: "validation_error", message: "inactiveAgentRule must be \"none\", \"transfer\", or \"redistribute\"" });
+      return;
+    }
+    const updated = await setAutoDispatchConfig(storeId, {
+      ...(enabled !== undefined ? { enabled } : {}),
+      ...(inactiveAgentRule !== undefined ? { inactiveAgentRule } : {}),
+      ...(transferToAgentIds !== undefined ? { transferToAgentIds } : {}),
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to update auto-dispatch settings" });
+  }
+});
+
+// ─── POST /auto-dispatch/run — "Dispatch Now" ──────────────────────────────────
+// Manual one-off sweep — distributes every currently-unassigned order by
+// quota, regardless of whether the store's Auto Dispatch toggle is on.
+// Reports exactly what happened rather than a bare success flag, since this
+// touches a batch of orders the owner didn't individually pick.
+router.post("/auto-dispatch/run", requireOwner, async (req, res) => {
+  try {
+    const storeId = String(req.user!.storeId);
+    const result = await dispatchNow(storeId);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to run dispatch" });
   }
 });
 

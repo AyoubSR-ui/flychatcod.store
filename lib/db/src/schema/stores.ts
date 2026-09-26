@@ -22,6 +22,17 @@ export const storesTable = pgTable("stores", {
   aiSystemPrompt: text("ai_system_prompt"),
   aiFallbackToHuman: boolean("ai_fallback_to_human").notNull().default(true),
   shippingOptions: jsonb("shipping_options"),
+  // Store-level Order Dispatch policy — see lib/order-dispatch.ts for the
+  // default applied while this is NULL (an owner who has never opened
+  // Team → Order Dispatch). Per-agent quota/active toggle live on
+  // team_members instead (see schema/team.ts) — they're facts about an
+  // agent, not store policy, and this way removing an agent can't leave an
+  // orphaned entry in here.
+  autoDispatch: jsonb("auto_dispatch").$type<{
+    enabled: boolean;
+    inactiveAgentRule: "none" | "transfer" | "redistribute";
+    transferToAgentIds: string[];
+  }>(),
   shopifyShop: text("shopify_shop"),
   shopifyAccessToken: text("shopify_access_token"),
   shopifyScope: text("shopify_scope"),

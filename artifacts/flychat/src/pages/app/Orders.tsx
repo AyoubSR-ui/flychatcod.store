@@ -477,11 +477,13 @@ export default function Orders() {
                 {carrierConnections.map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
 
-              <select value={filters.agent} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
-                <option value="all">{t("orders.filter.all_agents")}</option>
-                <option value="unassigned">{t("orders.filter.unassigned")}</option>
-                {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
-              </select>
+              {user?.role !== "agent" && (
+                <select value={filters.agent} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                  <option value="all">{t("orders.filter.all_agents")}</option>
+                  <option value="unassigned">{t("orders.filter.unassigned")}</option>
+                  {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
+                </select>
+              )}
 
               <select value={filters.product} onChange={e => setFilters(f => ({ ...f, product: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                 <option value="all">{t("orders.filter.all_products")}</option>
@@ -526,8 +528,10 @@ export default function Orders() {
                       <td colSpan={9} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center"><Package className="w-7 h-7" /></div>
-                          <p className="font-medium">{t("orders.no_orders")}</p>
-                          <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">{t("orders.create_first")}</button>
+                          <p className="font-medium">{user?.role === "agent" ? t("orders.no_orders_assigned") : t("orders.no_orders")}</p>
+                          {user?.role !== "agent" && (
+                            <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">{t("orders.create_first")}</button>
+                          )}
                         </div>
                       </td>
                     </tr>

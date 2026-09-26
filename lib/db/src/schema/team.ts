@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, pgEnum, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -18,6 +18,14 @@ export const teamMembersTable = pgTable("team_members", {
   name: text("name"),
   role: teamRoleEnum("role").notNull().default("agent"),
   status: teamStatusEnum("status").notNull().default("invited"),
+  // Auto-dispatch (see lib/order-dispatch.ts): quota is this agent's relative
+  // share weight, not a hard cap — 0 means "never picked by auto-dispatch"
+  // (matches the plain invite default, before an owner has configured
+  // dispatch at all). dispatchActive is the per-agent on/off toggle ("off
+  // shift") — distinct from status, which is about team membership, not
+  // dispatch eligibility.
+  dispatchQuota: integer("dispatch_quota").notNull().default(0),
+  dispatchActive: boolean("dispatch_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

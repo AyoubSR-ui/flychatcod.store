@@ -11,8 +11,22 @@ import { logOrderEvent } from "../lib/order-events.js";
 import { ensureOrderEventsTable } from "../lib/schema-bootstrap.js";
 import { shopifyFetch } from "./shopify.js";
 import { ShopifyReauthRequiredError } from "../lib/shopify-token.js";
+import { requireOrderAccess, getAgentTeamMemberId } from "../lib/order-access.js";
+import { autoAssignIfEnabled } from "../lib/order-dispatch.js";
 
 const router = Router();
+
+// Agents only ever see their own assigned orders — GET / and GET /stats
+// share this through the same buildOrderFilters() "agent" clause the
+// owner/admin UI's own filter dropdown uses, just forced here rather than
+// client-controlled. A sentinel id that can't match any real team_members.id
+// gives an agent with no roster link an empty result instead of leaking
+// unassigned or other agents' orders.
+async function scopeQueryToCaller(req: any, query: Record<string, string>, storeId: string): Promise<Record<string, string>> {
+  if (req.user!.role !== "agent") return query;
+  const ownId = await getAgentTeamMemberId(req.user!.id, storeId);
+  return { ...query, agent: ownId || "__no_agent_link__" };
+}
 
 // ─── GET /api/orders/stats — KPI summary bar ───────────────────────────────────
 // Respects the same filters as the list (minus pagination) so "Livrées/période"
@@ -23,7 +37,8 @@ router.get("/stats", requireAuth, async (req, res) => {
     if (!storeId) { res.json({ total: 0, today: 0, confirmed: 0, confirmedRate: 0, cancelled: 0, cancelledRate: 0, deliveryFailed: 0, deliveryFailedRate: 0, deliveryRate: 0, delivered: 0 }); return; }
     await ensureOrderStatusValues();
 
-    const { whereSQL, values } = await buildOrderFilters(storeId, req.query as Record<string, string>);
+    const scopedQuery = await scopeQueryToCaller(req, req.query as Record<string, string>, storeId);
+    const { whereSQL, values } = await buildOrderFilters(storeId, scopedQuery);
     const { rows } = await pool.query(
       `${ORDERS_BASE_CTE}
        SELECT
@@ -71,7 +86,8 @@ router.get("/", requireAuth, async (req, res) => {
     const limitNum = Math.min(500, parseInt(limit));
     const offset = (pageNum - 1) * limitNum;
 
-    const { whereSQL, values } = await buildOrderFilters(storeId, req.query as Record<string, string>);
+    const scopedQuery = await scopeQueryToCaller(req, req.query as Record<string, string>, storeId);
+    const { whereSQL, values } = await buildOrderFilters(storeId, scopedQuery);
 
     const { rows: countRows } = await pool.query(
       `${ORDERS_BASE_CTE} SELECT COUNT(*) as total FROM base b WHERE ${whereSQL}`, values
@@ -236,6 +252,12 @@ router.get("/", requireAuth, async (req, res) => {
        sellerNote || null, total, String(shippingFee || 0), shippingOption || null, assignedAgentId]
     );
 
+    // Auto-dispatch only ever fills in an order that's still unassigned —
+    // the conversation-inherited assignment above always wins if there is one.
+    if (!assignedAgentId) {
+      await autoAssignIfEnabled(storeId, orderId).catch(err => console.error("[Orders] Auto-dispatch error:", err));
+    }
+
     for (const item of items) {
       await db.insert(orderItemsTable).values({
         id: generateId("oi"),
@@ -303,7 +325,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/orders/:id ──────────────────────────────────────────────────────
-router.get("/:id", requireAuth, async (req, res) => {
+router.get("/:id", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await ensureOrdersAgentColumn();
@@ -369,7 +391,7 @@ router.get("/:id", requireAuth, async (req, res) => {
 });
 
 // ─── PATCH /api/orders/:id ────────────────────────────────────────────────────
-router.patch("/:id", requireAuth, async (req, res) => {
+router.patch("/:id", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await ensureOrderStatusValues();
@@ -444,7 +466,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
 });
 
 // ─── PUT /api/orders/:id/items — replace order items (add/remove/edit) ────────
-router.put("/:id/items", requireAuth, async (req, res) => {
+router.put("/:id/items", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     const { items } = req.body as { items?: Array<{ productId?: string; productName: string; variant?: string; quantity: number; price: number }> };
@@ -503,7 +525,7 @@ router.put("/:id/items", requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/orders/:id/events — timeline ────────────────────────────────────
-router.get("/:id/events", requireAuth, async (req, res) => {
+router.get("/:id/events", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     await ensureOrderEventsTable();
@@ -524,7 +546,7 @@ router.get("/:id/events", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/orders/:id/refresh-tracking — poll carrier for latest status ───
-router.post("/:id/refresh-tracking", requireAuth, async (req, res) => {
+router.post("/:id/refresh-tracking", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -541,7 +563,7 @@ router.post("/:id/refresh-tracking", requireAuth, async (req, res) => {
 // Shopify (confirmed: no such call exists in PATCH /:id) — this is the only
 // way data flows from FlyChat back to Shopify, and it only touches note/tags,
 // never price/items/customer — those stay Shopify's source of truth.
-router.post("/:id/sync-shopify", requireAuth, async (req, res) => {
+router.post("/:id/sync-shopify", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -597,7 +619,7 @@ router.post("/:id/sync-shopify", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/orders/:id/schedule — defer parcel creation to a future date ───
-router.post("/:id/schedule", requireAuth, async (req, res) => {
+router.post("/:id/schedule", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -646,7 +668,7 @@ router.post("/:id/schedule", requireAuth, async (req, res) => {
 });
 
 // ─── DELETE /api/orders/:id/schedule — cancel a pending scheduled parcel ──────
-router.delete("/:id/schedule", requireAuth, async (req, res) => {
+router.delete("/:id/schedule", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
@@ -674,7 +696,7 @@ router.delete("/:id/schedule", requireAuth, async (req, res) => {
 });
 
 // ─── POST /api/orders/:id/dispatch — create a shipment (colis) with a carrier ─
-router.post("/:id/dispatch", requireAuth, async (req, res) => {
+router.post("/:id/dispatch", requireAuth, requireOrderAccess, async (req, res) => {
   try {
     const storeId = req.user!.storeId;
     if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
