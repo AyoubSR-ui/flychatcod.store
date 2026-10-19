@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Link } from "wouter";
+import { Link, useSearchParams } from "wouter";
 import {
   Search, Plus, Loader2, Package, PhoneCall, AlertTriangle, Truck,
   ShoppingBag, CheckCircle2, XCircle, TrendingUp, Send, RotateCw,
@@ -402,16 +402,21 @@ interface Filters {
 }
 const EMPTY_FILTERS: Filters = { search: "", status: "all", source: "all", delivery: "all", carrier: "all", agent: "all", product: "all", dateFrom: "", dateTo: "" };
 
+// URL search params are the source of truth for every filter plus sort/page/
+// limit/archived — so filters survive Back/refresh instead of resetting to
+// this list every time the page remounts. A param is only ever written when
+// it differs from its default here, so a clean Orders URL stays clean
+// (/orders, not /orders?status=all&sort=desc&page=1&...).
+const PARAM_DEFAULTS: Record<string, string> = {
+  ...EMPTY_FILTERS,
+  archived: "false", sort: "desc", page: "1", limit: "50",
+};
+
 export default function Orders() {
   const [showCreate, setShowCreate] = useState(false);
   const [callingOrderId, setCallingOrderId] = useState<string | null>(null);
   const [dispatchOrderId, setDispatchOrderId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [dateTab, setDateTab] = useState<"all" | "today" | "yesterday" | "week" | "custom">("all");
-  const [sort, setSort] = useState<"asc" | "desc">("desc");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(50);
-  const [archivedView, setArchivedView] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [bulkModal, setBulkModal] = useState<null | "assign" | "status" | "dispatch" | "archive" | "unarchive">(null);
@@ -429,11 +434,77 @@ export default function Orders() {
   // fire a request every non-owner is guaranteed to get a 403 on.
   const { data: teamData } = useGetTeamMembers({ query: { enabled: user?.role === "owner" } });
 
-  useEffect(() => { setPage(1); }, [filters, sort, archivedView]);
+  // ── Filters/sort/page/limit/archived read straight from the URL — this is
+  // what makes them survive Back and a refresh. `searchParams` only changes
+  // identity when the underlying query string actually changes (wouter memo-
+  // izes it on the search string), so these stay stable across re-renders
+  // that aren't navigation. ──
+  const filters: Filters = useMemo(() => ({
+    search: searchParams.get("search") ?? EMPTY_FILTERS.search,
+    status: searchParams.get("status") ?? EMPTY_FILTERS.status,
+    source: searchParams.get("source") ?? EMPTY_FILTERS.source,
+    delivery: searchParams.get("delivery") ?? EMPTY_FILTERS.delivery,
+    carrier: searchParams.get("carrier") ?? EMPTY_FILTERS.carrier,
+    agent: searchParams.get("agent") ?? EMPTY_FILTERS.agent,
+    product: searchParams.get("product") ?? EMPTY_FILTERS.product,
+    dateFrom: searchParams.get("dateFrom") ?? EMPTY_FILTERS.dateFrom,
+    dateTo: searchParams.get("dateTo") ?? EMPTY_FILTERS.dateTo,
+  }), [searchParams]);
+  const archivedView = searchParams.get("archived") === "true";
+  const sort: "asc" | "desc" = searchParams.get("sort") === "asc" ? "asc" : "desc";
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+  const limit = Math.max(1, parseInt(searchParams.get("limit") || "50", 10) || 50);
+
+  // Local-only: which quick date-range pill looks active. Not URL-persisted
+  // (only dateFrom/dateTo, the filter that actually matters, is) — computed
+  // once on mount from whatever came back in the URL, so restoring a custom
+  // range still shows the right inputs even though the exact pill ("Today"
+  // vs "custom") isn't distinguished on reload.
+  const [dateTab, setDateTab] = useState<"all" | "today" | "yesterday" | "week" | "custom">(
+    () => (filters.dateFrom || filters.dateTo) ? "custom" : "all"
+  );
+
+  // One place every filter/sort/page/archived/limit change goes through —
+  // writes with `replace: true` (no history entry per change, so typing in
+  // the search box or flipping a filter doesn't spam Back), and prunes any
+  // key back to its default so the URL never carries noise. Changing a
+  // filter/sort/the archived view resets to page 1 (resetPage); changing the
+  // page or the page size on its own does not.
+  const updateParams = (patch: Record<string, string>, opts: { resetPage?: boolean } = {}) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === PARAM_DEFAULTS[key]) next.delete(key);
+        else next.set(key, value);
+      }
+      if (opts.resetPage) next.delete("page");
+      return next;
+    }, { replace: true });
+  };
+
+  const clearFilters = () => setSearchParams(new URLSearchParams(), { replace: true });
+
+  const activeFilterCount = (Object.keys(EMPTY_FILTERS) as (keyof Filters)[])
+    .filter(k => filters[k] !== EMPTY_FILTERS[k]).length;
+
+  // Debounced search — keystrokes update this local input instantly, but only
+  // reach the URL (and therefore trigger a refetch) ~300ms after typing
+  // stops. Re-synced from the URL on external changes (Clear filters, Back).
+  const [searchInput, setSearchInput] = useState(filters.search);
+  useEffect(() => { setSearchInput(filters.search); }, [filters.search]);
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (searchInput !== filters.search) updateParams({ search: searchInput }, { resetPage: true });
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
   // Selection is tied to what's currently rendered — clear it whenever the
   // set of rows on screen could change out from under it, so a stale
   // selection can never bulk-act on rows the merchant isn't looking at
-  // anymore.
+  // anymore. Not URL-persisted on purpose — a stale selection surviving
+  // navigation would be dangerous, not convenient.
   useEffect(() => { setSelectedIds(new Set()); }, [filters, sort, page, archivedView]);
 
   const queryParams = useMemo(() => {
@@ -478,14 +549,14 @@ export default function Orders() {
     const now = new Date();
     const startOf = (d: Date) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
     const endOf = (d: Date) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
-    if (tab === "all") { setFilters(f => ({ ...f, dateFrom: "", dateTo: "" })); }
-    else if (tab === "today") { setFilters(f => ({ ...f, dateFrom: startOf(now).toISOString(), dateTo: endOf(now).toISOString() })); }
+    if (tab === "all") { updateParams({ dateFrom: "", dateTo: "" }, { resetPage: true }); }
+    else if (tab === "today") { updateParams({ dateFrom: startOf(now).toISOString(), dateTo: endOf(now).toISOString() }, { resetPage: true }); }
     else if (tab === "yesterday") {
       const y = new Date(now); y.setDate(y.getDate() - 1);
-      setFilters(f => ({ ...f, dateFrom: startOf(y).toISOString(), dateTo: endOf(y).toISOString() }));
+      updateParams({ dateFrom: startOf(y).toISOString(), dateTo: endOf(y).toISOString() }, { resetPage: true });
     } else if (tab === "week") {
       const start = new Date(now); start.setDate(start.getDate() - start.getDay());
-      setFilters(f => ({ ...f, dateFrom: startOf(start).toISOString(), dateTo: endOf(now).toISOString() }));
+      updateParams({ dateFrom: startOf(start).toISOString(), dateTo: endOf(now).toISOString() }, { resetPage: true });
     }
   };
 
@@ -621,10 +692,10 @@ export default function Orders() {
           {/* Archived orders never appear in the Active KPIs/list, and vice versa: */}
           {/* the "archived" query param is baked into queryParams for both queries. ── */}
           <div className="flex gap-1 bg-secondary/60 p-1 rounded-xl w-fit">
-            <button onClick={() => setArchivedView(false)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${!archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+            <button onClick={() => updateParams({ archived: "false" }, { resetPage: true })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${!archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
               {t("orders.view.active")}
             </button>
-            <button onClick={() => setArchivedView(true)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5 ${archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+            <button onClick={() => updateParams({ archived: "true" }, { resetPage: true })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5 ${archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
               <Archive className="w-3.5 h-3.5" /> {t("orders.view.archived")}
             </button>
           </div>
@@ -659,9 +730,9 @@ export default function Orders() {
                 <button onClick={() => setDateTab("custom")} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${dateTab === "custom" ? "bg-primary text-white" : "bg-secondary text-muted-foreground hover:bg-secondary/70"}`}>{t("orders.tab.more")}</button>
                 {dateTab === "custom" && (
                   <>
-                    <input type="date" onChange={e => setFilters(f => ({ ...f, dateFrom: e.target.value ? new Date(e.target.value).toISOString() : "" }))} className="px-2 py-1 border border-border rounded-lg text-xs" />
+                    <input type="date" value={filters.dateFrom ? filters.dateFrom.slice(0, 10) : ""} onChange={e => updateParams({ dateFrom: e.target.value ? new Date(e.target.value).toISOString() : "" }, { resetPage: true })} className="px-2 py-1 border border-border rounded-lg text-xs" />
                     <span className="text-xs text-muted-foreground">→</span>
-                    <input type="date" onChange={e => setFilters(f => ({ ...f, dateTo: e.target.value ? new Date(e.target.value + "T23:59:59").toISOString() : "" }))} className="px-2 py-1 border border-border rounded-lg text-xs" />
+                    <input type="date" value={filters.dateTo ? filters.dateTo.slice(0, 10) : ""} onChange={e => updateParams({ dateTo: e.target.value ? new Date(e.target.value + "T23:59:59").toISOString() : "" }, { resetPage: true })} className="px-2 py-1 border border-border rounded-lg text-xs" />
                   </>
                 )}
               </div>
@@ -671,43 +742,52 @@ export default function Orders() {
             <div className="p-4 border-b border-border flex flex-wrap gap-2 items-center">
               <div className="relative flex-1 min-w-[200px]">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <input value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} type="text" placeholder={t("orders.search_placeholder")} className="w-full pl-9 pr-4 py-2 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
+                <input value={searchInput} onChange={e => setSearchInput(e.target.value)} type="text" placeholder={t("orders.search_placeholder")} className="w-full pl-9 pr-4 py-2 border border-border rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" />
               </div>
 
-              <select value={filters.source} onChange={e => setFilters(f => ({ ...f, source: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+              <select value={filters.source} onChange={e => updateParams({ source: e.target.value }, { resetPage: true })} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                 <option value="all">{t("orders.filter.all_sources")}</option>
                 {SOURCE_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
 
-              <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+              <select value={filters.status} onChange={e => updateParams({ status: e.target.value }, { resetPage: true })} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                 <option value="all">{t("orders.filter.all_statuses")}</option>
                 <option value="duplicate">{t("orders.filter.duplicate")}</option>
                 {STATUS_OPTIONS.map(s => <option key={s} value={s}>{t(`status.${s}`)}</option>)}
               </select>
 
-              <select value={filters.delivery} onChange={e => setFilters(f => ({ ...f, delivery: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+              <select value={filters.delivery} onChange={e => updateParams({ delivery: e.target.value }, { resetPage: true })} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                 <option value="all">{t("orders.filter.all_delivery")}</option>
                 {DELIVERY_OPTIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
               </select>
 
-              <select value={filters.carrier} onChange={e => setFilters(f => ({ ...f, carrier: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+              <select value={filters.carrier} onChange={e => updateParams({ carrier: e.target.value }, { resetPage: true })} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                 <option value="all">{t("orders.filter.all_companies")}</option>
                 <option value="none">{t("orders.filter.no_carrier")}</option>
                 {carrierConnections.map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
 
               {user?.role !== "agent" && (
-                <select value={filters.agent} onChange={e => setFilters(f => ({ ...f, agent: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+                <select value={filters.agent} onChange={e => updateParams({ agent: e.target.value }, { resetPage: true })} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                   <option value="all">{t("orders.filter.all_agents")}</option>
                   <option value="unassigned">{t("orders.filter.unassigned")}</option>
                   {teamMembers.map((m: any) => <option key={m.id} value={m.id}>{m.name || m.email}</option>)}
                 </select>
               )}
 
-              <select value={filters.product} onChange={e => setFilters(f => ({ ...f, product: e.target.value }))} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
+              <select value={filters.product} onChange={e => updateParams({ product: e.target.value }, { resetPage: true })} className="px-3 py-2 border border-border rounded-xl text-sm bg-white">
                 <option value="all">{t("orders.filter.all_products")}</option>
                 {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
+
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearFilters}
+                  className="px-3 py-2 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 border border-red-200 transition-colors ml-auto"
+                >
+                  {t("orders.filter.clear").replace("{n}", String(activeFilterCount))}
+                </button>
+              )}
             </div>
 
             {/* ── Selection bar — only when something's selected, owner/admin only ── */}
@@ -777,7 +857,7 @@ export default function Orders() {
                     <th className="px-4 py-3 font-medium">{t("orders.table.status")}</th>
                     <th className="px-4 py-3 font-medium">{t("orders.table.execution")}</th>
                     <th className="px-4 py-3 font-medium text-right">{t("orders.table.total")}</th>
-                    <th className="px-4 py-3 font-medium cursor-pointer select-none" onClick={() => setSort(s => s === "desc" ? "asc" : "desc")}>
+                    <th className="px-4 py-3 font-medium cursor-pointer select-none" onClick={() => updateParams({ sort: sort === "desc" ? "asc" : "desc" }, { resetPage: true })}>
                       {t("orders.table.date")} {sort === "desc" ? "↓" : "↑"}
                     </th>
                   </tr>
@@ -952,8 +1032,8 @@ export default function Orders() {
               page={ordersData?.page || page}
               total={ordersData?.total || 0}
               limit={ordersData?.limit || limit}
-              onPageChange={setPage}
-              onLimitChange={setLimit}
+              onPageChange={(n) => updateParams({ page: String(n) })}
+              onLimitChange={(n) => updateParams({ limit: String(n) })}
               itemLabel={t("orders.item_label")}
             />
           </div>

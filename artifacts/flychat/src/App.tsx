@@ -1,11 +1,12 @@
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { StoreProvider } from "@/hooks/use-store";
 import { I18nProvider, useI18n } from "@/hooks/use-i18n";
+import { recordInAppNavigation } from "@/lib/nav-history";
 
 // Public pages
 import Home from "@/pages/public/Home";
@@ -83,6 +84,18 @@ function ProtectedRoute({ component: Component, roles }: { component: React.Comp
 }
 
 function Router() {
+  // Lets any page's "back" button tell a real browser Back (restores the
+  // previous entry's full URL, including query params) apart from "there's
+  // nothing of ours to go back to" (direct link/bookmark/fresh tab) — see
+  // lib/nav-history.ts. Skips the very first render so landing on any page
+  // fresh doesn't itself count as a navigation.
+  const [location] = useLocation();
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    recordInAppNavigation();
+  }, [location]);
+
   return (
     <Switch>
       {/* Public */}

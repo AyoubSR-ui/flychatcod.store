@@ -1,5 +1,5 @@
 import { AppLayout } from "@/components/AppLayout";
-import { Link, useParams } from "wouter";
+import { Link, useLocation, useParams } from "wouter";
 import {
   ArrowLeft, Phone, MapPin, MessageSquare, Package, StickyNote, Truck,
   Printer, Copy, RefreshCw, CheckCircle2, Loader2, Plus, Trash2, Pencil, CalendarClock,
@@ -12,6 +12,7 @@ import { useI18n } from "@/hooks/use-i18n";
 import { useCarrierCommunes, getCommunesForWilaya, getCommuneDropdownOptions, communeHasStopDesk, communeMatchesList } from "@/hooks/use-carrier-communes";
 import { fetchShippingFee, type ShippingDeliveryType } from "@/hooks/use-shipping-fee";
 import { authFetch } from "@/lib/auth-fetch";
+import { hasInAppHistory } from "@/lib/nav-history";
 
 // Delivery type isn't always stored as our own 'home_delivery'/'stopdesk'
 // values — Shopify orders carry the merchant's raw shipping-line title
@@ -129,6 +130,17 @@ function TimelineEvent({ dotColor, title, subtitle, timestamp, by }: { dotColor:
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
+  const [, navigate] = useLocation();
+  // A real browser Back (via history, not a route push) is what restores the
+  // Orders list's query string — its filters/page live in the URL now, and
+  // that URL was already updated in place (replaceState) before this page
+  // was opened. Only safe when we know the previous entry is actually ours
+  // (hasInAppHistory) — a direct link/bookmark/fresh tab has nothing of ours
+  // to go back to, so it falls back to a plain push to /orders instead.
+  const handleBack = () => {
+    if (hasInAppHistory()) window.history.back();
+    else navigate("/orders");
+  };
   const { data: order, isLoading, refetch } = useGetOrder(id!);
   const { data: wilayasData } = useGetWilayas();
   const wilayas = wilayasData?.wilayas || [];
@@ -331,9 +343,9 @@ export default function OrderDetail() {
         {/* ── Sticky Header ── */}
         <div className="sticky top-0 z-10 bg-background border-b border-border px-4 py-3 lg:px-10 lg:py-5 print:hidden">
           <div className="max-w-5xl mx-auto flex items-center gap-3 flex-wrap">
-            <Link href="/orders" className="p-2 rounded-xl border border-border hover:bg-secondary transition-colors shrink-0">
+            <button onClick={handleBack} className="p-2 rounded-xl border border-border hover:bg-secondary transition-colors shrink-0">
               <ArrowLeft className="w-5 h-5" />
-            </Link>
+            </button>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="text-lg lg:text-2xl font-display font-bold text-foreground truncate">{order.orderNumber}</h1>
