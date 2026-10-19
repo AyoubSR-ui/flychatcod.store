@@ -291,3 +291,37 @@ export async function ensureCarrierTables(): Promise<void> {
 
   carrierTablesReady = true;
 }
+
+let abandonedCheckoutsTableReady = false;
+// Shopify abandoned checkouts — never written by any order flow, only by the
+// checkouts/create|update webhooks and the backfill endpoint (routes/shopify.ts).
+// shopify_checkout_id is unique per store so a re-delivered webhook or a
+// backfill re-run upserts the same row instead of duplicating it.
+// converted_order_id is set once a matching orders/create webhook arrives
+// (see handleShopifyOrderWebhook) — a converted checkout is no longer shown
+// as abandoned, but the row is kept (not deleted) for the recovery-rate KPI.
+export async function ensureAbandonedCheckoutsTable(): Promise<void> {
+  if (abandonedCheckoutsTableReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS abandoned_checkouts (
+      id TEXT PRIMARY KEY,
+      store_id TEXT NOT NULL,
+      shopify_checkout_id TEXT NOT NULL,
+      customer_name TEXT,
+      customer_phone TEXT,
+      customer_email TEXT,
+      wilaya TEXT,
+      commune TEXT,
+      items JSONB NOT NULL DEFAULT '[]',
+      total NUMERIC NOT NULL DEFAULT 0,
+      abandoned_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      recovery_url TEXT,
+      converted_order_id TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS abandoned_checkouts_store_shopify_id_idx ON abandoned_checkouts (store_id, shopify_checkout_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS abandoned_checkouts_store_converted_idx ON abandoned_checkouts (store_id, converted_order_id)`);
+  abandonedCheckoutsTableReady = true;
+}

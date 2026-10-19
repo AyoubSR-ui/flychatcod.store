@@ -4,7 +4,7 @@ import { eq, and, ilike, sql, ne } from "drizzle-orm";
 import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
-import { ensureOrderStatusValues, ensureOrdersAgentColumn, ensureScheduledParcelsTable, ensureOrdersArchivedColumn } from "../lib/schema-bootstrap.js";
+import { ensureOrderStatusValues, ensureOrdersAgentColumn, ensureScheduledParcelsTable, ensureOrdersArchivedColumn, ensureAbandonedCheckoutsTable } from "../lib/schema-bootstrap.js";
 import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/order-filters.js";
 import { dispatchOrderToCarrier, refreshShipmentStatus } from "./carriers.js";
 import { logOrderEvent } from "../lib/order-events.js";
@@ -488,6 +488,106 @@ async function bulkSetArchived(req: any, res: any, archived: boolean) {
 
 router.post("/bulk/archive", requireAuth, requireOwnerOrAdmin, (req, res) => bulkSetArchived(req, res, true));
 router.post("/bulk/unarchive", requireAuth, requireOwnerOrAdmin, (req, res) => bulkSetArchived(req, res, false));
+
+// ─── GET /api/orders/abandoned — Shopify abandoned checkouts ──────────────────
+// Registered ahead of GET /:id (below) so Express never treats "abandoned" as
+// an order id. Owner/admin only — same gate as Lead Intelligence-adjacent
+// features: abandoned checkouts are a merchant-strategy concern, not
+// something an agent acts on, so they're scoped out entirely rather than
+// just hidden in the UI.
+router.get("/abandoned", requireAuth, requireOwnerOrAdmin, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.json({ checkouts: [], total: 0, page: 1, limit: 20 }); return; }
+    await ensureAbandonedCheckoutsTable();
+
+    const { page = "1", limit = "20", search, wilaya, dateFrom, dateTo, sort } = req.query as Record<string, string>;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(500, parseInt(limit));
+    const offset = (pageNum - 1) * limitNum;
+    const sortDir = sort === "asc" ? "ASC" : "DESC";
+
+    // converted_order_id IS NOT NULL means the checkout is now a real order —
+    // it belongs in Orders, not here, mirroring is_archived's hard split.
+    const clauses: string[] = ["store_id = $1", "converted_order_id IS NULL"];
+    const values: any[] = [storeId];
+
+    if (search) {
+      values.push(`%${search}%`);
+      const i = values.length;
+      clauses.push(`(customer_name ILIKE $${i} OR customer_phone ILIKE $${i} OR customer_email ILIKE $${i})`);
+    }
+    if (wilaya && wilaya !== "all") { values.push(wilaya); clauses.push(`wilaya = $${values.length}`); }
+    if (dateFrom) { values.push(dateFrom); clauses.push(`abandoned_at >= $${values.length}`); }
+    if (dateTo) { values.push(dateTo); clauses.push(`abandoned_at <= $${values.length}`); }
+
+    const whereSQL = clauses.join(" AND ");
+
+    const { rows: countRows } = await pool.query(
+      `SELECT COUNT(*) as total FROM abandoned_checkouts WHERE ${whereSQL}`, values
+    );
+    const dataValues = [...values, limitNum, offset];
+    const { rows } = await pool.query(
+      `SELECT * FROM abandoned_checkouts WHERE ${whereSQL} ORDER BY abandoned_at ${sortDir} LIMIT $${dataValues.length - 1} OFFSET $${dataValues.length}`,
+      dataValues
+    );
+
+    res.json({
+      checkouts: rows.map((c: any) => ({
+        id: c.id,
+        storeId: c.store_id,
+        customerName: c.customer_name,
+        customerPhone: c.customer_phone,
+        customerEmail: c.customer_email,
+        wilaya: c.wilaya,
+        commune: c.commune,
+        items: c.items || [],
+        total: Number(c.total),
+        abandonedAt: c.abandoned_at,
+        recoveryUrl: c.recovery_url,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+      })),
+      total: Number(countRows[0]?.total || 0),
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch abandoned checkouts" });
+  }
+});
+
+// ─── GET /api/orders/abandoned/stats — KPI summary bar ─────────────────────────
+router.get("/abandoned/stats", requireAuth, requireOwnerOrAdmin, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.json({ count: 0, totalValue: 0, convertedCount: 0, recoveryRate: 0 }); return; }
+    await ensureAbandonedCheckoutsTable();
+
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE converted_order_id IS NULL) AS count,
+         COALESCE(SUM(total) FILTER (WHERE converted_order_id IS NULL), 0) AS total_value,
+         COUNT(*) FILTER (WHERE converted_order_id IS NOT NULL) AS converted_count,
+         COUNT(*) AS tracked_count
+       FROM abandoned_checkouts WHERE store_id = $1`,
+      [storeId]
+    );
+    const r = rows[0];
+    const tracked = Number(r.tracked_count) || 0;
+    const converted = Number(r.converted_count) || 0;
+    res.json({
+      count: Number(r.count) || 0,
+      totalValue: Number(r.total_value) || 0,
+      convertedCount: converted,
+      recoveryRate: tracked > 0 ? Math.round((converted / tracked) * 1000) / 10 : 0,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "internal_error", message: "Failed to fetch abandoned checkout stats" });
+  }
+});
 
 // ─── GET /api/orders/:id ──────────────────────────────────────────────────────
 router.get("/:id", requireAuth, requireOrderAccess, async (req, res) => {

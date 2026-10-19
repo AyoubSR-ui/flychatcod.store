@@ -33,6 +33,8 @@ import Organization from "@/pages/app/Organization";
 import Dashboard from "@/pages/app/Dashboard";
 import Inbox from "@/pages/app/Inbox";
 import Orders from "@/pages/app/Orders";
+import OrdersArchived from "@/pages/app/OrdersArchived";
+import AbandonedCheckouts from "@/pages/app/AbandonedCheckouts";
 import OrderDetail from "@/pages/app/OrderDetail";
 import Customers from "@/pages/app/Customers";
 import CustomerDetail from "@/pages/app/CustomerDetail";
@@ -126,6 +128,10 @@ function Router() {
       <Route path="/lead-intelligence">{() => <ProtectedRoute component={LeadIntelligence} />}</Route>
       <Route path="/inbox">{() => <ProtectedRoute component={Inbox} />}</Route>
       <Route path="/orders">{() => <ProtectedRoute component={Orders} />}</Route>
+      {/* Both registered ahead of /orders/:id, which would otherwise swallow
+          them by treating "archived"/"abandoned" as an order id. */}
+      <Route path="/orders/archived">{() => <ProtectedRoute component={OrdersArchived} />}</Route>
+      <Route path="/orders/abandoned">{() => <ProtectedRoute component={AbandonedCheckouts} roles={["owner", "admin"]} />}</Route>
       <Route path="/orders/:id">{() => <ProtectedRoute component={OrderDetail} />}</Route>
       <Route path="/customers">{() => <ProtectedRoute component={Customers} />}</Route>
       <Route path="/customers/:id">{() => <ProtectedRoute component={CustomerDetail} />}</Route>

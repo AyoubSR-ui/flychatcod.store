@@ -84,7 +84,16 @@ function SourceIcon({ source, className = "w-3.5 h-3.5" }: { source?: string; cl
   return <span className={`${className} ${s.color} inline-flex items-center justify-center leading-none`} title={source}>{s.emoji}</span>;
 }
 
-function CreateOrderModal({ onClose }: { onClose: () => void }) {
+// initialData prefills the form from an abandoned checkout (see
+// AbandonedCheckouts.tsx's "Create Order" row action) — everything stays
+// editable, this just saves retyping what Shopify already captured.
+export interface CreateOrderInitialData {
+  customerName?: string; customerPhone?: string; customerEmail?: string;
+  wilaya?: string; commune?: string;
+  items?: ProductPickerItem[];
+}
+
+export function CreateOrderModal({ onClose, initialData }: { onClose: () => void; initialData?: CreateOrderInitialData }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const createMutation = useCreateOrder();
@@ -92,12 +101,12 @@ function CreateOrderModal({ onClose }: { onClose: () => void }) {
   const wilayas = wilayasData?.wilayas || [];
   const { data: communesData } = useCarrierCommunes();
   const [form, setForm] = useState({
-    customerName: "", customerPhone: "", customerEmail: "",
-    wilaya: "", commune: "", address: "", sellerNote: "",
+    customerName: initialData?.customerName || "", customerPhone: initialData?.customerPhone || "", customerEmail: initialData?.customerEmail || "",
+    wilaya: initialData?.wilaya || "", commune: initialData?.commune || "", address: "", sellerNote: "",
     shippingOption: "home_delivery" as ShippingDeliveryType,
     shippingFee: 0,
   });
-  const [items, setItems] = useState<ProductPickerItem[]>([]);
+  const [items, setItems] = useState<ProductPickerItem[]>(initialData?.items || []);
   const [shippingFeeManuallyEdited, setShippingFeeManuallyEdited] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
@@ -403,16 +412,23 @@ interface Filters {
 const EMPTY_FILTERS: Filters = { search: "", status: "all", source: "all", delivery: "all", carrier: "all", agent: "all", product: "all", dateFrom: "", dateTo: "" };
 
 // URL search params are the source of truth for every filter plus sort/page/
-// limit/archived — so filters survive Back/refresh instead of resetting to
-// this list every time the page remounts. A param is only ever written when
-// it differs from its default here, so a clean Orders URL stays clean
-// (/orders, not /orders?status=all&sort=desc&page=1&...).
+// limit — so filters survive Back/refresh instead of resetting to this list
+// every time the page remounts. A param is only ever written when it differs
+// from its default here, so a clean Orders URL stays clean (/orders, not
+// /orders?status=all&sort=desc&page=1&...). Archived is NOT a param here — it
+// is a real separate route (/orders/archived) handled by the `archived` prop
+// below, not something a merchant toggles within one URL.
 const PARAM_DEFAULTS: Record<string, string> = {
   ...EMPTY_FILTERS,
-  archived: "false", sort: "desc", page: "1", limit: "50",
+  sort: "desc", page: "1", limit: "50",
 };
 
-export default function Orders() {
+// All Orders (/orders) and Archived (/orders/archived) are two routes over
+// the same list/filter/KPI machinery — see OrdersArchived.tsx, which renders
+// this with archived=true. Kept as one component (not copy-pasted) so the
+// filter set, URL-persistence behavior, and KPI cards can't drift apart
+// between the two views.
+export function OrdersListPage({ archived }: { archived: boolean }) {
   const [showCreate, setShowCreate] = useState(false);
   const [callingOrderId, setCallingOrderId] = useState<string | null>(null);
   const [dispatchOrderId, setDispatchOrderId] = useState<string | null>(null);
@@ -450,7 +466,6 @@ export default function Orders() {
     dateFrom: searchParams.get("dateFrom") ?? EMPTY_FILTERS.dateFrom,
     dateTo: searchParams.get("dateTo") ?? EMPTY_FILTERS.dateTo,
   }), [searchParams]);
-  const archivedView = searchParams.get("archived") === "true";
   const sort: "asc" | "desc" = searchParams.get("sort") === "asc" ? "asc" : "desc";
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
   const limit = Math.max(1, parseInt(searchParams.get("limit") || "50", 10) || 50);
@@ -505,10 +520,10 @@ export default function Orders() {
   // selection can never bulk-act on rows the merchant isn't looking at
   // anymore. Not URL-persisted on purpose — a stale selection surviving
   // navigation would be dangerous, not convenient.
-  useEffect(() => { setSelectedIds(new Set()); }, [filters, sort, page, archivedView]);
+  useEffect(() => { setSelectedIds(new Set()); }, [filters, sort, page, archived]);
 
   const queryParams = useMemo(() => {
-    const p: Record<string, string> = { limit: String(limit), page: String(page), sort, archived: archivedView ? "true" : "false" };
+    const p: Record<string, string> = { limit: String(limit), page: String(page), sort, archived: archived ? "true" : "false" };
     if (filters.search) p.search = filters.search;
     if (filters.status !== "all") p.status = filters.status;
     if (filters.source !== "all") p.source = filters.source;
@@ -519,7 +534,7 @@ export default function Orders() {
     if (filters.dateFrom) p.dateFrom = filters.dateFrom;
     if (filters.dateTo) p.dateTo = filters.dateTo;
     return p;
-  }, [filters, sort, page, limit, archivedView]);
+  }, [filters, sort, page, limit, archived]);
 
   const { data: ordersData, isLoading, isError: ordersIsError, refetch: refetchOrders } = useQuery({
     queryKey: ["orders-list", queryParams],
@@ -683,21 +698,11 @@ export default function Orders() {
               </div>
               <p className="text-muted-foreground mt-1">{t("orders.subtitle")}</p>
             </div>
-            <button onClick={() => setShowCreate(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2 transition-colors">
-              <Plus className="w-4 h-4" /> {t("order.create")}
-            </button>
-          </div>
-
-          {/* ── Active / Archived view — same pattern as the Inbox's archived tab. */}
-          {/* Archived orders never appear in the Active KPIs/list, and vice versa: */}
-          {/* the "archived" query param is baked into queryParams for both queries. ── */}
-          <div className="flex gap-1 bg-secondary/60 p-1 rounded-xl w-fit">
-            <button onClick={() => updateParams({ archived: "false" }, { resetPage: true })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${!archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              {t("orders.view.active")}
-            </button>
-            <button onClick={() => updateParams({ archived: "true" }, { resetPage: true })} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1.5 ${archivedView ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-              <Archive className="w-3.5 h-3.5" /> {t("orders.view.archived")}
-            </button>
+            {!archived && (
+              <button onClick={() => setShowCreate(true)} className="px-5 py-2.5 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 shadow-sm flex items-center gap-2 transition-colors">
+                <Plus className="w-4 h-4" /> {t("order.create")}
+              </button>
+            )}
           </div>
 
           {/* ── KPI summary bar — loading / failed / loaded are visibly different states, */}
@@ -818,11 +823,11 @@ export default function Orders() {
                           {t("orders.bulk.create_parcels")}
                         </button>
                         <button
-                          onClick={() => { setActionsMenuOpen(false); setBulkModal(archivedView ? "unarchive" : "archive"); }}
+                          onClick={() => { setActionsMenuOpen(false); setBulkModal(archived ? "unarchive" : "archive"); }}
                           className="w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors flex items-center gap-2"
                         >
-                          {archivedView ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
-                          {archivedView ? t("orders.bulk.unarchive") : t("orders.bulk.archive")}
+                          {archived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                          {archived ? t("orders.bulk.unarchive") : t("orders.bulk.archive")}
                         </button>
                       </div>
                     </>
@@ -882,12 +887,12 @@ export default function Orders() {
                       <td colSpan={canBulkAct ? 10 : 9} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3 text-muted-foreground">
                           <div className="w-14 h-14 bg-secondary rounded-full flex items-center justify-center">
-                            {archivedView ? <Archive className="w-7 h-7" /> : <Package className="w-7 h-7" />}
+                            {archived ? <Archive className="w-7 h-7" /> : <Package className="w-7 h-7" />}
                           </div>
                           <p className="font-medium">
-                            {archivedView ? t("orders.no_archived_orders") : user?.role === "agent" ? t("orders.no_orders_assigned") : t("orders.no_orders")}
+                            {archived ? t("orders.no_archived_orders") : user?.role === "agent" ? t("orders.no_orders_assigned") : t("orders.no_orders")}
                           </p>
-                          {!archivedView && user?.role !== "agent" && (
+                          {!archived && user?.role !== "agent" && (
                             <button onClick={() => setShowCreate(true)} className="text-primary text-sm font-semibold hover:underline">{t("orders.create_first")}</button>
                           )}
                         </div>
@@ -1110,4 +1115,8 @@ export default function Orders() {
       )}
     </AppLayout>
   );
+}
+
+export default function Orders() {
+  return <OrdersListPage archived={false} />;
 }

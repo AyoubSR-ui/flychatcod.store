@@ -30,11 +30,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const OWNER_ONLY: readonly string[] = ["owner"];
   const OWNER_OR_ADMIN: readonly string[] = ["owner", "admin"];
 
-  const navItems: { href: string; label: string; icon: typeof LayoutDashboard; roles?: readonly string[] }[] = [
+  const navItems: { href: string; label: string; icon: typeof LayoutDashboard; roles?: readonly string[]; children?: { href: string; label: string; roles?: readonly string[] }[] }[] = [
     { href: "/dashboard", label: "nav.dashboard", icon: LayoutDashboard },
     { href: "/lead-intelligence", label: "nav.lead_intelligence", icon: TrendingUp },
     { href: "/inbox", label: "nav.inbox", icon: MessageSquare },
-    { href: "/orders", label: "nav.orders", icon: ShoppingBag },
+    {
+      href: "/orders", label: "nav.orders", icon: ShoppingBag,
+      children: [
+        { href: "/orders", label: "nav.orders_all" },
+        { href: "/orders/abandoned", label: "nav.orders_abandoned", roles: OWNER_OR_ADMIN },
+        { href: "/orders/archived", label: "nav.orders_archived" },
+      ],
+    },
     { href: "/customers", label: "nav.customers", icon: Users },
     { href: "/products", label: "nav.products", icon: Package },
     { href: "/ad-links", label: "nav.ad_links", icon: Link2, roles: OWNER_OR_ADMIN },
@@ -73,20 +80,46 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {navItems.map((item) => {
           const isActive = location === item.href || location.startsWith(`${item.href}/`);
           const Icon = item.icon;
+          // Orders' three sub-sections (All/Abandoned/Archived) are always
+          // shown, not collapsed behind a toggle — there are only three, and
+          // Flash Manager's own Orders menu shows them the same way.
+          const visibleChildren = item.children?.filter(c => !c.roles || user?.role === "superadmin" || c.roles.includes(user?.role ?? ""));
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavClick}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${
-                isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-              }`}
-            >
-              <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "opacity-70"}`} />
-              {t(item.label)}
-            </Link>
+            <div key={item.href}>
+              <Link
+                href={item.href}
+                onClick={onNavClick}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                }`}
+              >
+                <Icon className={`w-5 h-5 ${isActive ? "text-primary" : "opacity-70"}`} />
+                {t(item.label)}
+              </Link>
+              {visibleChildren && visibleChildren.length > 0 && (
+                <div className="ml-8 mt-1 space-y-0.5">
+                  {visibleChildren.map(child => {
+                    const childActive = location === child.href;
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        onClick={onNavClick}
+                        className={`block px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          childActive
+                            ? "text-primary font-bold"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {t(child.label)}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

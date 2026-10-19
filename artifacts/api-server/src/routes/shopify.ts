@@ -6,6 +6,7 @@ import { generateId } from "../lib/id.js";
 import { ensureFreshShopifyToken, ShopifyReauthRequiredError, tokenExpiryFields } from "../lib/shopify-token.js";
 import { normalizeWilayaForStorage } from "../lib/carriers/wilaya-codes.js";
 import { autoAssignIfEnabled } from "../lib/order-dispatch.js";
+import { ensureAbandonedCheckoutsTable } from "../lib/schema-bootstrap.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -503,6 +504,39 @@ router.post("/sync/orders", requireOwnerOrAdmin, async (req, res) => {
   }
 });
 
+// ─── POST /api/shopify/backfill-abandoned-checkouts ──────────────────────────
+// One-time (or re-run on demand) pull of the last 90 days of abandoned
+// checkouts via GET /checkouts.json — the webhooks only cover checkouts
+// abandoned after registration, so this is how a store gets historical data
+// on first connect. Same pattern as /sync/orders above; no Railway query
+// editor access, so this has to be an authenticated endpoint rather than a
+// one-off script.
+router.post("/backfill-abandoned-checkouts", requireOwnerOrAdmin, async (req, res) => {
+  try {
+    const storeId = req.user!.storeId;
+    if (!storeId) { res.status(400).json({ error: "no_store" }); return; }
+
+    const { rows } = await pool.query(
+      `SELECT shopify_shop, shopify_access_token FROM stores WHERE id = $1 LIMIT 1`,
+      [storeId]
+    );
+    if (!rows[0]?.shopify_access_token) {
+      res.status(400).json({ error: "not_connected", message: "Shopify not connected" });
+      return;
+    }
+
+    const count = await syncAbandonedCheckouts(storeId);
+    res.json({ success: true, synced: count });
+  } catch (err: any) {
+    if (err instanceof ShopifyReauthRequiredError) {
+      res.status(409).json({ error: "needs_reconnect", message: "Shopify connection expired — please reconnect." });
+      return;
+    }
+    console.error("[Shopify] Backfill abandoned checkouts error:", err);
+    res.status(500).json({ error: "backfill_failed", message: err.message });
+  }
+});
+
 // ─── POST /api/shopify/register-webhooks ─────────────────────────────────────
 // Re-register this shop's Admin API webhook subscriptions without a full
 // disconnect/reconnect. Useful when API_BASE_URL changed, a subscription was
@@ -576,6 +610,8 @@ router.post("/webhook", async (req, res) => {
       await handleShopifyOrderWebhook(storeId, payload);
     } else if (topic === "products/update" || topic === "products/create") {
       await handleShopifyProductWebhook(storeId, payload);
+    } else if (topic === "checkouts/create" || topic === "checkouts/update") {
+      await handleShopifyCheckoutWebhook(storeId, payload);
     }
 
     res.json({ received: true });
@@ -803,9 +839,25 @@ router.post("/webhooks/customers/redact", async (req, res) => {
       shopifyOrdersRedacted = rowCount ?? 0;
     }
 
+    // Abandoned checkouts: Level 2 protected data (name/phone/email/address)
+    // with no business-record value once redacted (unlike an order's number/
+    // total), so these are deleted outright rather than scrubbed in place —
+    // required for the customers/redact compliance handler to actually cover
+    // this table (App Store review checks for this).
+    let checkoutsDeleted = 0;
+    if (email || phone) {
+      await ensureAbandonedCheckoutsTable();
+      const { rowCount } = await pool.query(
+        `DELETE FROM abandoned_checkouts
+         WHERE store_id = $1 AND ((customer_email = $2 AND $2 IS NOT NULL) OR (customer_phone = $3 AND $3 IS NOT NULL))`,
+        [storeId, email, phone]
+      );
+      checkoutsDeleted = rowCount ?? 0;
+    }
+
     console.log(
-      `[Shopify GDPR] Redacted ${custRows.length} customer record(s) and ${shopifyOrdersRedacted} ` +
-      `Shopify order(s) for shop ${shop}`
+      `[Shopify GDPR] Redacted ${custRows.length} customer record(s), ${shopifyOrdersRedacted} ` +
+      `Shopify order(s), and deleted ${checkoutsDeleted} abandoned checkout(s) for shop ${shop}`
     );
   } catch (err) {
     console.error("[Shopify GDPR] customers/redact processing error:", err);
@@ -855,7 +907,16 @@ router.post("/webhooks/shop/redact", async (req, res) => {
     // shop/redact by definition. Orders-only is the complete scope.
     await pool.query(`DELETE FROM shopify_pending_installs WHERE shop = $1`, [shop]);
 
-    console.log(`[Shopify GDPR] Redacted shop data for ${shop} (store ${storeId})`);
+    // Abandoned checkouts are entirely Shopify-sourced (the table has no
+    // other write path) — every tracked row for this store is deleted, not
+    // just scrubbed, same as customers/redact above.
+    await ensureAbandonedCheckoutsTable();
+    const { rowCount: checkoutsDeleted } = await pool.query(
+      `DELETE FROM abandoned_checkouts WHERE store_id = $1`,
+      [storeId]
+    );
+
+    console.log(`[Shopify GDPR] Redacted shop data for ${shop} (store ${storeId}), deleted ${checkoutsDeleted ?? 0} abandoned checkout(s)`);
   } catch (err) {
     console.error("[Shopify GDPR] shop/redact processing error:", err);
   }
@@ -1050,6 +1111,7 @@ async function syncOrders(storeId: string, shop: string): Promise<number> {
           existing[0].id,
         ]
       );
+      await markCheckoutConverted(storeId, so.checkout_id ? String(so.checkout_id) : null, existing[0].id);
     } else {
       const orderId = generateId("ord");
       await pool.query(
@@ -1084,6 +1146,7 @@ async function syncOrders(storeId: string, shop: string): Promise<number> {
           String(so.id), shippingLine?.title || null, new Date(so.created_at),
         ]
       );
+      await markCheckoutConverted(storeId, so.checkout_id ? String(so.checkout_id) : null, orderId);
       // Only reached for orders that didn't already exist per the SELECT
       // above — autoAssignIfEnabled's own "still unassigned" guard covers
       // the rare ON CONFLICT race the comment above describes.
@@ -1098,13 +1161,53 @@ async function syncOrders(storeId: string, shop: string): Promise<number> {
   return count;
 }
 
+// ─── Helper: backfill abandoned checkouts (last 90 days) ──────────────────────
+async function syncAbandonedCheckouts(storeId: string): Promise<number> {
+  await ensureAbandonedCheckoutsTable();
+  const since = new Date(Date.now() - 90 * 86400 * 1000).toISOString();
+  let checkouts: any[] = [];
+  let url = `/checkouts.json?limit=250&created_at_min=${encodeURIComponent(since)}&status=open`;
+  while (url) {
+    const res = await shopifyFetch(storeId, url) as any;
+    checkouts = checkouts.concat(res.checkouts || []);
+    url = res.next_page_info ? `/checkouts.json?limit=250&page_info=${res.next_page_info}` : "";
+  }
+  for (const c of checkouts) {
+    await handleShopifyCheckoutWebhook(storeId, c);
+  }
+  return checkouts.length;
+}
+
+// ─── Helper: mark an abandoned checkout as converted ──────────────────────────
+// A checkout that converted is not abandoned — called from both the orders/
+// create webhook and the REST order sync, since either path can be the first
+// to learn that a given checkout turned into a real order. No-op if the
+// checkout was never tracked (backfill only covers the last 90 days) or was
+// already marked (idempotent on re-delivery).
+async function markCheckoutConverted(storeId: string, checkoutId: string | null | undefined, orderId: string): Promise<void> {
+  if (!checkoutId) return;
+  try {
+    await ensureAbandonedCheckoutsTable();
+    await pool.query(
+      `UPDATE abandoned_checkouts SET converted_order_id = $1, updated_at = NOW()
+       WHERE store_id = $2 AND shopify_checkout_id = $3 AND converted_order_id IS NULL`,
+      [orderId, storeId, checkoutId]
+    );
+  } catch (err) {
+    console.error("[Shopify] Failed to mark checkout converted:", err);
+  }
+}
+
 // ─── Helper: handle incoming Shopify order webhook ────────────────────────────
 async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<void> {
   const { rows } = await pool.query(
     `SELECT id FROM orders WHERE store_id = $1 AND shopify_order_id = $2 LIMIT 1`,
     [storeId, String(order.id)]
   );
-  if (rows[0]) return; // Already exists
+  if (rows[0]) {
+    await markCheckoutConverted(storeId, order.checkout_id ? String(order.checkout_id) : null, rows[0].id);
+    return; // Already exists
+  }
 
   const orderId = generateId("ord");
   const customerName = `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() || "Unknown";
@@ -1178,9 +1281,64 @@ async function handleShopifyOrderWebhook(storeId: string, order: any): Promise<v
     ]
   );
 
+  await markCheckoutConverted(storeId, order.checkout_id ? String(order.checkout_id) : null, orderId);
   await autoAssignIfEnabled(storeId, orderId).catch(err => console.error("[Shopify] Auto-dispatch error:", err));
 
   console.log(`[Shopify] Webhook: new order ${order.name} for store ${storeId}`);
+}
+
+// ─── Helper: handle incoming Shopify checkout webhook (checkouts/create|update) ──
+// Upserted by (store_id, shopify_checkout_id) so create then update (or a
+// redelivered webhook) never duplicates a row. A checkout with no line items
+// yet (very start of checkout) is still stored — recovery/KPI value comes
+// from `abandoned_at` and customer fields, not from items being complete.
+async function handleShopifyCheckoutWebhook(storeId: string, checkout: any): Promise<void> {
+  await ensureAbandonedCheckoutsTable();
+
+  const customerName = `${checkout.customer?.first_name || checkout.billing_address?.first_name || ""} ${checkout.customer?.last_name || checkout.billing_address?.last_name || ""}`.trim() || null;
+  const customerEmail = checkout.email || checkout.customer?.email || null;
+  const customerPhone = checkout.phone || checkout.customer?.phone || checkout.shipping_address?.phone || checkout.billing_address?.phone || null;
+  const address = checkout.shipping_address || checkout.billing_address;
+  const wilaya = address?.city ? normalizeWilayaForStorage(address.city).wilaya : null;
+  const commune = address?.city || null;
+
+  const items = (checkout.line_items || []).map((item: any) => ({
+    title: item.title,
+    variant_title: item.variant_title || null,
+    quantity: item.quantity,
+    price: parseFloat(item.price),
+    sku: item.sku || null,
+    product_id: item.product_id,
+    variant_id: item.variant_id,
+  }));
+
+  const total = checkout.total_price ?? checkout.subtotal_price ?? 0;
+  // Shopify's checkout abandoned-checkout recovery link.
+  const recoveryUrl = checkout.abandoned_checkout_url || null;
+
+  await pool.query(
+    `INSERT INTO abandoned_checkouts (
+      id, store_id, shopify_checkout_id, customer_name, customer_phone, customer_email,
+      wilaya, commune, items, total, abandoned_at, recovery_url, created_at, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+     ON CONFLICT (store_id, shopify_checkout_id) DO UPDATE SET
+       customer_name = EXCLUDED.customer_name,
+       customer_phone = EXCLUDED.customer_phone,
+       customer_email = EXCLUDED.customer_email,
+       wilaya = EXCLUDED.wilaya,
+       commune = EXCLUDED.commune,
+       items = EXCLUDED.items,
+       total = EXCLUDED.total,
+       recovery_url = EXCLUDED.recovery_url,
+       updated_at = NOW()`,
+    [
+      generateId("chk"), storeId, String(checkout.id), customerName, customerPhone, customerEmail,
+      wilaya, commune, JSON.stringify(items), total,
+      checkout.created_at ? new Date(checkout.created_at) : new Date(), recoveryUrl,
+    ]
+  );
+
+  console.log(`[Shopify] Webhook: checkout ${checkout.id} tracked for store ${storeId}`);
 }
 
 // ─── Helper: handle Shopify product webhook ───────────────────────────────────
@@ -1228,6 +1386,8 @@ async function registerWebhooks(
     { topic: "orders/create", address: `${API_BASE_URL}/api/shopify/webhook` },
     { topic: "products/update", address: `${API_BASE_URL}/api/shopify/webhook` },
     { topic: "products/create", address: `${API_BASE_URL}/api/shopify/webhook` },
+    { topic: "checkouts/create", address: `${API_BASE_URL}/api/shopify/webhook` },
+    { topic: "checkouts/update", address: `${API_BASE_URL}/api/shopify/webhook` },
   ];
 
   const registered: string[] = [];
