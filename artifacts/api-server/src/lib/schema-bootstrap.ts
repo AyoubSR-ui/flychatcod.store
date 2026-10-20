@@ -196,6 +196,11 @@ export async function ensureCarrierTables(): Promise<void> {
     EXCEPTION WHEN duplicate_object THEN null;
     END $$;
   `);
+  // Added later (delivery-tracking poller) — a returned COD parcel is its
+  // own terminal outcome, not a flavor of "failed". ADD VALUE IF NOT EXISTS
+  // on an enum that was just freshly CREATE'd above (without 'returned' in
+  // its literal list) is still correct and idempotent either way.
+  await pool.query(`ALTER TYPE shipment_status ADD VALUE IF NOT EXISTS 'returned'`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS carrier_connections (
@@ -324,4 +329,17 @@ export async function ensureAbandonedCheckoutsTable(): Promise<void> {
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS abandoned_checkouts_store_shopify_id_idx ON abandoned_checkouts (store_id, shopify_checkout_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS abandoned_checkouts_store_converted_idx ON abandoned_checkouts (store_id, converted_order_id)`);
   abandonedCheckoutsTableReady = true;
+}
+
+let deliveryTrackingSchemaReady = false;
+// Delivery-tracking poller (lib/delivery-tracking.ts) and the OrderDetail
+// "Refresh tracking" button both call this before writing a shipment status
+// change to order_events, so a status-change event type exists regardless of
+// which one runs first on a given environment.
+export async function ensureDeliveryTrackingSchema(): Promise<void> {
+  if (deliveryTrackingSchemaReady) return;
+  await ensureOrderEventsTable();
+  await ensureCarrierTables(); // shipment_status 'returned' lives there
+  await pool.query(`ALTER TYPE order_event_type ADD VALUE IF NOT EXISTS 'delivery_status_change'`);
+  deliveryTrackingSchemaReady = true;
 }

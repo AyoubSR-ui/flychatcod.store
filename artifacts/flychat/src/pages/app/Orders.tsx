@@ -41,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const DELIVERY_VALUES = [
   "not_shipped", "label_created", "label_purchased", "label_printed", "confirmed",
-  "in_transit", "out_for_delivery", "delivered", "failed", "cancelled",
+  "in_transit", "out_for_delivery", "delivered", "failed", "cancelled", "returned",
 ] as const;
 const getDeliveryOptions = (t: (key: string) => string) =>
   DELIVERY_VALUES.map(value => ({ value, label: t(`delivery.${value}`) }));
@@ -57,6 +57,7 @@ const DELIVERY_COLORS: Record<string, string> = {
   delivered: "bg-teal-100 text-teal-700",
   failed: "bg-red-100 text-red-700",
   cancelled: "bg-red-100 text-red-700",
+  returned: "bg-amber-100 text-amber-800",
 };
 
 // Real, currently-integrated order sources only — no placeholder entries for

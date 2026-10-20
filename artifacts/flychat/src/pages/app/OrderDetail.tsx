@@ -183,7 +183,8 @@ export default function OrderDetail() {
   const statusEvents = events.filter(e => e.eventType === "status_change");
   const deliveryEvents = events.filter(e =>
     e.eventType === "parcel_created" || e.eventType === "label_created" ||
-    e.eventType === "parcel_scheduled" || e.eventType === "schedule_cancelled"
+    e.eventType === "parcel_scheduled" || e.eventType === "schedule_cancelled" ||
+    e.eventType === "delivery_status_change"
   );
 
   const handleStatusChange = async (status: string) => {
@@ -203,6 +204,7 @@ export default function OrderDetail() {
     try {
       await authFetch(`/api/orders/${id}/refresh-tracking`, { method: "POST" });
       refetch();
+      refetchEvents();
     } catch (err: any) {
       alert(err.message || t("orderDetail.err.refresh_failed"));
     } finally { setRefreshing(false); }
@@ -842,11 +844,19 @@ export default function OrderDetail() {
                   <h3 className="font-bold text-foreground border-b border-border pb-3 mb-4">{t("orderDetail.delivery_status")}</h3>
                   <div>
                     {deliveryEvents.map((e, idx) => {
+                      const DELIVERY_DOT: Record<string, string> = {
+                        delivered: "bg-teal-500", returned: "bg-amber-600", cancelled: "bg-red-500",
+                        failed: "bg-red-500", out_for_delivery: "bg-orange-500", in_transit: "bg-indigo-500",
+                      };
                       const meta: Record<string, { dot: string; title: string }> = {
                         parcel_created: { dot: "bg-purple-500", title: t("orderDetail.event.parcel_created") },
                         label_created: { dot: "bg-green-500", title: t("delivery.label_created") },
                         parcel_scheduled: { dot: "bg-blue-500", title: t("orderDetail.event.parcel_scheduled") },
                         schedule_cancelled: { dot: "bg-gray-400", title: t("orderDetail.event.schedule_cancelled") },
+                        // One shared event type for every carrier status change — toStatus
+                        // (one of shipment_status's values) picks the dot color and title,
+                        // since "delivered" and "returned" shouldn't look the same.
+                        delivery_status_change: { dot: DELIVERY_DOT[e.toStatus] || "bg-gray-400", title: t(`delivery.${e.toStatus}`) },
                       };
                       const m = meta[e.eventType] || { dot: "bg-gray-400", title: e.eventType };
                       return (

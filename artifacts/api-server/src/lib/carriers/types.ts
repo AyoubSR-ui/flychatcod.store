@@ -132,10 +132,25 @@ export interface CarrierVerificationResult {
 export interface CarrierAdapter {
   readonly carrier: string;
   createShipment(params: CreateShipmentParams): Promise<ShipmentResult>;
+  // `status` is the carrier's OWN raw vocabulary, unmapped — see
+  // lib/fulfillment-status.ts for the single place that maps it to FlyChat's
+  // shipment_status enum. Keeping that out of the adapter means one mapping
+  // table instead of one per adapter, and means it can be extended from real
+  // data without touching HTTP/parsing code.
   getStatus(trackingNumber: string): Promise<ShipmentStatusResult>;
   cancelShipment(trackingNumber: string): Promise<CancelShipmentResult>;
   getGeoData?(): Promise<CarrierGeoData>;
   verifyConnection?(): Promise<CarrierVerificationResult>;
+  // Optional: carriers whose API supports querying several tracking numbers
+  // in one call (Ecotrack: up to 100) should implement this so the delivery
+  // poller (lib/delivery-tracking.ts) can batch instead of firing one HTTP
+  // request per order. Callers must feature-detect — adapters without a
+  // real batch endpoint simply omit it, and the poller falls back to
+  // per-order getStatus() calls for those. Keyed by the exact tracking
+  // number requested; a tracking number the carrier doesn't recognize is
+  // simply absent from the result (not an error entry) — callers must treat
+  // "missing from the map" as "unknown to the carrier", not throw.
+  getStatusBatch?(trackingNumbers: string[]): Promise<Record<string, ShipmentStatusResult>>;
 }
 
 // Credential field describing what the generic Connect form should render for

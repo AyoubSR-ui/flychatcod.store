@@ -310,6 +310,7 @@ const translations: Record<Language, Record<string, string>> = {
     "delivery.delivered": "Delivered",
     "delivery.failed": "Failed",
     "delivery.cancelled": "Cancelled",
+    "delivery.returned": "Returned",
     // ── Order source (SOURCE_OPTIONS / SOURCE_META) ──
     "source.shopify": "Shopify",
     "source.whatsapp": "WhatsApp",
@@ -1172,6 +1173,7 @@ const translations: Record<Language, Record<string, string>> = {
     "delivery.delivered": "Livré",
     "delivery.failed": "Échec",
     "delivery.cancelled": "Annulé",
+    "delivery.returned": "Retourné",
     // ── Order source (SOURCE_OPTIONS / SOURCE_META) ──
     "source.shopify": "Shopify",
     "source.whatsapp": "WhatsApp",

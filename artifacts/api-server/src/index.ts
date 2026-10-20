@@ -4,6 +4,7 @@ import { setupSocketIO } from "./socket.js";
 import { startInstagramTokenRefreshCron } from "./lib/instagram-token-refresh.js";
 import { startScheduledParcelsCron } from "./lib/scheduled-parcels.js";
 import { startCarrierGeoRefreshCron } from "./lib/carrier-geo-cache.js";
+import { startDeliveryTrackingCron } from "./lib/delivery-tracking.js";
 import { pool } from "@workspace/db";
 import { syncInstagramOutgoing } from "./routes/sync.js";
 
@@ -41,6 +42,7 @@ setupSocketIO(httpServer);
 startInstagramTokenRefreshCron();
 startScheduledParcelsCron();
 startCarrierGeoRefreshCron();
+startDeliveryTrackingCron();
 
 runMigrations().then(() => {
   httpServer.listen(port, () => {

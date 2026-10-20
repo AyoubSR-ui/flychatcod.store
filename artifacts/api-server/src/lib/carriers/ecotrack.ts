@@ -9,12 +9,19 @@ import { normalizeAlgerianPhone } from "./phone-format.js";
 // the exact same API on their own subdomain, so one adapter class parameterized
 // by tenant domain covers all of them.
 //
-// Auth: `Authorization: Bearer {token}` header (single credential)
+// Auth: `Authorization: Bearer {token}` header (single credential) for most
+//   endpoints, EXCEPT get/orders/status below, which uses api_token as a
+//   QUERY PARAM instead (documented exception, confirmed live — a Bearer
+//   header alone is not accepted there).
 // Create: POST {tenantDomain}api/v1/create/order
 //   Success check: response.success === true
 // Label: GET {tenantDomain}api/v1/get/order/label?tracking={id} (raw PDF bytes)
-// Track/status: NOT implemented in the reference client (throws "not
-//   implemented" there too) — no verified endpoint for this yet.
+// Track/status: GET {tenantDomain}api/v1/get/orders/status?api_token=&trackings=<comma-separated, up to 100>&status=all
+//   -> {"data": {<tracking>: {status, order_id, estimated_fee?, activity:[]}, ...}}
+//   A tracking number the carrier doesn't recognize is simply absent from
+//   `data` — not an error entry. Confirmed live (lib/db/probe-ecotrack-tracking.cjs,
+//   two real FlyChat connections) ahead of building lib/delivery-tracking.ts's
+//   poller — see lib/fulfillment-status.ts for the status-value mapping.
 // Cancel: no verified endpoint.
 //
 // Live: enabled 2026-07-29, explicitly requested and accepted as a real-world
@@ -156,15 +163,44 @@ export class EcotrackAdapter implements CarrierAdapter {
   }
 
   async getStatus(trackingNumber: string): Promise<ShipmentStatusResult> {
-    // The reference implementation has no track/status API endpoint for
-    // Ecotrack at all (throws "not implemented" there too). Rather than block
-    // tracking entirely, hand back Ecotrack's public web tracking page —
-    // merchants can check status manually until the real API endpoint is
-    // found and verified.
-    return {
-      status: "manual_tracking_required",
-      raw: { trackingUrl: `https://ecotrack.dz/tracking/${trackingNumber}` },
-    };
+    const result = await this.getStatusBatch([trackingNumber]);
+    const entry = result[trackingNumber];
+    // Not found — same "absent from the map, not an error" contract
+    // getStatusBatch documents. Callers (refreshShipmentStatus,
+    // lib/delivery-tracking.ts) must treat this as "nothing new to report",
+    // not throw — a brand-new label often isn't in Ecotrack's own tracking
+    // system yet.
+    if (!entry) {
+      return { status: "unknown_to_carrier", raw: { trackingUrl: `https://ecotrack.dz/tracking/${trackingNumber}` } };
+    }
+    return entry;
+  }
+
+  // Ecotrack accepts up to 100 trackings per call — chunked here so a caller
+  // never has to think about the limit. `status` in each returned entry is
+  // Ecotrack's own raw vocabulary (e.g. "prete_a_expedier", "retour_recu"),
+  // unmapped — see lib/fulfillment-status.ts for the FlyChat-enum mapping.
+  async getStatusBatch(trackingNumbers: string[]): Promise<Record<string, ShipmentStatusResult>> {
+    const out: Record<string, ShipmentStatusResult> = {};
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < trackingNumbers.length; i += CHUNK_SIZE) {
+      const chunk = trackingNumbers.slice(i, i + CHUNK_SIZE);
+      // api_token QUERY-PARAM auth — this endpoint does not accept the
+      // Bearer header the rest of this adapter uses (confirmed live).
+      const params = new URLSearchParams({ api_token: this.credentials.token, trackings: chunk.join(","), status: "all" });
+      const url = `${this.domain}api/v1/get/orders/status?${params.toString()}`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Ecotrack (${this.carrier}) get/orders/status failed (HTTP ${res.status}): ${describeEcotrackError(errorText)}`);
+      }
+      const data = (await res.json()) as any;
+      const entries = data?.data && typeof data.data === "object" ? data.data : {};
+      for (const [tracking, row] of Object.entries(entries) as [string, any][]) {
+        out[tracking] = { status: String(row?.status ?? ""), raw: row };
+      }
+    }
+    return out;
   }
 
   async cancelShipment(_trackingNumber: string): Promise<CancelShipmentResult> {

@@ -11,6 +11,8 @@ import { refreshCarrierGeoCache, getCarrierGeoCache } from "../lib/carrier-geo-c
 import { verifyCarrierConnection, getCarrierVerification } from "../lib/carrier-verification.js";
 import { ALGERIA_WILAYAS } from "../lib/carriers/algeria-communes-data.js";
 import { normalizeGeoKey } from "@workspace/db";
+import { mapCarrierStatus } from "../lib/fulfillment-status.js";
+import { ensureDeliveryTrackingSchema } from "../lib/schema-bootstrap.js";
 
 const router = Router();
 
@@ -516,6 +518,60 @@ export async function dispatchOrderToCarrier(storeId: string, orderId: string, c
 }
 
 // ─── Refresh helper — mounted under /api/orders/:id/refresh-tracking ─────────
+// Used by both the on-demand "Refresh tracking" button (routes/orders.ts)
+// and lib/delivery-tracking.ts's poller for a single order's worth of work —
+// the poller itself batches the carrier HTTP call across many orders, but
+// still goes through this same write path per order so both ways of
+// triggering a refresh behave identically (same mapping, same event log,
+// same forward-only semantics).
+export async function applyShipmentStatusResult(
+  shipment: { id: string; order_id: string; carrier: string; status: string },
+  rawStatus: string,
+  raw: Record<string, unknown>
+): Promise<{ status: string; changed: boolean }> {
+  await ensureDeliveryTrackingSchema();
+
+  const mapped = mapCarrierStatus(shipment.carrier, rawStatus);
+
+  // Unrecognized raw status: log distinctly (so the mapping can be extended
+  // from real data) and leave the shipment untouched rather than guess — the
+  // explicit "fail soft" rule for this poller.
+  if (!mapped) {
+    console.warn(`[DeliveryTracking] Unrecognized carrier status "${rawStatus}" from ${shipment.carrier} for shipment ${shipment.id} — left untouched.`);
+    await pool.query(`UPDATE shipments SET raw_response = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(raw), shipment.id]);
+    return { status: shipment.status, changed: false };
+  }
+
+  if (mapped === shipment.status) {
+    // No change — still refresh raw_response (newer activity entries etc.)
+    // but don't write a no-op order_events row.
+    await pool.query(`UPDATE shipments SET raw_response = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(raw), shipment.id]);
+    return { status: mapped, changed: false };
+  }
+
+  await pool.query(
+    `UPDATE shipments SET status = $1, raw_response = $2, updated_at = NOW() WHERE id = $3`,
+    [mapped, JSON.stringify(raw), shipment.id]
+  );
+
+  // The carrier's own wording is kept in metadata.carrierStatus (and the
+  // activity log, when present) so OrderDetail's timeline can show real
+  // carrier phrasing alongside the mapped FlyChat status, not just the enum.
+  const activity = Array.isArray((raw as any)?.activity) ? (raw as any).activity : [];
+  const latestReason = activity.length > 0 ? (activity[activity.length - 1]?.reason || activity[activity.length - 1]?.details) : null;
+  await logOrderEvent({
+    orderId: shipment.order_id,
+    eventType: "delivery_status_change",
+    fromStatus: shipment.status,
+    toStatus: mapped,
+    description: latestReason ? `Transporteur : ${latestReason}` : undefined,
+    createdBy: "System",
+    metadata: { carrier: shipment.carrier, carrierStatus: rawStatus, activity },
+  });
+
+  return { status: mapped, changed: true };
+}
+
 export async function refreshShipmentStatus(storeId: string, orderId: string) {
   await ensureCarrierTables();
 
@@ -525,6 +581,7 @@ export async function refreshShipmentStatus(storeId: string, orderId: string) {
   );
   const shipment = shipmentRows[0];
   if (!shipment) throw new Error("No shipment found for this order");
+  if (!shipment.tracking_number) throw new Error("This shipment has no tracking number yet");
 
   const { rows: connRows } = await pool.query(`SELECT * FROM carrier_connections WHERE id = $1 LIMIT 1`, [shipment.carrier_connection_id]);
   const connection = connRows[0];
@@ -534,27 +591,7 @@ export async function refreshShipmentStatus(storeId: string, orderId: string) {
   const adapter = createCarrierAdapter(connection.carrier, credentials);
 
   const result = await adapter.getStatus(shipment.tracking_number);
+  const { status } = await applyShipmentStatusResult(shipment, result.status, result.raw);
 
-  // result.status isn't always a valid shipments.status enum value — Ecotrack
-  // returns "manual_tracking_required" (no real status API exists there), and
-  // writing that into the enum column would throw. Only persist recognized
-  // values; always persist raw_response so the frontend can still surface a
-  // manual tracking link when the status itself isn't a known enum member.
-  const KNOWN_SHIPMENT_STATUSES = new Set([
-    "not_shipped", "label_created", "label_purchased", "label_printed",
-    "confirmed", "in_transit", "out_for_delivery", "delivered", "failed", "cancelled",
-  ]);
-  if (KNOWN_SHIPMENT_STATUSES.has(result.status)) {
-    await pool.query(
-      `UPDATE shipments SET status = $1, raw_response = $2, updated_at = NOW() WHERE id = $3`,
-      [result.status, JSON.stringify(result.raw), shipment.id]
-    );
-  } else {
-    await pool.query(
-      `UPDATE shipments SET raw_response = $1, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(result.raw), shipment.id]
-    );
-  }
-
-  return { status: result.status, raw: result.raw };
+  return { status, raw: result.raw };
 }
