@@ -59,7 +59,13 @@ export const ORDERS_BASE_CTE = `
       sh.carrier_connection_id AS shipment_carrier_connection_id,
       sh.tracking_number AS shipment_tracking_number,
       sh.status AS shipment_status,
-      sh.raw_response->>'trackingUrl' AS shipment_manual_tracking_url
+      sh.raw_response->>'trackingUrl' AS shipment_manual_tracking_url,
+      -- The carrier's own raw status string (e.g. Ecotrack's "en_ramassage"),
+      -- not the normalized shipment_status enum — fed into
+      -- getCarrierStatusLabel (lib/fulfillment-status.ts) so the
+      -- LIVRAISON column can show the carrier's own vocabulary instead of
+      -- the generic normalized label. Never sent to the frontend directly.
+      sh.raw_response->>'status' AS shipment_carrier_raw_status
     FROM orders o
     LEFT JOIN conversations c ON c.id = o.conversation_id
     LEFT JOIN team_members tm ON tm.id = o.assigned_agent_id
@@ -116,7 +122,15 @@ export async function buildOrderFilters(storeId: string, query: OrderFilterQuery
 
   if (query.delivery && query.delivery !== "all") {
     if (query.delivery === "not_shipped") clauses.push("b.shipment_status IS NULL");
-    else { values.push(query.delivery); clauses.push(`b.shipment_status = $${values.length}`); }
+    else if (query.delivery === "confirmed") {
+      // label_created/label_purchased/label_printed are Shopify-style
+      // concepts with no Algerian-carrier equivalent — removed from the
+      // filter dropdown entirely, but a shipment can still be stuck at one
+      // of them (freshly dispatched, not yet polled, or stale pre-poller
+      // data). Filtering "Confirmé" includes them: a carrier having
+      // accepted the parcel is exactly what those three statuses meant too.
+      clauses.push(`b.shipment_status IN ('confirmed', 'label_created', 'label_purchased', 'label_printed')`);
+    } else { values.push(query.delivery); clauses.push(`b.shipment_status = $${values.length}`); }
   }
 
   if (query.carrier && query.carrier !== "all") {

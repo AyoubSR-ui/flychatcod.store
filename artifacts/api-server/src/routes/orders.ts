@@ -5,6 +5,7 @@ import { requireAuth, requireOwnerOrAdmin } from "../middlewares/auth.js";
 import { generateId, generateOrderNumber } from "../lib/id.js";
 import { fireTrigger } from "../lib/automation-engine.js";
 import { ensureOrderStatusValues, ensureOrdersAgentColumn, ensureScheduledParcelsTable, ensureOrdersArchivedColumn, ensureAbandonedCheckoutsTable } from "../lib/schema-bootstrap.js";
+import { getCarrierStatusLabel } from "../lib/fulfillment-status.js";
 import { ORDERS_BASE_CTE, buildOrderFilters, getDuplicateMatches } from "../lib/order-filters.js";
 import { dispatchOrderToCarrier, refreshShipmentStatus } from "./carriers.js";
 import { logOrderEvent } from "../lib/order-events.js";
@@ -153,6 +154,7 @@ router.get("/", requireAuth, async (req, res) => {
           carrierConnectionId: o.shipment_carrier_connection_id,
           trackingNumber: o.shipment_tracking_number,
           status: o.shipment_status,
+          carrierLabel: getCarrierStatusLabel(o.shipment_carrier, o.shipment_carrier_raw_status) || null,
           manualTrackingUrl: o.shipment_manual_tracking_url || null,
         } : null,
         duplicateOf: dupMatches.get(o.id) || [],
@@ -607,6 +609,7 @@ router.get("/:id", requireAuth, requireOrderAccess, async (req, res) => {
        b.shipment_id as "shipmentId", b.shipment_carrier as "shipmentCarrier",
        b.shipment_carrier_connection_id as "shipmentCarrierConnectionId",
        b.shipment_tracking_number as "shipmentTrackingNumber", b.shipment_status as "shipmentStatus",
+       b.shipment_carrier_raw_status as "shipmentCarrierRawStatus",
        b.shipment_manual_tracking_url as "shipmentManualTrackingUrl",
        b.scheduled_ship_date as "scheduledShipDate", b.schedule_note as "scheduleNote",
        b.items as "jsonItems",
@@ -643,6 +646,7 @@ router.get("/:id", requireAuth, requireOrderAccess, async (req, res) => {
         carrierConnectionId: order.shipmentCarrierConnectionId,
         trackingNumber: order.shipmentTrackingNumber,
         status: order.shipmentStatus,
+        carrierLabel: getCarrierStatusLabel(order.shipmentCarrier, order.shipmentCarrierRawStatus) || null,
         manualTrackingUrl: order.shipmentManualTrackingUrl || null,
       } : null,
       duplicateOf: dupMatches.get(order.id) || [],

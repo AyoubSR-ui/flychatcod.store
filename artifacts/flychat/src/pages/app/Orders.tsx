@@ -39,25 +39,41 @@ const STATUS_COLORS: Record<string, string> = {
   suspicious: "bg-orange-100 text-orange-800 border-orange-200",
 };
 
+// Shopify-style label_created/label_purchased/label_printed have no
+// Algerian-carrier equivalent — removed from this filter list entirely
+// (order-filters.ts's buildOrderFilters folds any order still stuck at one
+// of them into the "confirmed" filter bucket, so they're not unfindable,
+// just not their own options). This list is the NORMALIZED cross-carrier
+// vocabulary for the filter dropdown and KPI/metrics — NOT what the
+// LIVRAISON column displays, which shows each shipment's own carrier label
+// (shipment.carrierLabel, computed server-side — see
+// lib/fulfillment-status.ts's getCarrierStatusLabel) and only falls back to
+// this generic list's label when the carrier has no specific vocabulary for
+// that status yet.
 const DELIVERY_VALUES = [
-  "not_shipped", "label_created", "label_purchased", "label_printed", "confirmed",
-  "in_transit", "out_for_delivery", "delivered", "failed", "cancelled", "returned",
+  "not_shipped", "confirmed", "in_transit", "out_for_delivery",
+  "suspended", "delivered", "failed", "cancelled", "returned",
 ] as const;
 const getDeliveryOptions = (t: (key: string) => string) =>
   DELIVERY_VALUES.map(value => ({ value, label: t(`delivery.${value}`) }));
 
 const DELIVERY_COLORS: Record<string, string> = {
   not_shipped: "bg-gray-100 text-gray-500",
-  label_created: "bg-slate-100 text-slate-700",
-  label_purchased: "bg-blue-100 text-blue-700",
-  label_printed: "bg-cyan-100 text-cyan-700",
   confirmed: "bg-green-100 text-green-700",
   in_transit: "bg-indigo-100 text-indigo-700",
   out_for_delivery: "bg-orange-100 text-orange-700",
+  suspended: "bg-yellow-100 text-yellow-800",
   delivered: "bg-teal-100 text-teal-700",
   failed: "bg-red-100 text-red-700",
   cancelled: "bg-red-100 text-red-700",
   returned: "bg-amber-100 text-amber-800",
+  // Still rendered defensively (shipment.status can still literally be one
+  // of these three for a not-yet-polled or pre-poller shipment) even though
+  // they're no longer filter options — see DELIVERY_COLORS's fallback use
+  // at the LIVRAISON column below.
+  label_created: "bg-green-100 text-green-700",
+  label_purchased: "bg-green-100 text-green-700",
+  label_printed: "bg-green-100 text-green-700",
 };
 
 // Real, currently-integrated order sources only — no placeholder entries for
@@ -998,10 +1014,14 @@ export function OrdersListPage({ archived }: { archived: boolean }) {
                           </select>
                         </td>
 
-                        {/* Exécution */}
+                        {/* Livraison — shows the carrier's own vocabulary (shipment.carrierLabel,
+                            computed server-side per the shipment's own carrier) rather than
+                            the generic normalized status, falling back to the generic label
+                            only when the carrier has no specific wording for this status yet
+                            (or there's no shipment at all: "Non expédiée"). */}
                         <td className="px-4 py-3">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${DELIVERY_COLORS[shipment?.status || "not_shipped"]}`}>
-                            {DELIVERY_OPTIONS.find(d => d.value === (shipment?.status || "not_shipped"))?.label}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${DELIVERY_COLORS[shipment?.status || "not_shipped"] || "bg-gray-100 text-gray-600"}`}>
+                            {shipment?.carrierLabel || t(`delivery.${shipment?.status || "not_shipped"}`)}
                           </span>
                         </td>
 

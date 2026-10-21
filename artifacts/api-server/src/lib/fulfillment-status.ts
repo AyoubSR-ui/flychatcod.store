@@ -13,7 +13,7 @@
 export type ShipmentStatus =
   | "not_shipped" | "label_created" | "label_purchased" | "label_printed"
   | "confirmed" | "in_transit" | "out_for_delivery" | "delivered" | "failed"
-  | "cancelled" | "returned";
+  | "cancelled" | "returned" | "suspended";
 
 // ── Ecotrack (one shared white-label platform — see carriers/ecotrack.ts's
 // ECOTRACK_TENANTS; every tenant speaks this same status vocabulary) ──
@@ -51,11 +51,11 @@ const ECOTRACK_STATUS_MAP: Record<string, ShipmentStatus> = {
   vers_hub: "in_transit",
   en_hub: "in_transit",
   vers_wilaya: "in_transit",
-  // suspendu = carrier couldn't reach the customer / delivery paused —
-  // genuinely ambiguous (not terminal, not resolved). CodFlow has a dedicated
-  // "unreachable" bucket we don't; mapping to in_transit rather than failed
-  // is a deliberate choice not to mark a retryable hold as a hard failure.
-  suspendu: "in_transit",
+  // suspendu = carrier couldn't reach the customer / delivery paused — its
+  // own non-terminal state (not a flavor of in_transit: a held parcel needs
+  // a merchant to notice and chase it, which it can't be if it looks like
+  // normal transit). CodFlow calls this "unreachable"; we call it "suspended".
+  suspendu: "suspended",
   // Final-mile: with a courier, or arrived at a stop-desk awaiting pickup.
   en_livraison: "out_for_delivery",
   // Terminal: delivered (encaisse_non_paye etc. differ only in whether the
@@ -105,3 +105,49 @@ function isEcotrackCarrier(carrier: string): boolean {
 // the poller stops selecting the order (see delivery-tracking.ts's WHERE
 // clause) and Delivery Rate / per-agent delivered counts treat it as settled.
 export const TERMINAL_SHIPMENT_STATUSES: readonly ShipmentStatus[] = ["delivered", "cancelled", "returned"];
+
+// ─── Display labels — the carrier's own vocabulary, not the normalized enum ──
+// The EXÉCUTION/LIVRAISON column on Orders.tsx and the tracking badge on
+// OrderDetail.tsx show THIS, not a generic "Confirmé"/"En transit" label —
+// merchants know their carrier's own wording (this is literally Ecotrack's
+// own dashboard grouping: Prête à expédier/En ramassage/Vers station/Au
+// hub/Vers wilaya/En préparation/En livraison/Suspendu/Livré/Retourné/Annulé),
+// and collapsing 6 distinct pre-transit states into one "Confirmé" bucket
+// for display would hide exactly the granularity a merchant chasing a stuck
+// parcel needs. The normalized ShipmentStatus above stays the filter/metrics
+// vocabulary — unaffected, still coarse, still cross-carrier.
+//
+// Computed server-side (not shipped to the frontend as a raw status for it
+// to re-map) so FlyChat being multi-carrier never leaks carrier-specific
+// strings into UI code — the frontend only ever displays whatever string
+// this returns, falling back to the normalized status's generic label when
+// this returns undefined (unknown carrier family, or a raw status not yet
+// seen — same "never guess" rule as mapCarrierStatus).
+const ECOTRACK_STATUS_LABELS: Record<string, string> = {
+  prete_a_expedier: "Prête à expédier",
+  prete_a_preparer: "En préparation",
+  en_preparation_stock: "En préparation",
+  en_preparation: "En préparation",
+  en_ramassage: "En ramassage",
+  vers_hub: "Vers station",
+  en_hub: "Au hub",
+  vers_wilaya: "Vers wilaya",
+  en_livraison: "En livraison",
+  suspendu: "Suspendu",
+  livre_non_encaisse: "Livré",
+  encaisse_non_paye: "Livré",
+  paiements_prets: "Livré",
+  paye_et_archive: "Livré",
+  retour_chez_livreur: "Retourné",
+  retour_transit_entrepot: "Retourné",
+  retour_en_traitement: "Retourné",
+  retour_recu: "Retourné",
+  retour_archive: "Retourné",
+  annule: "Annulé",
+};
+
+export function getCarrierStatusLabel(carrier: string, rawStatus: string | null | undefined): string | undefined {
+  if (!rawStatus) return undefined;
+  if (isEcotrackCarrier(carrier)) return ECOTRACK_STATUS_LABELS[rawStatus];
+  return undefined;
+}

@@ -213,7 +213,7 @@ const translations: Record<Language, Record<string, string>> = {
     "orders.table.customer": "Customer",
     "orders.table.city": "City",
     "orders.table.status": "Status",
-    "orders.table.execution": "Execution",
+    "orders.table.execution": "Delivery",
     "orders.table.total": "Total",
     "orders.table.date": "Date",
     "orders.no_orders": "No orders found",
@@ -311,6 +311,7 @@ const translations: Record<Language, Record<string, string>> = {
     "delivery.failed": "Failed",
     "delivery.cancelled": "Cancelled",
     "delivery.returned": "Returned",
+    "delivery.suspended": "Suspended",
     // ── Order source (SOURCE_OPTIONS / SOURCE_META) ──
     "source.shopify": "Shopify",
     "source.whatsapp": "WhatsApp",
@@ -1076,7 +1077,7 @@ const translations: Record<Language, Record<string, string>> = {
     "orders.table.customer": "Client",
     "orders.table.city": "Ville",
     "orders.table.status": "Statut",
-    "orders.table.execution": "Exécution",
+    "orders.table.execution": "Livraison",
     "orders.table.total": "Total",
     "orders.table.date": "Date",
     "orders.no_orders": "Aucune commande trouvée",
@@ -1174,6 +1175,7 @@ const translations: Record<Language, Record<string, string>> = {
     "delivery.failed": "Échec",
     "delivery.cancelled": "Annulé",
     "delivery.returned": "Retourné",
+    "delivery.suspended": "Suspendu",
     // ── Order source (SOURCE_OPTIONS / SOURCE_META) ──
     "source.shopify": "Shopify",
     "source.whatsapp": "WhatsApp",

@@ -686,7 +686,7 @@ export default function OrderDetail() {
                         {t("orderDetail.track_on_carrier")}
                       </a>
                     ) : (
-                      <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">{String(shipment.status || "not_shipped").replace(/_/g, " ")}</span>
+                      <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground font-medium">{shipment.carrierLabel || t(`delivery.${shipment.status || "not_shipped"}`)}</span>
                     )}
                   </div>
                   {deliveryEvents.length > 0 && (
@@ -847,6 +847,7 @@ export default function OrderDetail() {
                       const DELIVERY_DOT: Record<string, string> = {
                         delivered: "bg-teal-500", returned: "bg-amber-600", cancelled: "bg-red-500",
                         failed: "bg-red-500", out_for_delivery: "bg-orange-500", in_transit: "bg-indigo-500",
+                        suspended: "bg-yellow-500",
                       };
                       const meta: Record<string, { dot: string; title: string }> = {
                         parcel_created: { dot: "bg-purple-500", title: t("orderDetail.event.parcel_created") },

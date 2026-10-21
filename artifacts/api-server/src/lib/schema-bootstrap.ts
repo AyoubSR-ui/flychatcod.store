@@ -201,6 +201,12 @@ export async function ensureCarrierTables(): Promise<void> {
   // on an enum that was just freshly CREATE'd above (without 'returned' in
   // its literal list) is still correct and idempotent either way.
   await pool.query(`ALTER TYPE shipment_status ADD VALUE IF NOT EXISTS 'returned'`);
+  // Added later still — a held/unreachable-customer parcel (Ecotrack's
+  // "suspendu") was being folded into in_transit, which made it
+  // indistinguishable from a parcel moving normally; merchants need to spot
+  // and chase these, so it's its own filterable state (non-terminal — a
+  // suspended parcel keeps being polled).
+  await pool.query(`ALTER TYPE shipment_status ADD VALUE IF NOT EXISTS 'suspended'`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS carrier_connections (
